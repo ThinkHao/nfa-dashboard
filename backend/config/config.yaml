@@ -1,0 +1,15 @@
+server:
+  port: 8081
+
+database:
+  host: fxdata-sql.rwlb.rds.aliyuncs.com
+  port: 3306
+  username: root4nfa
+  password: atz7DGZ_cpn9zfw2rvt
+  dbname: nfa_v2
+
+redis:
+  host: localhost
+  port: 6379
+  password: ""
+  db: 0
