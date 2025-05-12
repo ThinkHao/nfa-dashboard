@@ -1,11 +1,13 @@
 package repository
 
 import (
+	"context"
 	"fmt"
 	"log"
-	"nfa-dashboard/internal/model"
 	"sort"
 	"time"
+
+	"nfa-dashboard/internal/model"
 )
 
 // SchoolRepository 学校数据仓库接口
@@ -111,154 +113,88 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 	// 根据时间范围长度自动调整查询策略，参考 Grafana 的做法
 	timeRange := filter.EndTime.Sub(filter.StartTime)
 
-	// 记录原始时间范围，用于日志
-	originalInterval := filter.Interval
-
-	// 根据时间范围长度自动调整查询策略
-	// 计算时间范围天数
-	timeDays := timeRange.Hours() / 24
-
-	// 检查是否指定了过滤条件（学校、地区或运营商）
-	hasFilter := filter.SchoolName != "" || filter.Region != "" || filter.CP != ""
-
-	// 如果没有指定任何过滤条件，强制使用更严格的限制
-	if !hasFilter {
-		// 计算时间范围差值（分钟）
-		timeDiffMinutes := filter.EndTime.Sub(filter.StartTime).Minutes()
-
-		// 如果时间范围小于3小时，使用原始数据点
-		if timeDiffMinutes <= 180 { // 3小时 = 180分钟
-			log.Printf("未指定过滤条件，但时间范围较短（%.2f分钟），使用原始数据点", timeDiffMinutes)
-			filter.Interval = ""
-			filter.Limit = int(timeDiffMinutes/5) + 10 // 每5分钟一个数据点，加上缓冲
-		} else {
-			// 当没有过滤条件且时间范围较长时，强制使用按天分组并限制返回数据量
-			filter.Interval = "day"
-			filter.Limit = 50 // 限制返回最多50条数据
-			log.Printf("未指定过滤条件且时间范围较长，强制按天分组，限制返回最多50条数据")
-
-			// 如果时间范围超过3天，则限制时间范围为最近3天
-			if timeDays > 3 {
-				filter.StartTime = filter.EndTime.AddDate(0, 0, -3)
-				log.Printf("未指定过滤条件且时间范围超过3天，限制时间范围为最近3天")
-			}
-		}
-	} else {
-		// 有过滤条件时的处理
-		// 计算时间范围差值（分钟）
-		timeDiffMinutes := filter.EndTime.Sub(filter.StartTime).Minutes()
-
-		// 如果时间范围小于6小时，使用原始数据点
-		if timeDiffMinutes <= 360 { // 6小时 = 360分钟
-			log.Printf("有过滤条件，且时间范围较短（%.2f分钟），使用原始数据点", timeDiffMinutes)
-			filter.Interval = ""
-			// 根据时间范围计算需要的数据点数量
-			expectedPoints := int(timeDiffMinutes/5) + 10 // 每5分钟一个数据点，加上缓冲
-			if expectedPoints > filter.Limit {
-				filter.Limit = expectedPoints
-				log.Printf("增加限制数量为%d，以确保返回足够的数据点", filter.Limit)
-			}
-		} else if timeDays > 30 {
-			// 如果时间范围超过30天，强制使用按天分组
-			filter.Interval = "day"
-			// 限制返回数据量，每天只返回一个数据点
-			filter.Limit = int(timeDays) + 10 // 每天一个数据点，加上一些缓冲
-			log.Printf("时间范围超过30天（%.2f天），强制按天分组，限制返回%d条数据", timeDays, filter.Limit)
-		} else if timeDays > 7 {
-			// 如果时间范围超过7天，强制使用按小时分组
-			filter.Interval = "hour"
-			// 限制返回数据量，每小时只返回一个数据点
-			filter.Limit = int(timeDays*24) + 10 // 每小时一个数据点，加上一些缓冲
-			// 确保数据量不超过上限
-			if filter.Limit > 500 {
-				filter.Limit = 500
-			}
-			log.Printf("时间范围超过7天（%.2f天），强制按小时分组，限制返回%d条数据", timeDays, filter.Limit)
-		} else {
-			// 对于短时间范围，限制数据量不超过300条
-			if filter.Limit > 300 {
-				filter.Limit = 300
-				log.Printf("短时间范围（%.2f天），限制返回最多300条数据", timeDays)
-			}
-		}
-	}
-
-	// 如果时间间隔发生了变化，记录日志
-	if originalInterval != filter.Interval {
-		log.Printf("时间间隔从 %s 调整为 %s，时间范围: %s 至 %s",
-			originalInterval, filter.Interval, filter.StartTime.Format(time.RFC3339), filter.EndTime.Format(time.RFC3339))
-	}
-
-	// 直接查询符合条件的数据，不再分两步查询
-	var query string
-	var args []interface{}
-
-	// 根据时间间隔决定查询方式
-	var timeField string
-	var needsGrouping bool = true
-
-	// 计算时间范围差值（分钟）
-	timeDiff := filter.EndTime.Sub(filter.StartTime).Minutes()
-
-	// 如果时间范围小于6小时，强制使用原始数据点而不分组
-	if timeDiff <= 360 { // 6小时 = 360分钟
-		log.Printf("时间范围较短（%.2f分钟），强制使用原始数据点而不分组", timeDiff)
-		timeField = "create_time"
-		needsGrouping = false
-		filter.Interval = "" // 清空时间间隔，确保不会被其他逻辑覆盖
-
-		// 对于短时间范围，增加限制数量以确保返回足够的数据点
-		expectedPoints := int(timeDiff/5) + 10 // 每5分钟一个点，加上一些缓冲
+	// 记录查询时间信息
+	_ = filter.Interval // 避免未使用警告
+	
+	// 计算时间范围分钟数
+	timeMinutes := timeRange.Minutes()
+	
+	// 如果前端指定了granularity参数，则使用前端指定的粒度
+	if filter.Granularity != "" {
+		log.Printf("使用前端指定的粒度: %s", filter.Granularity)
+		filter.Interval = filter.Granularity
+	} else if filter.Interval == "" {
+		// 始终使用原始5分钟粒度，不进行自动调整
+		filter.Interval = "" // 原始5分钟粒度
+		log.Printf("时间范围为%.2f小时(%.2f分钟)，使用原始5分钟粒度", timeRange.Hours(), timeMinutes)
+		
+		// 计算预期数据点数量（每5分钟一个点）
+		expectedPoints := int(timeMinutes/5) + 10 // 每5分钟一个点，加上缓冲
+		log.Printf("预期数据点数量: %d", expectedPoints)
+		
+		// 确保返回足够的数据点
 		if expectedPoints > filter.Limit {
 			filter.Limit = expectedPoints
 			log.Printf("增加限制数量为%d，以确保返回足够的数据点", filter.Limit)
 		}
-	} else {
-		// 对于较长时间范围，使用分组
-		switch filter.Interval {
-		case "day":
-			// 按天分组
-			// 注意：返回字符串而不是时间类型，避免扫描错误
-			timeField = "DATE_FORMAT(DATE(create_time), '%Y-%m-%d') as create_time"
-			needsGrouping = true
-		case "week":
-			// 按周分组
-			timeField = "DATE_FORMAT(DATE(DATE_ADD(create_time, INTERVAL(-WEEKDAY(create_time)) DAY)), '%Y-%m-%d') as create_time"
-			needsGrouping = true
-		case "month":
-			// 按月分组
-			timeField = "DATE_FORMAT(create_time, '%Y-%m-01') as create_time"
-			needsGrouping = true
-		case "hour":
-			// 按小时分组
-			timeField = "DATE_FORMAT(create_time, '%Y-%m-%d %H:00:00') as create_time"
-			needsGrouping = true
-		default:
-			// 不分组，使用原始数据
-			timeField = "create_time"
-			needsGrouping = false
-		}
 	}
 
-	// 根据是否需要分组构建不同的查询
-	if needsGrouping {
-		// 构建查询SQL
-		query = fmt.Sprintf(`
-			SELECT 
-				%s,
-				school_id,
-				school_name,
-				region,
-				cp,
-				SUM(total_recv) as total_recv,
-				SUM(total_send) as total_send
-			FROM nfa_school_traffic
-			WHERE create_time BETWEEN ? AND ?
-		`, timeField)
-		args = []interface{}{filter.StartTime, filter.EndTime}
+	// 不再需要检查是否有过滤条件，因为我们始终使用原始5分钟粒度
+
+	// 计算时间范围差值（分钟和小时）
+	timeDiffMinutes := filter.EndTime.Sub(filter.StartTime).Minutes()
+	timeDiffHours := timeDiffMinutes / 60
+	timeDiffDays := timeDiffHours / 24
+	
+	// 记录原始预期数据点数量
+	filter.OriginalExpectedPoints = int(timeDiffMinutes / 5) // 每5分钟一个数据点
+	log.Printf("预期数据点数量: %d，当前限制: %d", filter.OriginalExpectedPoints, filter.Limit)
+
+	// 检查前端传来的限制值
+	log.Printf("前端请求的数据限制为: %d条", filter.Limit)
+	
+	// 根据时间范围确保最小数据量，但不覆盖前端请求的更大限制
+	minLimit := 0
+	if timeDiffDays > 25 { // 超过25天
+		minLimit = 8000 // 最少需要8000条数据
+		log.Printf("长时间范围查询(%.2f天)，建议最少%d条", timeDiffDays, minLimit)
+	} else if timeDiffDays > 14 { // 14-25天
+		minLimit = 5000 // 最少需要5000条数据
+		log.Printf("中长时间范围查询(%.2f天)，建议最少%d条", timeDiffDays, minLimit)
+	} else if timeDiffDays > 7 { // 7-14天
+		minLimit = 4000 // 最少需要4000条数据
+		log.Printf("中时间范围查询(%.2f天)，建议最少%d条", timeDiffDays, minLimit)
 	} else {
-		// 不分组，直接查询原始数据
-		query = `
+		// 对于7天以内的数据，根据时间范围计算最小限制
+		minLimit = int(timeDiffMinutes/5) + 100 // 每5分钟一个点，加上缓冲
+		log.Printf("短时间范围查询(%.2f天)，建议最少%d条", timeDiffDays, minLimit)
+	}
+	
+	// 使用前端请求的限制和最小限制中的较大值
+	if filter.Limit < minLimit {
+		filter.Limit = minLimit
+		log.Printf("前端请求的限制值过小，调整为%d条", filter.Limit)
+	} else {
+		log.Printf("使用前端请求的限制值: %d条", filter.Limit)
+	}
+
+	// 对于长时间范围，使用更高效的查询策略
+	var query string
+	var args []interface{}
+	
+	if timeDiffDays > 14 {
+		// 对于超过14天的查询，使用平均采样策略
+		
+		// 计算时间间隔（小时）
+		timeIntervalHours := 1.0 // 默认1小时
+		if timeDiffDays > 25 {
+			timeIntervalHours = 3.0 // 超过25天用3小时间隔
+		} else if timeDiffDays > 20 {
+			timeIntervalHours = 2.0 // 20-25天用2小时间隔
+		}
+		
+		// 创建带时间间隔的查询
+		query = fmt.Sprintf(`
 			SELECT 
 				create_time,
 				school_id,
@@ -269,10 +205,38 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 				total_send
 			FROM nfa_school_traffic
 			WHERE create_time BETWEEN ? AND ?
-		`
-		args = []interface{}{filter.StartTime, filter.EndTime}
+				AND MOD(HOUR(create_time), %.1f) < 1
+				AND MINUTE(create_time) BETWEEN 0 AND 10`, timeIntervalHours)
+		
+		log.Printf("长时间范围查询(%.2f天)，使用%.1f小时间隔采样", timeDiffDays, timeIntervalHours)
+	} else {
+		// 对于14天以内的查询，使用原始查询
+		query = `
+			SELECT 
+				create_time,
+				school_id,
+				school_name,
+				region,
+				cp,
+				total_recv,
+				total_send
+			FROM nfa_school_traffic
+			WHERE create_time BETWEEN ? AND ?`
+		
+		if timeDiffDays > 7 {
+			// 7-14天，每30分钟采样一个点
+			query += " AND MINUTE(create_time) % 30 < 5"
+			log.Printf("中时间范围查询(%.2f天)，使用每30分钟采样", timeDiffDays)
+		} else if timeDiffDays > 3 {
+			// 3-7天，每15分钟采样一个点
+			query += " AND MINUTE(create_time) % 15 < 5"
+			log.Printf("短时间范围查询(%.2f天)，使用每15分钟采样", timeDiffDays)
+		}
 	}
-
+	
+	// 初始化参数
+	args = []interface{}{filter.StartTime, filter.EndTime}
+	
 	// 添加过滤条件
 	if filter.SchoolName != "" {
 		query += " AND school_name LIKE ?"
@@ -286,116 +250,96 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 		query += " AND cp = ?"
 		args = append(args, filter.CP)
 	}
-
-	// 添加分组和排序
-	if needsGrouping {
-		// 根据时间间隔添加分组字段
-		// 注意：这里的分组字段必须与前面的timeField中的格式保持一致
-		var groupByField string
-		switch filter.Interval {
-		case "day":
-			groupByField = "DATE_FORMAT(DATE(create_time), '%Y-%m-%d')"
-		case "week":
-			groupByField = "DATE_FORMAT(DATE(DATE_ADD(create_time, INTERVAL(-WEEKDAY(create_time)) DAY)), '%Y-%m-%d')"
-		case "month":
-			groupByField = "DATE_FORMAT(create_time, '%Y-%m-01')"
-		case "hour":
-			groupByField = "DATE_FORMAT(create_time, '%Y-%m-%d %H:00:00')"
-		default:
-			groupByField = "DATE_FORMAT(create_time, '%Y-%m-%d %H:00:00')"
-		}
-		query += " GROUP BY " + groupByField + ", school_id, school_name, region, cp"
+	
+	// 不使用FORCE INDEX，因为语法位置有问题
+	// 我们的查询已经足够高效，不需要强制指定索引
+	
+	// 添加排序
+	query += " ORDER BY create_time ASC"
+	
+	// 添加限制
+	if filter.Limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, filter.Limit)
 	}
 
-	// 对于短时间范围查询，使用升序排序以确保数据点按时间顺序排列
-	if !needsGrouping {
-		query += " ORDER BY create_time ASC"
-		log.Printf("短时间范围查询使用升序排序")
-	} else {
-		query += " ORDER BY create_time DESC"
-	}
-
-	// 限制返回数量
-	query += " LIMIT ?"
-	args = append(args, filter.Limit)
+	log.Printf("最终查询SQL: %s", query)
+	log.Printf("查询参数: %v", args)
 
 	// 执行查询
-	rows, err := model.DB.Raw(query, args...).Rows()
+	log.Printf("查询参数: %v", args)
+	
+	// 如果查询的数据量过大，可能需要增加数据库连接超时时间
+	// 创建一个带超时的上下文
+	backgroundCtx := context.Background()
+	ctxWithTimeout, cancel := context.WithTimeout(backgroundCtx, 60*time.Second)
+	defer cancel() // 确保资源释放
+	
+	// 使用带超时的上下文执行查询
+	rows, err := model.DB.WithContext(ctxWithTimeout).Raw(query, args...).Rows()
 	if err != nil {
+		log.Printf("获取流量数据时发生错误: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
 
+	// 使用批量处理来提高性能
+	const batchSize = 1000 // 每批处理的数据量
+	
+	// 初始化结果切片，预分配空间以提高性能
+	results = make([]model.TrafficResponse, 0, filter.Limit)
+	
+	// 批量计数器
+	batchCount := 0
+	totalCount := 0
+	batchStartTime := time.Now()
+	
+	// 创建一个临时批次切片
+	batch := make([]model.TrafficResponse, 0, batchSize)
+	
 	// 处理查询结果
 	for rows.Next() {
 		var result model.TrafficResponse
 
-		// 添加错误处理和调试日志
-		try := func() error {
-			defer func() {
-				if r := recover(); r != nil {
-					log.Printf("处理查询结果时发生错误: %v", r)
-				}
-			}()
-
-			// 根据是否分组使用不同的扫描方式
-			var scanErr error
-			if needsGrouping {
-				// 分组查询返回的是字符串时间
-				// 注意：这里的字段名必须与SQL查询中的别名一致，都是create_time
-				var createTimeStr string
-				scanErr = rows.Scan(&createTimeStr, &result.SchoolID, &result.SchoolName, &result.Region, &result.CP, &result.TotalRecv, &result.TotalSend)
-				if scanErr == nil {
-					// 尝试将字符串转换为时间
-					var parseErr error
-					var parsedTime time.Time
-
-					// 尝试不同的时间格式
-					formats := []string{
-						"2006-01-02",
-						"2006-01-02 15:04:05",
-						"2006-01-02 15:04",
-					}
-
-					for _, format := range formats {
-						parsedTime, parseErr = time.Parse(format, createTimeStr)
-						if parseErr == nil {
-							break
-						}
-					}
-
-					if parseErr != nil {
-						log.Printf("无法解析时间字符串 '%s': %v", createTimeStr, parseErr)
-						// 使用当前时间作为后备
-						parsedTime = time.Now()
-					}
-
-					result.CreateTime = parsedTime
-				}
-			} else {
-				// 非分组查询返回的是时间类型
-				var createTime time.Time
-				scanErr = rows.Scan(&createTime, &result.SchoolID, &result.SchoolName, &result.Region, &result.CP, &result.TotalRecv, &result.TotalSend)
-				if scanErr == nil {
-					result.CreateTime = createTime
-				}
-			}
-
-			if scanErr != nil {
-				log.Printf("扫描查询结果时出错: %v", scanErr)
-				return scanErr
-			}
-			return nil
-		}
-
-		if err := try(); err != nil {
-			// 如果发生错误，跳过当前行，继续处理下一行
+		// 直接使用时间类型扫描
+		var createTime time.Time
+		err := rows.Scan(&createTime, &result.SchoolID, &result.SchoolName, &result.Region, &result.CP, &result.TotalRecv, &result.TotalSend)
+		if err != nil {
+			log.Printf("扫描查询结果时出错: %v", err)
 			continue
 		}
-
+		
+		// 设置创建时间
+		result.CreateTime = createTime
+		
 		// 计算总流量
 		result.Total = result.TotalRecv + result.TotalSend
-		results = append(results, result)
+		
+		// 添加到当前批次
+		batch = append(batch, result)
+		batchCount++
+		totalCount++
+		
+		// 当批次达到指定大小时，将其添加到结果中
+		if batchCount >= batchSize {
+			// 将当前批次添加到结果中
+			results = append(results, batch...)
+			
+			// 记录批处理时间
+			batchDuration := time.Since(batchStartTime)
+			log.Printf("处理了 %d 条数据，耗时 %.2f 秒", batchCount, batchDuration.Seconds())
+			
+			// 重置批次
+			batch = make([]model.TrafficResponse, 0, batchSize)
+			batchCount = 0
+			batchStartTime = time.Now()
+		}
+	}
+	
+	// 处理最后一批不足batchSize的数据
+	if len(batch) > 0 {
+		results = append(results, batch...)
+		log.Printf("处理最后一批 %d 条数据", len(batch))
 	}
 
 	// 按照创建时间排序结果
@@ -408,6 +352,25 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 	// 限制返回结果数量
 	if filter.Limit > 0 && len(results) > filter.Limit {
 		results = results[:filter.Limit]
+	}
+	
+	// 记录查询结果数量
+	log.Printf("查询到 %d 条数据记录", len(results))
+	
+	// 如果没有数据，打印警告
+	if len(results) == 0 {
+		log.Printf("警告: 没有找到符合条件的数据，时间范围: %v 至 %v", filter.StartTime, filter.EndTime)
+		// 检查数据库中是否有任何数据
+		var count int64
+		model.DB.Table("nfa_school_traffic").Count(&count)
+		log.Printf("数据库中共有 %d 条数据记录", count)
+		
+		// 检查最早和最晚的数据时间
+		var earliest, latest time.Time
+		model.DB.Table("nfa_school_traffic").Select("MIN(create_time)").Row().Scan(&earliest)
+		model.DB.Table("nfa_school_traffic").Select("MAX(create_time)").Row().Scan(&latest)
+		log.Printf("数据库中最早的数据时间: %v", earliest)
+		log.Printf("数据库中最晚的数据时间: %v", latest)
 	}
 
 	return results, nil

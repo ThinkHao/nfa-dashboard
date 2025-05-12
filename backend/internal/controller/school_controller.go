@@ -209,6 +209,14 @@ func (c *SchoolController) GetTrafficData(ctx *gin.Context) {
 	}
 	filter.Offset = offset
 	
+	// 获取granularity参数
+	granularity := ctx.Query("granularity")
+	if granularity != "" {
+		filter.Granularity = granularity
+		ctx.Set("granularity", granularity)
+		log.Printf("使用前端指定的粒度: %s", granularity)
+	}
+	
 	// 获取流量数据
 	trafficData, err := c.schoolService.GetTrafficData(filter)
 	if err != nil {

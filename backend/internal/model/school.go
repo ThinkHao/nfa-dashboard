@@ -55,12 +55,16 @@ type TrafficResponse struct {
 
 // TrafficFilter 流量查询过滤条件
 type TrafficFilter struct {
-	StartTime  time.Time `form:"start_time"`
-	EndTime    time.Time `form:"end_time"`
-	SchoolName string    `form:"school_name"`
-	Region     string    `form:"region"`
-	CP         string    `form:"cp"`
-	Interval   string    `form:"interval" binding:"oneof=hour day week month"` // 时间间隔：小时、天、周、月
-	Limit      int       `form:"limit,default=100"`
-	Offset     int       `form:"offset,default=0"`
+	StartTime              time.Time `form:"start_time"`
+	EndTime                time.Time `form:"end_time"`
+	SchoolName             string    `form:"school_name"`
+	Region                 string    `form:"region"`
+	CP                     string    `form:"cp"`
+	Interval               string    `form:"interval" binding:"oneof=hour day week month 15m "` // 时间间隔：小时、天、周、月、15分钟
+	Granularity            string    `form:"granularity"`                                       // 时间粒度：5m、5分钟；15m、15分钟；hour、1小时；day、1天
+	Limit                  int       `form:"limit,default=100"`
+	Offset                 int       `form:"offset,default=0"`
+	SamplingInterval       int       `form:"-"` // 采样间隔，内部使用，不从表单获取
+	UseSampling            bool      `form:"-"` // 是否使用采样，内部使用，不从表单获取
+	OriginalExpectedPoints int       `form:"-"` // 原始预期数据点数量，内部使用，不从表单获取
 }

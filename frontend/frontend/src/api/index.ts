@@ -3,7 +3,9 @@ import axios from 'axios'
 // 创建axios实例
 const api = axios.create({
   baseURL: 'http://localhost:8081', // 后端API地址
-  timeout: 10000 // 请求超时时间
+  timeout: 60000, // 请求超时时间增加到60秒，以处理大量数据
+  maxContentLength: 50 * 1024 * 1024, // 最大内容长度50MB
+  maxBodyLength: 50 * 1024 * 1024 // 最大请求体长度50MB
 })
 
 // 请求拦截器

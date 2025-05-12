@@ -41,6 +41,7 @@ const schools = ref([])
 const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(10)
+const currentGranularity = ref('5m') // 当前使用的时间粒度
 
 // 查询表单
 const queryForm = reactive({
@@ -149,9 +150,20 @@ const chartOption = computed(() => {
   console.log('服务流速数组:', serviceData)
   console.log('回源流速数组:', backSourceData)
   
+  // 格式化粒度显示
+  const formatGranularity = (gran) => {
+    switch(gran) {
+      case '5m': return '原始数据 (5分钟粒度)'
+      case '15m': return '15分钟粒度'
+      case 'hour': return '小时粒度'
+      case 'day': return '天粒度'
+      default: return gran
+    }
+  }
+  
   return {
     title: {
-      text: '学校流量监控 (bits/s)',
+      text: `学校流量监控 (bits/s) - ${formatGranularity(currentGranularity.value)}`,
       left: 'center'
     },
     tooltip: {
@@ -197,7 +209,14 @@ const chartOption = computed(() => {
       axisLabel: {
         rotate: 45,
         formatter: function(value) {
-          return value
+          // 根据当前粒度格式化时间标签
+          try {
+            const date = new Date(value)
+            return formatDate(date, currentGranularity.value)
+          } catch (error) {
+            console.error('格式化X轴标签出错:', error, value)
+            return value
+          }
         }
       }
     },
@@ -379,6 +398,36 @@ async function loadTrafficData() {
     chartLoading.value = true
     loading.value = true
     
+    // 计算时间范围
+    const startDate = new Date(queryForm.start_time)
+    const endDate = new Date(queryForm.end_time)
+    const diffMinutes = (endDate.getTime() - startDate.getTime()) / (1000 * 60)
+    const diffHours = diffMinutes / 60
+    const diffDays = diffHours / 24
+    
+    // 始终使用原始5分钟粒度，不进行自动调整
+    let granularity = ''
+    
+    // 根据时间范围调整限制数量
+    let limit = 0
+    if (diffDays > 25) {
+      // 超过25天，使用更大的限制
+      limit = 8000
+      console.log(`长时间范围查询(${diffDays.toFixed(1)}天)，设置限制为${limit}条`)
+    } else if (diffDays > 14) {
+      // 14-25天
+      limit = 5000
+      console.log(`中长时间范围查询(${diffDays.toFixed(1)}天)，设置限制为${limit}条`)
+    } else if (diffDays > 7) {
+      // 7-14天
+      limit = 4000
+      console.log(`中时间范围查询(${diffDays.toFixed(1)}天)，设置限制为${limit}条`)
+    } else {
+      // 计算原始预期数据点数量
+      limit = Math.ceil(diffMinutes / 5) + 100 // 每5分钟一个点，加上缓冲
+      console.log(`短时间范围查询(${diffDays.toFixed(1)}天)，预期数据点数量: ${limit}`)
+    }
+    
     // 构建查询参数
     const params = {
       school_name: queryForm.school_name,
@@ -386,16 +435,17 @@ async function loadTrafficData() {
       cp: queryForm.cp,
       start_time: queryForm.start_time,
       end_time: queryForm.end_time,
-      limit: 1000, // 增加限制，确保获取足够的数据点
-      offset: 0 // 不使用分页，获取所有数据
+      limit: limit, // 使用计算出的限制
+      offset: 0, // 不使用分页
+      granularity: granularity // 指定时间粒度
     }
     
+    // 在图表上显示当前使用的粒度
+    currentGranularity.value = granularity || '5m'
+    
     // 打印当前时间范围参数，便于调试
-    const startDate = new Date(params.start_time)
-    const endDate = new Date(params.end_time)
-    const diffHours = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60)
-    console.log(`查询时间范围: ${startDate.toLocaleString()} 至 ${endDate.toLocaleString()}, 共${diffHours.toFixed(1)}小时`)
-    console.log('详细查询参数:', params)
+    console.log(`查询时间范围: ${startDate.toLocaleString()} 至 ${endDate.toLocaleString()}, 共${diffDays.toFixed(1)}天 (${diffHours.toFixed(1)}小时)`)
+    console.log('详细查询参数:', params, '限制数量:', limit)
     
     // 使用真实的API调用
     const res = await api.getTrafficData(params)
@@ -588,8 +638,13 @@ function formatTraffic(bytes, withUnit = true) {
 // 将原始数据转换为 bits/s
 function convertToBitsPerSecond(bytes) {
   // 原始数据需要 *8/60 转换为 bits/s
-  // *8 是将字节转换为比特，/60 是将 5 分钟的数据转换为每秒的数据
-  return (bytes * 8) / 60
+  // *8 是将字节转换为比特
+  // /60 是将每分钟的数据转换为每秒的数据
+  // 我们始终使用原始5分钟粒度，所以因子始终是60
+  const factor = 60
+  
+  // 将字节转换为比特，然后除以时间因子
+  return (bytes * 8) / factor
 }
 
 // 格式化比特率
@@ -608,28 +663,50 @@ function formatBitRate(bitsPerSecond, withUnit = true) {
 }
 
 // 格式化日期
-function formatDate(date, interval) {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const hour = String(date.getHours()).padStart(2, '0')
-  const minute = String(date.getMinutes()).padStart(2, '0')
+function formatDate(date, granularity) {
+  if (!date) return ''
   
-  switch (interval) {
-    case 'hour':
-      return `${year}-${month}-${day} ${hour}:00`
-    case 'day':
-      return `${year}-${month}-${day}`
-    case 'week':
-      // 获取周数
-      const firstDayOfYear = new Date(year, 0, 1)
-      const pastDaysOfYear = (date - firstDayOfYear) / 86400000
-      const weekNumber = Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7)
-      return `${year}-W${weekNumber}`
-    case 'month':
-      return `${year}-${month}`
-    default:
-      return `${year}-${month}-${day} ${hour}:${minute}`
+  try {
+    // 如果传入的是字符串，尝试转换为日期对象
+    if (typeof date === 'string') {
+      date = new Date(date)
+    }
+    
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const hour = String(date.getHours()).padStart(2, '0')
+    const minute = String(date.getMinutes()).padStart(2, '0')
+    
+    // 根据粒度格式化日期
+    switch (granularity) {
+      case 'hour':
+        // 小时粒度
+        return `${month}-${day} ${hour}:00`
+      case 'day':
+        // 天粒度
+        return `${month}-${day}`
+      case 'week':
+        // 周粒度
+        const firstDayOfYear = new Date(year, 0, 1)
+        const pastDaysOfYear = (date - firstDayOfYear) / 86400000
+        const weekNumber = Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7)
+        return `${year}-W${weekNumber}`
+      case 'month':
+        // 月粒度
+        return `${year}-${month}`
+      case '15m':
+        // 15分钟粒度
+        // 将分钟调整为15分钟的倍数
+        const roundedMinute = Math.floor(date.getMinutes() / 15) * 15
+        return `${hour}:${String(roundedMinute).padStart(2, '0')}`
+      default:
+        // 原始5分钟粒度
+        return `${hour}:${minute}`
+    }
+  } catch (error) {
+    console.error('格式化日期出错:', error, date)
+    return String(date)
   }
 }
 </script>
