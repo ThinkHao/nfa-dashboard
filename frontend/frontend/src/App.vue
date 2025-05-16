@@ -14,6 +14,7 @@ import { ElConfigProvider } from 'element-plus'
           <RouterLink to="/" class="nav-link">首页</RouterLink>
           <RouterLink to="/traffic" class="nav-link">流量监控</RouterLink>
           <RouterLink to="/schools" class="nav-link">学校管理</RouterLink>
+          <RouterLink to="/settlement" class="nav-link">结算系统</RouterLink>
         </nav>
       </header>
       

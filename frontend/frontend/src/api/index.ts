@@ -55,5 +55,48 @@ export default {
   // 获取流量汇总数据
   getTrafficSummary(params?: any) {
     return api.get('/api/v1/traffic/summary', { params })
+  },
+
+  // 结算系统相关API
+  settlement: {
+    // 获取结算配置
+    getConfig() {
+      return api.get('/api/v1/settlement/config')
+    },
+
+    // 更新结算配置
+    updateConfig(config: any) {
+      return api.put('/api/v1/settlement/config', config)
+    },
+
+    // 获取结算任务列表
+    getTasks(params?: any) {
+      return api.get('/api/v1/settlement/tasks', { params })
+    },
+
+    // 获取结算任务详情
+    getTaskById(id: number) {
+      return api.get(`/api/v1/settlement/tasks/${id}`)
+    },
+
+    // 创建日结算任务
+    createDailyTask(params?: any) {
+      return api.post('/api/v1/settlement/tasks/daily', params)
+    },
+
+    // 创建周结算任务
+    createWeeklyTask(params?: any) {
+      return api.post('/api/v1/settlement/tasks/weekly', params)
+    },
+
+    // 删除结算任务
+    deleteTask(id: number) {
+      return api.delete(`/api/v1/settlement/tasks/${id}`)
+    },
+
+    // 获取结算数据列表
+    getSettlements(params?: any) {
+      return api.get('/api/v1/settlement/data', { params })
+    }
   }
 }

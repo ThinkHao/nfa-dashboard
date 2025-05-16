@@ -1,0 +1,405 @@
+package controller
+
+import (
+	"log"
+	"net/http"
+	"strconv"
+	"time"
+
+	"nfa-dashboard/internal/model"
+	"nfa-dashboard/internal/service"
+
+	"github.com/gin-gonic/gin"
+)
+
+// SettlementController 结算控制器
+type SettlementController struct {
+	settlementService service.SettlementService
+}
+
+// NewSettlementController 创建结算控制器实例
+func NewSettlementController(settlementService service.SettlementService) *SettlementController {
+	return &SettlementController{
+		settlementService: settlementService,
+	}
+}
+
+// GetSettlementConfig 获取结算配置
+func (c *SettlementController) GetSettlementConfig(ctx *gin.Context) {
+	config, err := c.settlementService.GetSettlementConfig()
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": "获取结算配置失败",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "获取结算配置成功",
+		"data":    config,
+	})
+}
+
+// UpdateSettlementConfig 更新结算配置
+func (c *SettlementController) UpdateSettlementConfig(ctx *gin.Context) {
+	var config model.SettlementConfig
+	if err := ctx.ShouldBindJSON(&config); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"code":    400,
+			"message": "请求参数错误",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// 验证时间格式
+	if len(config.DailyTime) != 5 || len(config.WeeklyTime) != 5 {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"code":    400,
+			"message": "时间格式错误，应为HH:MM格式",
+		})
+		return
+	}
+
+	// 验证周几的值
+	if config.WeeklyDay < 1 || config.WeeklyDay > 7 {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"code":    400,
+			"message": "周几的值应为1-7",
+		})
+		return
+	}
+
+	err := c.settlementService.UpdateSettlementConfig(&config)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": "更新结算配置失败",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "更新结算配置成功",
+		"data":    config,
+	})
+}
+
+// GetSettlementTasks 获取结算任务列表
+func (c *SettlementController) GetSettlementTasks(ctx *gin.Context) {
+	// 获取查询参数
+	taskType := ctx.Query("task_type")
+	status := ctx.Query("status")
+	startDateStr := ctx.Query("start_date")
+	endDateStr := ctx.Query("end_date")
+	limitStr := ctx.DefaultQuery("limit", "10")
+	offsetStr := ctx.DefaultQuery("offset", "0")
+
+	// 解析日期
+	var startDate, endDate time.Time
+	var err error
+	if startDateStr != "" {
+		startDate, err = time.Parse("2006-01-02", startDateStr)
+		if err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"code":    400,
+				"message": "开始日期格式错误，应为YYYY-MM-DD",
+				"error":   err.Error(),
+			})
+			return
+		}
+	}
+
+	if endDateStr != "" {
+		endDate, err = time.Parse("2006-01-02", endDateStr)
+		if err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"code":    400,
+				"message": "结束日期格式错误，应为YYYY-MM-DD",
+				"error":   err.Error(),
+			})
+			return
+		}
+	}
+
+	// 解析分页参数
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil {
+		limit = 10
+	}
+
+	offset, err := strconv.Atoi(offsetStr)
+	if err != nil {
+		offset = 0
+	}
+
+	// 获取任务列表
+	tasks, total, err := c.settlementService.GetSettlementTasks(taskType, status, startDate, endDate, limit, offset)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": "获取结算任务列表失败",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "获取结算任务列表成功",
+		"data": gin.H{
+			"total": total,
+			"items": tasks,
+		},
+	})
+}
+
+// GetSettlementTaskByID 获取结算任务详情
+func (c *SettlementController) GetSettlementTaskByID(ctx *gin.Context) {
+	// 获取任务ID
+	idStr := ctx.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"code":    400,
+			"message": "任务ID格式错误",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// 获取任务详情
+	task, err := c.settlementService.GetSettlementTaskByID(id)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": "获取结算任务详情失败",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "获取结算任务详情成功",
+		"data":    task,
+	})
+}
+
+// DeleteSettlementTask 删除结算任务
+func (c *SettlementController) DeleteSettlementTask(ctx *gin.Context) {
+	// 从路径参数中获取任务ID
+	idStr := ctx.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"code":    400,
+			"message": "无效的任务ID",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// 删除任务
+	err = c.settlementService.DeleteSettlementTask(id)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": "删除结算任务失败",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "删除结算任务成功",
+	})
+}
+
+// GetSettlements 获取结算数据列表
+func (c *SettlementController) GetSettlements(ctx *gin.Context) {
+	var filter model.SettlementFilter
+
+	// 获取查询参数
+	startDateStr := ctx.Query("start_date")
+	endDateStr := ctx.Query("end_date")
+	filter.SchoolID = ctx.Query("school_id")     // 添加学校ID参数
+	filter.SchoolName = ctx.Query("school_name")
+	filter.Region = ctx.Query("region")
+	filter.CP = ctx.Query("cp")
+
+	limitStr := ctx.DefaultQuery("limit", "10")
+	offsetStr := ctx.DefaultQuery("offset", "0")
+
+	// 解析日期
+	var err error
+	if startDateStr != "" {
+		filter.StartDate, err = time.Parse("2006-01-02", startDateStr)
+		if err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"code":    400,
+				"message": "开始日期格式错误，应为YYYY-MM-DD",
+				"error":   err.Error(),
+			})
+			return
+		}
+	}
+
+	if endDateStr != "" {
+		filter.EndDate, err = time.Parse("2006-01-02", endDateStr)
+		if err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"code":    400,
+				"message": "结束日期格式错误，应为YYYY-MM-DD",
+				"error":   err.Error(),
+			})
+			return
+		}
+	}
+
+	// 解析分页参数
+	filter.Limit, err = strconv.Atoi(limitStr)
+	if err != nil {
+		filter.Limit = 10
+	}
+
+	filter.Offset, err = strconv.Atoi(offsetStr)
+	if err != nil {
+		filter.Offset = 0
+	}
+
+	// 获取结算数据列表
+	settlements, total, err := c.settlementService.GetSettlements(filter)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": "获取结算数据列表失败",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "获取结算数据列表成功",
+		"data": gin.H{
+			"total": total,
+			"items": settlements,
+		},
+	})
+}
+
+// CreateDailySettlementTask 创建日结算任务
+func (c *SettlementController) CreateDailySettlementTask(ctx *gin.Context) {
+	// 获取日期参数
+	dateStr := ctx.DefaultQuery("date", "")
+	var settlementDate time.Time
+	var err error
+
+	if dateStr == "" {
+		// 默认计算前一天的数据
+		yesterday := time.Now().AddDate(0, 0, -1)
+		// 设置为前一天的零点
+		settlementDate = time.Date(yesterday.Year(), yesterday.Month(), yesterday.Day(), 0, 0, 0, 0, yesterday.Location())
+	} else {
+		// 解析日期字符串
+		parsedDate, err := time.Parse("2006-01-02", dateStr)
+		if err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"code":    400,
+				"message": "日期格式错误，应为YYYY-MM-DD",
+				"error":   err.Error(),
+			})
+			return
+		}
+		// 设置为指定日期的零点
+		settlementDate = time.Date(parsedDate.Year(), parsedDate.Month(), parsedDate.Day(), 0, 0, 0, 0, parsedDate.Location())
+	}
+
+	// 创建结算任务
+	task, err := c.settlementService.CreateSettlementTask("daily", settlementDate)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": "创建日结算任务失败",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// 在返回前等待一下，确保数据库操作完成
+	time.Sleep(100 * time.Millisecond)
+
+	// 异步执行结算任务
+	go func() {
+		err := c.settlementService.ExecuteDailySettlement(task.ID, settlementDate)
+		if err != nil {
+			log.Printf("执行日结算任务失败: %v", err)
+		}
+	}()
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "创建日结算任务成功",
+		"data":    task,
+	})
+}
+
+// CreateWeeklySettlementTask 创建周结算任务
+func (c *SettlementController) CreateWeeklySettlementTask(ctx *gin.Context) {
+	// 获取周开始日期参数
+	startDateStr := ctx.DefaultQuery("start_date", "")
+	var startDate time.Time
+	var err error
+
+	if startDateStr == "" {
+		// 默认计算上一周的数据（从上周一开始）
+		now := time.Now()
+		daysToLastMonday := (int(now.Weekday()) + 6) % 7
+		if daysToLastMonday == 0 {
+			daysToLastMonday = 7
+		}
+		startDate = now.AddDate(0, 0, -daysToLastMonday-7)
+	} else {
+		startDate, err = time.Parse("2006-01-02", startDateStr)
+		if err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"code":    400,
+				"message": "日期格式错误，应为YYYY-MM-DD",
+				"error":   err.Error(),
+			})
+			return
+		}
+	}
+
+	// 创建结算任务
+	task, err := c.settlementService.CreateSettlementTask("weekly", startDate)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": "创建周结算任务失败",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// 异步执行结算任务
+	go func() {
+		err := c.settlementService.ExecuteWeeklySettlement(task.ID, startDate)
+		if err != nil {
+			log.Printf("执行周结算任务失败: %v", err)
+		}
+	}()
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "创建周结算任务成功",
+		"data":    task,
+	})
+}

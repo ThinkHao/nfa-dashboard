@@ -1,4 +1,2 @@
-*.md
 !docs/*.md
 *.png
-sql/

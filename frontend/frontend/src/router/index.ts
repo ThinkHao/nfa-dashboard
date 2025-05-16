@@ -27,6 +27,14 @@ const router = createRouter({
       meta: {
         title: '学校管理'
       }
+    },
+    {
+      path: '/settlement',
+      name: 'settlement',
+      component: () => import('../views/SettlementView.vue'),
+      meta: {
+        title: '结算系统'
+      }
     }
   ],
 })
