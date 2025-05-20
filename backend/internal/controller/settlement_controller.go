@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -353,12 +354,26 @@ func (c *SettlementController) CreateDailySettlementTask(ctx *gin.Context) {
 
 // CreateWeeklySettlementTask 创建周结算任务
 func (c *SettlementController) CreateWeeklySettlementTask(ctx *gin.Context) {
-	// 获取周开始日期参数
-	startDateStr := ctx.DefaultQuery("start_date", "")
-	var startDate time.Time
+	// 从请求体中获取参数
+	type TaskParams struct {
+		StartDate string `json:"start_date"`
+		EndDate   string `json:"end_date"`
+	}
+	
+	var params TaskParams
+	if err := ctx.ShouldBindJSON(&params); err != nil {
+		// 如果解析JSON失败，尝试从查询参数获取
+		params.StartDate = ctx.DefaultQuery("start_date", "")
+		params.EndDate = ctx.DefaultQuery("end_date", "")
+	}
+	
+	log.Printf("接收到周结算任务参数: start_date=%s, end_date=%s", params.StartDate, params.EndDate)
+	
+	var startDate, endDate time.Time
 	var err error
 
-	if startDateStr == "" {
+	// 处理开始日期
+	if params.StartDate == "" {
 		// 默认计算上一周的数据（从上周一开始）
 		now := time.Now()
 		daysToLastMonday := (int(now.Weekday()) + 6) % 7
@@ -367,18 +382,46 @@ func (c *SettlementController) CreateWeeklySettlementTask(ctx *gin.Context) {
 		}
 		startDate = now.AddDate(0, 0, -daysToLastMonday-7)
 	} else {
-		startDate, err = time.Parse("2006-01-02", startDateStr)
+		startDate, err = time.Parse("2006-01-02", params.StartDate)
 		if err != nil {
 			ctx.JSON(http.StatusBadRequest, gin.H{
 				"code":    400,
-				"message": "日期格式错误，应为YYYY-MM-DD",
+				"message": "开始日期格式错误，应为YYYY-MM-DD",
 				"error":   err.Error(),
 			})
 			return
 		}
 	}
+	
+	// 处理结束日期
+	if params.EndDate == "" {
+		// 默认为开始日期后的6天（周日）
+		endDate = startDate.AddDate(0, 0, 6)
+	} else {
+		endDate, err = time.Parse("2006-01-02", params.EndDate)
+		if err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"code":    400,
+				"message": "结束日期格式错误，应为YYYY-MM-DD",
+				"error":   err.Error(),
+			})
+			return
+		}
+	}
+	
+	// 检查日期范围是否有效
+	if endDate.Before(startDate) {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"code":    400,
+			"message": "结束日期不能早于开始日期",
+		})
+		return
+	}
 
-	// 创建结算任务
+	// 将日期范围信息存储在任务的错误信息字段中（临时存储，不影响实际使用）
+	dateRangeInfo := fmt.Sprintf("%s,%s", startDate.Format("2006-01-02"), endDate.Format("2006-01-02"))
+	
+	// 创建结算任务，使用开始日期作为任务日期
 	task, err := c.settlementService.CreateSettlementTask("weekly", startDate)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{
@@ -388,10 +431,14 @@ func (c *SettlementController) CreateWeeklySettlementTask(ctx *gin.Context) {
 		})
 		return
 	}
+	
+	// 更新任务信息，将日期范围信息保存到任务中
+	c.settlementService.UpdateSettlementTaskStatus(task.ID, "pending", dateRangeInfo)
 
 	// 异步执行结算任务
 	go func() {
-		err := c.settlementService.ExecuteWeeklySettlement(task.ID, startDate)
+		// 使用开始日期和结束日期执行周结算
+		err := c.settlementService.ExecuteWeeklySettlementWithDateRange(task.ID, startDate, endDate)
 		if err != nil {
 			log.Printf("执行周结算任务失败: %v", err)
 		}

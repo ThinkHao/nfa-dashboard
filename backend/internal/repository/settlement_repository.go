@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"nfa-dashboard/internal/model"
+	
+	"gorm.io/gorm"
 )
 
 // SettlementRepository 结算数据仓库接口
@@ -36,6 +38,8 @@ type SettlementRepository interface {
 	CalculateDaily95(date time.Time, schoolID string) (*model.SchoolSettlement, error)
 	// 按省份和运营商计算95值
 	CalculateDaily95WithRegionAndCP(date time.Time, schoolID string, region string, cp string) (*model.SchoolSettlement, error)
+	// 为指定学校计算所有区域和运营商的日95值
+	CalculateDaily95WithRegionAndCPForAllRegionsAndCPs(date time.Time, schoolID string) ([]model.SchoolSettlement, error)
 }
 
 // settlementRepository 结算数据仓库实现
@@ -121,15 +125,30 @@ func (r *settlementRepository) GetSettlementTaskByID(id int64) (*model.Settlemen
 
 // CreateSettlement 创建结算数据
 func (r *settlementRepository) CreateSettlement(settlement *model.SchoolSettlement) error {
+	// 打印详细的结算数据信息
+	log.Printf("尝试创建结算数据: 学校ID=%s, 学校名=%s, 省份=%s, 运营商=%s, 日期=%s, 值=%d",
+		settlement.SchoolID, settlement.SchoolName, settlement.Region, settlement.CP, 
+		settlement.SettlementDate.Format("2006-01-02"), settlement.SettlementValue)
+	
+	// 检查必要字段是否为空
+	if settlement.SchoolID == "" || settlement.Region == "" || settlement.CP == "" {
+		log.Printf("结算数据缺少必要字段: 学校ID=%s, 省份=%s, 运营商=%s",
+			settlement.SchoolID, settlement.Region, settlement.CP)
+		return fmt.Errorf("结算数据缺少必要字段")
+	}
+	
 	// 先查询是否已存在相同省份、运营商、学校和相同日期的结算数据
 	var existingSettlement model.SchoolSettlement
-	result := model.DB.Where("region = ? AND cp = ? AND school_id = ? AND DATE(settlement_date) = ?",
-		settlement.Region, settlement.CP, settlement.SchoolID, settlement.SettlementDate.Format("2006-01-02")).First(&existingSettlement)
+	query := "region = ? AND cp = ? AND school_id = ? AND DATE(settlement_date) = ?"
+	queryParams := []interface{}{settlement.Region, settlement.CP, settlement.SchoolID, settlement.SettlementDate.Format("2006-01-02")}
+	log.Printf("查询条件: %s, 参数: %v", query, queryParams)
+	
+	result := model.DB.Where(query, queryParams...).First(&existingSettlement)
 
 	// 如果已存在，则更新该数据
 	if result.Error == nil {
-		log.Printf("发现已存在的结算数据，进行更新: 省份=%s, 运营商=%s, 学校ID=%s, 日期=%s",
-			settlement.Region, settlement.CP, settlement.SchoolID, settlement.SettlementDate.Format("2006-01-02"))
+		log.Printf("发现已存在的结算数据(ID=%d)，进行更新: 省份=%s, 运营商=%s, 学校ID=%s, 日期=%s",
+			existingSettlement.ID, settlement.Region, settlement.CP, settlement.SchoolID, settlement.SettlementDate.Format("2006-01-02"))
 
 		// 更新字段
 		existingSettlement.SettlementValue = settlement.SettlementValue
@@ -137,6 +156,14 @@ func (r *settlementRepository) CreateSettlement(settlement *model.SchoolSettleme
 
 		// 保存更新
 		result = model.DB.Save(&existingSettlement)
+		if result.Error != nil {
+			log.Printf("更新结算数据失败: %v", result.Error)
+		} else {
+			log.Printf("更新结算数据成功: ID=%d", existingSettlement.ID)
+		}
+		return result.Error
+	} else if result.Error != gorm.ErrRecordNotFound {
+		log.Printf("查询结算数据时发生错误: %v", result.Error)
 		return result.Error
 	}
 
@@ -144,20 +171,51 @@ func (r *settlementRepository) CreateSettlement(settlement *model.SchoolSettleme
 	log.Printf("创建新的结算数据: 省份=%s, 运营商=%s, 学校ID=%s, 日期=%s",
 		settlement.Region, settlement.CP, settlement.SchoolID, settlement.SettlementDate.Format("2006-01-02"))
 	result = model.DB.Create(settlement)
+	if result.Error != nil {
+		log.Printf("创建结算数据失败: %v", result.Error)
+	} else {
+		log.Printf("创建结算数据成功: ID=%d", settlement.ID)
+	}
 	return result.Error
 }
 
 // BatchCreateSettlements 批量创建结算数据
 func (r *settlementRepository) BatchCreateSettlements(settlements []model.SchoolSettlement) error {
-	// 逐个处理每条数据，确保同一天同一学校只有一条记录
-	for _, settlement := range settlements {
-		// 使用单条创建方法，其中已包含重复检查逻辑
-		err := r.CreateSettlement(&settlement)
-		if err != nil {
-			log.Printf("创建结算数据失败: %v", err)
-			return err
-		}
+	log.Printf("开始批量创建结算数据，总数量: %d", len(settlements))
+	
+	if len(settlements) == 0 {
+		log.Printf("没有结算数据需要保存")
+		return nil
 	}
+	
+	// 分批处理，每批100条
+	batchSize := 100
+	totalBatches := (len(settlements) + batchSize - 1) / batchSize
+	
+	for i := 0; i < totalBatches; i++ {
+		start := i * batchSize
+		end := (i + 1) * batchSize
+		if end > len(settlements) {
+			end = len(settlements)
+		}
+		
+		currentBatch := settlements[start:end]
+		log.Printf("处理第 %d/%d 批，包含 %d 条数据", i+1, totalBatches, len(currentBatch))
+		
+		// 逐个处理每条数据，确保同一天同一学校只有一条记录
+		for j, settlement := range currentBatch {
+			// 使用单条创建方法，其中已包含重复检查逻辑
+			err := r.CreateSettlement(&settlement)
+			if err != nil {
+				log.Printf("创建结算数据失败 [%d/%d]: %v", j+1, len(currentBatch), err)
+				return fmt.Errorf("创建结算数据失败: %w", err)
+			}
+		}
+		
+		log.Printf("第 %d/%d 批处理完成", i+1, totalBatches)
+	}
+	
+	log.Printf("批量创建结算数据完成，共 %d 条", len(settlements))
 	return nil
 }
 
@@ -377,4 +435,199 @@ func (r *settlementRepository) CalculateDaily95WithRegionAndCP(date time.Time, s
 	}
 
 	return settlement, nil
+}
+
+// CalculateDaily95WithRegionAndCPForAllRegionsAndCPs 为指定学校计算所有区域和运营商的日95值
+func (r *settlementRepository) CalculateDaily95WithRegionAndCPForAllRegionsAndCPs(date time.Time, schoolID string) ([]model.SchoolSettlement, error) {
+	log.Printf("开始计算学校 %s 在 %s 的日95值", schoolID, date.Format("2006-01-02"))
+
+	// 获取学校信息
+	var school model.School
+	err := model.DB.Where("school_id = ?", schoolID).First(&school).Error
+	if err != nil {
+		log.Printf("获取学校信息失败: schoolID=%s, 错误=%v", schoolID, err)
+		return nil, fmt.Errorf("获取学校信息失败: %v", err)
+	}
+	log.Printf("获取学校信息成功: schoolID=%s, 学校名=%s, 区域=%s, CP=%s", 
+		school.SchoolID, school.SchoolName, school.Region, school.CP)
+	
+	// 获取指定日期的开始和结束时间
+	startTime := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
+	endTime := time.Date(date.Year(), date.Month(), date.Day(), 23, 59, 59, 999999999, date.Location())
+	log.Printf("查询时间范围: %s 至 %s", startTime.Format("2006-01-02 15:04:05"), endTime.Format("2006-01-02 15:04:05"))
+	
+	// 使用DISTINCT查询获取所有不同的区域和运营商组合
+	type RegionCPPair struct {
+		Region string
+		CP     string
+	}
+	
+	var regionCPPairs []RegionCPPair
+	query := "school_id = ? AND create_time BETWEEN ? AND ?"
+	queryParams := []interface{}{schoolID, startTime, endTime}
+	log.Printf("查询区域和运营商组合: 条件=%s, 参数=%v", query, queryParams)
+	
+	rows, err := model.DB.Table("nfa_school_traffic").Select("DISTINCT region, cp").Where(query, queryParams...).Rows()
+	
+	if err != nil {
+		log.Printf("获取区域和运营商组合失败: %v", err)
+		return nil, fmt.Errorf("获取区域和运营商组合失败: %v", err)
+	}
+	defer rows.Close()
+	
+	for rows.Next() {
+		var pair RegionCPPair
+		if err := model.DB.ScanRows(rows, &pair); err != nil {
+			log.Printf("解析区域和运营商数据失败: %v", err)
+			return nil, fmt.Errorf("解析区域和运营商数据失败: %v", err)
+		}
+		log.Printf("找到区域和运营商组合: 区域=%s, CP=%s", pair.Region, pair.CP)
+		regionCPPairs = append(regionCPPairs, pair)
+	}
+	
+	// 如果没有找到有效的区域和运营商组合，尝试使用学校的默认区域和运营商
+	if len(regionCPPairs) == 0 {
+		log.Printf("没有找到区域和运营商组合，将使用学校默认值: 区域=%s, CP=%s", 
+			school.Region, school.CP)
+		
+		// 检查学校的区域和运营商是否有效
+		if school.Region == "" || school.CP == "" {
+			log.Printf("学校的默认区域或运营商为空，无法计算结算数据: schoolID=%s", schoolID)
+			return nil, fmt.Errorf("学校的默认区域或运营商为空")
+		}
+		
+		regionCPPairs = append(regionCPPairs, RegionCPPair{
+			Region: school.Region,
+			CP:     school.CP,
+		})
+	} else {
+		log.Printf("找到 %d 个区域和运营商组合", len(regionCPPairs))
+	}
+	
+	// 一次性获取所有流量数据，避免重复查询
+	var allTrafficData []model.SchoolTraffic
+	log.Printf("获取学校流量数据: schoolID=%s, 日期=%s", schoolID, date.Format("2006-01-02"))
+	err = model.DB.Where("school_id = ? AND create_time BETWEEN ? AND ?", schoolID, startTime, endTime).Find(&allTrafficData).Error
+	if err != nil {
+		log.Printf("获取流量数据失败: %v", err)
+		return nil, fmt.Errorf("获取流量数据失败: %v", err)
+	}
+	log.Printf("获取到 %d 条流量数据记录", len(allTrafficData))
+	
+	// 按区域和运营商分组流量数据
+	trafficMap := make(map[string][]model.SchoolTraffic)
+	for _, traffic := range allTrafficData {
+		key := traffic.Region + "-" + traffic.CP
+		trafficMap[key] = append(trafficMap[key], traffic)
+	}
+	
+	// 打印分组结果
+	for key, trafficList := range trafficMap {
+		log.Printf("区域-运营商组合 %s 有 %d 条流量数据", key, len(trafficList))
+	}
+	
+	// 为每个区域和运营商组合计算95值
+	var settlements []model.SchoolSettlement
+	log.Printf("开始为每个区域和运营商组合计算95值, 共 %d 个组合", len(regionCPPairs))
+	
+	for i, pair := range regionCPPairs {
+		log.Printf("处理第 %d 个区域和运营商组合: 区域=%s, CP=%s", i+1, pair.Region, pair.CP)
+		key := pair.Region + "-" + pair.CP
+		trafficData, exists := trafficMap[key]
+		
+		// 如果没有该组合的流量数据，跳过
+		if !exists || len(trafficData) == 0 {
+			log.Printf("没有找到流量数据: schoolID=%s, region=%s, cp=%s", schoolID, pair.Region, pair.CP)
+			continue
+		}
+		log.Printf("找到 %d 条流量数据记录: schoolID=%s, region=%s, cp=%s", len(trafficData), schoolID, pair.Region, pair.CP)
+		
+		// 计算每个时间点的总流量 (bits/s)
+		type TrafficPoint struct {
+			Time  time.Time
+			Value int64
+		}
+		var trafficPoints []TrafficPoint
+
+		for j, data := range trafficData {
+			// 将字节转换为比特，并除以时间间隔（5分钟 = 300秒）得到bits/s
+			totalBits := (data.TotalRecv + data.TotalSend) * 8
+			bitsPerSecond := totalBits / 300
+			trafficPoints = append(trafficPoints, TrafficPoint{
+				Time:  data.CreateTime,
+				Value: bitsPerSecond,
+			})
+			
+			// 打印前5条流量数据作为示例
+			if j < 5 {
+				log.Printf("流量数据示例[%d]: 时间=%s, 接收=%d, 发送=%d, 总比特=%d, 比特每秒=%d", 
+					j, data.CreateTime.Format("2006-01-02 15:04:05"), data.TotalRecv, data.TotalSend, totalBits, bitsPerSecond)
+			}
+		}
+		log.Printf("共生成 %d 个流量数据点", len(trafficPoints))
+
+		// 按流量从大到小排序
+		log.Printf("开始按流量从大到小排序 %d 个数据点", len(trafficPoints))
+		sort.Slice(trafficPoints, func(i, j int) bool {
+			return trafficPoints[i].Value > trafficPoints[j].Value
+		})
+
+		// 打印排序后的前5个流量数据点
+		for j := 0; j < 5 && j < len(trafficPoints); j++ {
+			log.Printf("排序后数据点[%d]: 时间=%s, 值=%d", 
+				j, trafficPoints[j].Time.Format("2006-01-02 15:04:05"), trafficPoints[j].Value)
+		}
+
+		// 计算95百分位的索引
+		totalPoints := len(trafficPoints)
+		if totalPoints == 0 {
+			log.Printf("没有有效的流量数据点，跳过计算")
+			continue
+		}
+
+		// 计算需要排除的数据点数量（前5%）
+		excludeCount := int(math.Ceil(float64(totalPoints) * 0.05))
+		if excludeCount >= totalPoints {
+			excludeCount = totalPoints - 1
+		}
+		log.Printf("总数据点数量=%d, 排除前 %d 个数据点", totalPoints, excludeCount)
+
+		// 获取95百分位的流量值和对应的时间
+		index95 := excludeCount
+		if index95 >= len(trafficPoints) {
+			index95 = len(trafficPoints) - 1
+		}
+		settlement95Value := trafficPoints[index95].Value
+		settlement95Time := trafficPoints[index95].Time
+		log.Printf("计算得到日95值: 值=%d, 时间=%s", 
+			settlement95Value, settlement95Time.Format("2006-01-02 15:04:05"))
+
+		// 创建结算数据
+		settlement := model.SchoolSettlement{
+			SchoolID:        school.SchoolID,
+			SchoolName:      school.SchoolName,
+			Region:          pair.Region,
+			CP:              pair.CP,
+			SettlementValue: settlement95Value,
+			SettlementTime:  settlement95Time,
+			SettlementDate:  date,
+		}
+		log.Printf("创建结算数据: 学校ID=%s, 学校名=%s, 区域=%s, CP=%s, 日期=%s, 值=%d", 
+			settlement.SchoolID, settlement.SchoolName, settlement.Region, settlement.CP, 
+			settlement.SettlementDate.Format("2006-01-02"), settlement.SettlementValue)
+
+		settlements = append(settlements, settlement)
+	}
+	
+	log.Printf("计算完成，共生成 %d 条结算数据", len(settlements))
+	if len(settlements) > 0 {
+		for i := 0; i < 5 && i < len(settlements); i++ {
+			log.Printf("结算数据示例[%d]: 学校ID=%s, 学校名=%s, 区域=%s, CP=%s, 日期=%s, 值=%d", 
+				i, settlements[i].SchoolID, settlements[i].SchoolName, settlements[i].Region, settlements[i].CP, 
+				settlements[i].SettlementDate.Format("2006-01-02"), settlements[i].SettlementValue)
+		}
+	} else {
+		log.Printf("警告: 没有生成任何结算数据")
+	}
+	return settlements, nil
 }
