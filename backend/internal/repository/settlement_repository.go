@@ -5,6 +5,7 @@ import (
 	"log"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"nfa-dashboard/internal/model"
@@ -187,41 +188,153 @@ func (r *settlementRepository) BatchCreateSettlements(settlements []model.School
 		log.Printf("没有结算数据需要保存")
 		return nil
 	}
-	
-	// 分批处理，每批100条
-	batchSize := 100
-	totalBatches := (len(settlements) + batchSize - 1) / batchSize
-	
-	for i := 0; i < totalBatches; i++ {
-		start := i * batchSize
-		end := (i + 1) * batchSize
-		if end > len(settlements) {
-			end = len(settlements)
+
+	// 将数据分为需要更新和需要插入的两组
+	// 1. 首先收集所有关键字段组合，用于一次性查询
+	type SettlementKey struct {
+		Region     string
+		CP         string
+		SchoolID   string
+		DateString string
+	}
+
+	// 收集所有日期字符串
+	keys := make([]SettlementKey, 0, len(settlements))
+	for _, s := range settlements {
+		keys = append(keys, SettlementKey{
+			Region:     s.Region,
+			CP:         s.CP,
+			SchoolID:   s.SchoolID,
+			DateString: s.SettlementDate.Format("2006-01-02"),
+		})
+	}
+
+	// 2. 构建查询条件，使用IN操作一次性查询所有可能存在的记录
+	// 将查询条件分批处理，避免查询条件过长
+	existingMap := make(map[string]model.SchoolSettlement)
+	batchSize := 500 // 每批查询的最大记录数
+
+	for i := 0; i < len(keys); i += batchSize {
+		end := i + batchSize
+		if end > len(keys) {
+			end = len(keys)
 		}
+
+		batchKeys := keys[i:end]
+		var conditions []string
+		var params []interface{}
+
+		// 构建批量查询条件
+		for _, key := range batchKeys {
+			conditions = append(conditions, "(region = ? AND cp = ? AND school_id = ? AND DATE(settlement_date) = ?)")
+			params = append(params, key.Region, key.CP, key.SchoolID, key.DateString)
+		}
+
+		if len(conditions) == 0 {
+			continue
+		}
+
+		// 执行批量查询
+		var existingSettlements []model.SchoolSettlement
+		query := model.DB.Where(strings.Join(conditions, " OR "), params...)
+		result := query.Find(&existingSettlements)
+
+		if result.Error != nil && result.Error != gorm.ErrRecordNotFound {
+			log.Printf("批量查询结算数据时发生错误: %v", result.Error)
+			return result.Error
+		}
+
+		// 将现有记录添加到map中
+		for _, existing := range existingSettlements {
+			key := fmt.Sprintf("%s_%s_%s_%s", 
+				existing.Region, 
+				existing.CP, 
+				existing.SchoolID, 
+				existing.SettlementDate.Format("2006-01-02"))
+			existingMap[key] = existing
+		}
+	}
+
+	log.Printf("找到 %d 条现有结算数据需要更新", len(existingMap))
+
+	// 3. 分离需要更新和需要新增的记录
+	var toUpdate []model.SchoolSettlement
+	var toInsert []model.SchoolSettlement
+
+	for _, settlement := range settlements {
+		key := fmt.Sprintf("%s_%s_%s_%s", 
+			settlement.Region, 
+			settlement.CP, 
+			settlement.SchoolID, 
+			settlement.SettlementDate.Format("2006-01-02"))
+
+		if existing, found := existingMap[key]; found {
+			// 需要更新
+			existing.SettlementValue = settlement.SettlementValue
+			existing.SettlementTime = settlement.SettlementTime
+			toUpdate = append(toUpdate, existing)
+		} else {
+			// 需要新增
+			toInsert = append(toInsert, settlement)
+		}
+	}
+
+	// 4. 批量更新现有记录
+	if len(toUpdate) > 0 {
+		log.Printf("开始批量更新 %d 条结算数据", len(toUpdate))
 		
-		currentBatch := settlements[start:end]
-		log.Printf("处理第 %d/%d 批，包含 %d 条数据", i+1, totalBatches, len(currentBatch))
-		
-		// 逐个处理每条数据，确保同一天同一学校只有一条记录
-		for j, settlement := range currentBatch {
-			// 使用单条创建方法，其中已包含重复检查逻辑
-			err := r.CreateSettlement(&settlement)
-			if err != nil {
-				log.Printf("创建结算数据失败 [%d/%d]: %v", j+1, len(currentBatch), err)
-				return fmt.Errorf("创建结算数据失败: %w", err)
+		// 分批更新
+		updateBatchSize := 100
+		for i := 0; i < len(toUpdate); i += updateBatchSize {
+			end := i + updateBatchSize
+			if end > len(toUpdate) {
+				end = len(toUpdate)
 			}
+			
+			batch := toUpdate[i:end]
+			for _, item := range batch {
+				result := model.DB.Model(&model.SchoolSettlement{}).Where("id = ?", item.ID).Updates(map[string]interface{}{
+					"settlement_value": item.SettlementValue,
+					"settlement_time": item.SettlementTime,
+				})
+				
+				if result.Error != nil {
+					log.Printf("更新结算数据失败 ID=%d: %v", item.ID, result.Error)
+					return result.Error
+				}
+			}
+			log.Printf("已更新 %d/%d 条结算数据", end, len(toUpdate))
 		}
+	}
+
+	// 5. 批量插入新记录
+	if len(toInsert) > 0 {
+		log.Printf("开始批量插入 %d 条新结算数据", len(toInsert))
 		
-		log.Printf("第 %d/%d 批处理完成", i+1, totalBatches)
+		// 分批插入
+		insertBatchSize := 100
+		for i := 0; i < len(toInsert); i += insertBatchSize {
+			end := i + insertBatchSize
+			if end > len(toInsert) {
+				end = len(toInsert)
+			}
+			
+			batch := toInsert[i:end]
+			result := model.DB.CreateInBatches(batch, len(batch))
+			if result.Error != nil {
+				log.Printf("批量插入结算数据失败: %v", result.Error)
+				return result.Error
+			}
+			log.Printf("已插入 %d/%d 条新结算数据", end, len(toInsert))
+		}
 	}
 	
-	log.Printf("批量创建结算数据完成，共 %d 条", len(settlements))
+	log.Printf("批量处理结算数据完成: 更新 %d 条, 新增 %d 条", len(toUpdate), len(toInsert))
 	return nil
 }
 
 // GetSettlements 获取结算数据列表
 func (r *settlementRepository) GetSettlements(filter model.SettlementFilter) ([]model.SettlementResponse, int64, error) {
-	var settlements []model.SchoolSettlement
 	var count int64
 	var responses []model.SettlementResponse
 
@@ -229,6 +342,22 @@ func (r *settlementRepository) GetSettlements(filter model.SettlementFilter) ([]
 	log.Printf("结算数据查询过滤条件: StartDate=%v, EndDate=%v, SchoolName=%s, Region=%s, CP=%s, Limit=%d, Offset=%d",
 		filter.StartDate, filter.EndDate, filter.SchoolName, filter.Region, filter.CP, filter.Limit, filter.Offset)
 
+	// 检查是否需要进行聚合
+	isMultiDayQuery := false
+	if !filter.StartDate.IsZero() && !filter.EndDate.IsZero() {
+		// 如果时间跨度超过1天，则认为是多日查询
+		daysDiff := int(filter.EndDate.Sub(filter.StartDate).Hours() / 24)
+		isMultiDayQuery = daysDiff > 0
+		log.Printf("时间范围跨度: %d 天, 是否多日查询: %v", daysDiff, isMultiDayQuery)
+	}
+
+	// 如果是多日查询，我们需要聚合数据
+	if isMultiDayQuery {
+		return r.getAggregatedSettlements(filter)
+	}
+
+	// 如果不是按月查询，使用原来的日结算查询逻辑
+	var settlements []model.SchoolSettlement
 	query := model.DB.Model(&model.SchoolSettlement{})
 
 	// 应用过滤条件
@@ -312,6 +441,165 @@ func (r *settlementRepository) GetSettlements(filter model.SettlementFilter) ([]
 
 	log.Printf("返回 %d 条结算数据响应", len(responses))
 	return responses, count, nil
+}
+
+// getAggregatedSettlements 获取聚合的结算数据
+func (r *settlementRepository) getAggregatedSettlements(filter model.SettlementFilter) ([]model.SettlementResponse, int64, error) {
+	log.Printf("开始聚合查询结算数据")
+	
+	// 构建基本查询
+	query := model.DB.Model(&model.SchoolSettlement{})
+	
+	// 应用过滤条件
+	if !filter.StartDate.IsZero() {
+		loc, _ := time.LoadLocation("Asia/Shanghai")
+		startDate := time.Date(filter.StartDate.Year(), filter.StartDate.Month(), filter.StartDate.Day(), 0, 0, 0, 0, loc)
+		startDateStr := startDate.Format("2006-01-02")
+		query = query.Where("DATE(settlement_date) >= ?", startDateStr)
+	}
+	
+	if !filter.EndDate.IsZero() {
+		loc, _ := time.LoadLocation("Asia/Shanghai")
+		endDate := time.Date(filter.EndDate.Year(), filter.EndDate.Month(), filter.EndDate.Day(), 23, 59, 59, 999999999, loc)
+		endDateStr := endDate.Format("2006-01-02")
+		query = query.Where("DATE(settlement_date) <= ?", endDateStr)
+	}
+	
+	if filter.SchoolID != "" {
+		query = query.Where("school_id = ?", filter.SchoolID)
+	}
+	
+	if filter.SchoolName != "" {
+		query = query.Where("school_name LIKE ?", "%"+filter.SchoolName+"%")
+	}
+	
+	if filter.Region != "" {
+		query = query.Where("region = ?", filter.Region)
+	}
+	
+	if filter.CP != "" {
+		query = query.Where("cp = ?", filter.CP)
+	}
+	
+	// 使用原生SQL来聚合数据
+	// 我们需要将结算数据按学校、地区、运营商进行分组
+	// 然后计算每组的平均值作为聚合结算值
+	sql := `
+		SELECT 
+			MAX(id) as id,
+			school_id,
+			school_name,
+			region,
+			cp,
+			AVG(settlement_value) as settlement_value,
+			MAX(settlement_time) as settlement_time,
+			MIN(settlement_date) as settlement_date,
+			MAX(create_time) as create_time,
+			COUNT(*) as records_count
+		FROM nfa_school_settlement
+		WHERE 1=1
+	`
+	
+	// 添加过滤条件
+	args := []interface{}{}
+	
+	if !filter.StartDate.IsZero() {
+		sql += " AND DATE(settlement_date) >= ?"
+		args = append(args, filter.StartDate.Format("2006-01-02"))
+	}
+	
+	if !filter.EndDate.IsZero() {
+		sql += " AND DATE(settlement_date) <= ?"
+		args = append(args, filter.EndDate.Format("2006-01-02"))
+	}
+	
+	if filter.SchoolID != "" {
+		sql += " AND school_id = ?"
+		args = append(args, filter.SchoolID)
+	}
+	
+	if filter.SchoolName != "" {
+		sql += " AND school_name LIKE ?"
+		args = append(args, "%"+filter.SchoolName+"%")
+	}
+	
+	if filter.Region != "" {
+		sql += " AND region = ?"
+		args = append(args, filter.Region)
+	}
+	
+	if filter.CP != "" {
+		sql += " AND cp = ?"
+		args = append(args, filter.CP)
+	}
+	
+	// 添加分组和排序
+	sql += " GROUP BY school_id, school_name, region, cp"
+	sql += " ORDER BY settlement_date DESC"
+	
+	// 添加分页
+	countSql := "SELECT COUNT(*) FROM (" + sql + ") as t"
+	var totalCount int64
+	err := model.DB.Raw(countSql, args...).Count(&totalCount).Error
+	if err != nil {
+		log.Printf("获取按月聚合的结算数据总数失败: %v", err)
+		return nil, 0, err
+	}
+	
+	// 如果没有数据，直接返回空列表
+	if totalCount == 0 {
+		log.Printf("没有找到符合条件的按月聚合的结算数据")
+		return []model.SettlementResponse{}, 0, nil
+	}
+	
+	// 添加分页限制
+	sql += " LIMIT ? OFFSET ?"
+	args = append(args, filter.Limit, filter.Offset)
+	
+	// 执行查询
+	type MonthlySettlement struct {
+		ID              int64     `gorm:"column:id"`
+		SchoolID        string    `gorm:"column:school_id"`
+		SchoolName      string    `gorm:"column:school_name"`
+		Region          string    `gorm:"column:region"`
+		CP              string    `gorm:"column:cp"`
+		SettlementValue float64   `gorm:"column:settlement_value"` // 注意这里是浮点数，因为是平均值
+		SettlementTime  time.Time `gorm:"column:settlement_time"`
+		SettlementDate  time.Time `gorm:"column:settlement_date"`
+		CreateTime      time.Time `gorm:"column:create_time"`
+		RecordsCount    int       `gorm:"column:records_count"`
+	}
+	
+	var monthlySettlements []MonthlySettlement
+	err = model.DB.Raw(sql, args...).Scan(&monthlySettlements).Error
+	if err != nil {
+		log.Printf("查询按月聚合的结算数据失败: %v", err)
+		return nil, 0, err
+	}
+	
+	log.Printf("查询到 %d 条按月聚合的结算数据记录", len(monthlySettlements))
+	
+	// 转换为响应结构
+	responses := make([]model.SettlementResponse, 0, len(monthlySettlements))
+	for _, ms := range monthlySettlements {
+		// 将浮点数四舍五入为整数
+		settlementValue := int64(math.Round(ms.SettlementValue))
+		
+		responses = append(responses, model.SettlementResponse{
+			ID:              ms.ID,
+			SchoolID:        ms.SchoolID,
+			SchoolName:      ms.SchoolName,
+			Region:          ms.Region,
+			CP:              ms.CP,
+			SettlementValue: settlementValue,
+			SettlementTime:  ms.SettlementTime,
+			SettlementDate:  ms.SettlementDate,
+			CreateTime:      ms.CreateTime,
+		})
+	}
+	
+	log.Printf("返回 %d 条按月聚合的结算数据响应", len(responses))
+	return responses, totalCount, nil
 }
 
 // CalculateDaily95 计算指定日期和学校的日95值
