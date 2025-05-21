@@ -483,7 +483,7 @@ func (r *settlementRepository) getAggregatedSettlements(filter model.SettlementF
 	
 	// 使用原生SQL来聚合数据
 	// 我们需要将结算数据按学校、地区、运营商进行分组
-	// 然后计算每组的平均值作为聚合结算值
+	// 然后计算每组的总和除以天数作为聚合结算值
 	sql := `
 		SELECT 
 			MAX(id) as id,
@@ -491,7 +491,7 @@ func (r *settlementRepository) getAggregatedSettlements(filter model.SettlementF
 			school_name,
 			region,
 			cp,
-			AVG(settlement_value) as settlement_value,
+			SUM(settlement_value) / COUNT(*) as settlement_value,
 			MAX(settlement_time) as settlement_time,
 			MIN(settlement_date) as settlement_date,
 			MAX(create_time) as create_time,
@@ -659,7 +659,7 @@ func (r *settlementRepository) CalculateDaily95WithRegionAndCP(date time.Time, s
 		return nil, fmt.Errorf("没有找到流量数据")
 	}
 
-	// 计算每个时间点的总流量 (bits/s)
+	// 计算每个时间点的接收流量，保留原始值
 	type TrafficPoint struct {
 		Time  time.Time
 		Value int64
@@ -667,12 +667,11 @@ func (r *settlementRepository) CalculateDaily95WithRegionAndCP(date time.Time, s
 	var trafficPoints []TrafficPoint
 
 	for _, data := range trafficData {
-		// 将字节转换为比特，并除以时间间隔（5分钟 = 300秒）得到bits/s
-		totalBits := (data.TotalRecv + data.TotalSend) * 8
-		bitsPerSecond := totalBits / 300
+		// 只使用TotalRecv，保留原始值，不进行单位换算
+		// 前端会使用公式: 流量*8/60 进行单位换算
 		trafficPoints = append(trafficPoints, TrafficPoint{
 			Time:  data.CreateTime,
-			Value: bitsPerSecond,
+			Value: data.TotalRecv,
 		})
 	}
 
