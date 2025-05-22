@@ -72,7 +72,7 @@
         <el-table-column prop="cp" label="运营商" width="120" />
         <el-table-column label="95值(Mbps)" width="150">
           <template #default="scope">
-            {{ scope.row.settlement_value ? formatBitRate(scope.row.settlement_value, false) : '0.00' }}
+            {{ scope.row.settlement_value ? formatBitRate(convertToBitsPerSecond(scope.row.settlement_value), false) : '0.00' }}
           </template>
         </el-table-column>
         <el-table-column v-if="dateRange && dateRange[0] !== dateRange[1]" label="时间范围" width="200">
@@ -300,6 +300,13 @@ const handleDateRangeChange = (val) => {
     filterForm.end_date = ''
     console.log('清除日期范围')
   }
+  
+  // 日期范围变化时自动触发数据查询
+  // 使用setTimeout确保日期范围已经更新
+  setTimeout(() => {
+    console.log('日期范围变化，自动触发数据查询')
+    fetchData()
+  }, 0)
 }
 
 // 获取结算数据
@@ -408,23 +415,17 @@ const fetchData = async () => {
       }
     }
     
-    // 如果是多天数据，需要计算平均值
+    // 多日结算值不需要额外处理，后端已经返回了最大值
     if (dateRange.value && dateRange.value[0] !== dateRange.value[1]) {
-      // 计算日期范围天数
+      // 计算日期范围天数仅用于日志记录
       const startDate = new Date(dateRange.value[0])
       const endDate = new Date(dateRange.value[1])
       const daysDiff = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1
       console.log('日期范围天数:', daysDiff)
       
-      // 对每个学校的数据进行处理
-      items.forEach(item => {
-        // 如果是多天，则计算平均值
-        if (daysDiff > 1 && item.settlement_value) {
-          console.log('处理前的值:', item.school_name, item.settlement_value)
-          item.settlement_value = Math.round(item.settlement_value / daysDiff)
-          console.log('处理后的值:', item.school_name, item.settlement_value)
-        }
-      })
+      // 不再对结算值进行额外处理
+      // 后端已经返回了最大值，不需要除以天数
+      console.log('多日结算值不需要额外处理')
     }
     
     // 设置数据和总数

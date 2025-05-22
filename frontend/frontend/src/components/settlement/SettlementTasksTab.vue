@@ -179,16 +179,31 @@
     <el-dialog
       v-model="createTaskVisible"
       :title="taskDialogTitle"
-      width="400px"
+      width="500px"
     >
       <el-form :model="taskForm" label-width="100px">
-        <el-form-item label="任务日期">
+        <!-- 日结算任务显示单日选择器 -->
+        <el-form-item v-if="taskForm.type === 'daily'" label="任务日期">
           <el-date-picker
             v-model="taskForm.date"
             type="date"
             placeholder="选择日期"
             format="YYYY-MM-DD"
             value-format="YYYY-MM-DD"
+          />
+        </el-form-item>
+        
+        <!-- 周结算任务显示日期范围选择器 -->
+        <el-form-item v-else label="周日期范围">
+          <el-date-picker
+            v-model="taskForm.dateRange"
+            type="daterange"
+            range-separator="至"
+            start-placeholder="开始日期"
+            end-placeholder="结束日期"
+            format="YYYY-MM-DD"
+            value-format="YYYY-MM-DD"
+            :default-time="[new Date(2000, 1, 1, 0, 0, 0), new Date(2000, 1, 1, 23, 59, 59)]"
           />
         </el-form-item>
       </el-form>
@@ -245,10 +260,11 @@ const taskDetailVisible = ref(false)
 const createTaskVisible = ref(false)
 const taskDialogTitle = ref('创建结算任务')
 
-// 创建任务表单
+// 任务表单
 const taskForm = reactive({
   type: 'daily',
-  date: ''
+  date: '',
+  dateRange: [] as string[]
 })
 
 // 获取任务列表
@@ -351,6 +367,7 @@ const createDailyTask = () => {
   taskForm.type = 'daily'
   taskDialogTitle.value = '创建日结算任务'
   taskForm.date = formatDateToYYYYMMDD(new Date())
+  taskForm.dateRange = []
   createTaskVisible.value = true
 }
 
@@ -358,25 +375,50 @@ const createDailyTask = () => {
 const createWeeklyTask = () => {
   taskForm.type = 'weekly'
   taskDialogTitle.value = '创建周结算任务'
-  taskForm.date = formatDateToYYYYMMDD(new Date())
+  
+  // 计算当前周的开始和结束日期（周一到周日）
+  const today = new Date()
+  const day = today.getDay() || 7 // 将周日的 0 转换为 7
+  const monday = new Date(today)
+  monday.setDate(today.getDate() - day + 1) // 设置为当前周的周一
+  
+  const sunday = new Date(monday)
+  sunday.setDate(monday.getDate() + 6) // 设置为当前周的周日
+  
+  taskForm.dateRange = [
+    formatDateToYYYYMMDD(monday),
+    formatDateToYYYYMMDD(sunday)
+  ]
+  
   createTaskVisible.value = true
 }
 
 // 提交创建任务
 const submitTaskCreate = async () => {
-  if (!taskForm.date) {
+  if (taskForm.type === 'daily' && !taskForm.date) {
     ElMessage.warning('请选择任务日期')
+    return
+  }
+  
+  if (taskForm.type === 'weekly' && (!taskForm.dateRange || taskForm.dateRange.length !== 2)) {
+    ElMessage.warning('请选择完整的周日期范围')
     return
   }
 
   submitting.value = true
   try {
-    const params = { date: taskForm.date }
     let response
     
     if (taskForm.type === 'daily') {
+      // 日结算任务使用单个日期
+      const params = { date: taskForm.date }
       response = await api.settlement.createDailyTask(params)
     } else {
+      // 周结算任务使用日期范围
+      const params = { 
+        start_date: taskForm.dateRange[0],
+        end_date: taskForm.dateRange[1]
+      }
       response = await api.settlement.createWeeklyTask(params)
     }
     
