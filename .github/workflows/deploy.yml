@@ -1,0 +1,113 @@
+name: 构建与发布
+
+on:
+  push:
+    tags:
+      - 'v*'  # 当推送标签时触发，例如 v1.0.0
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  build-all-platforms:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform: [linux, darwin, windows]
+        arch: [amd64, arm64]
+        exclude:
+          - platform: windows
+            arch: arm64  # 排除 Windows ARM64 构建
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: 设置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: 'frontend/frontend/package-lock.json'
+      
+      - name: 安装前端依赖
+        working-directory: ./frontend/frontend
+        run: npm ci
+      
+      - name: 构建前端
+        working-directory: ./frontend/frontend
+        run: npm run build
+      
+      - name: 设置 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+      
+      - name: 获取后端依赖
+        working-directory: ./backend
+        run: go mod download
+      
+      - name: 构建后端
+        working-directory: ./backend
+        run: |
+          CGO_ENABLED=0 GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} go build -o nfa-dashboard-backend${{ matrix.platform == 'windows' && '.exe' || '' }} main.go
+      
+      - name: 准备部署文件
+        run: |
+          mkdir -p dist/frontend
+          mkdir -p dist/backend/config
+          mkdir -p dist/scripts
+          
+          # 复制前端构建产物
+          cp -r frontend/frontend/dist/* dist/frontend/
+          
+          # 复制后端构建产物
+          cp backend/nfa-dashboard-backend${{ matrix.platform == 'windows' && '.exe' || '' }} dist/backend/
+          
+          # 复制配置文件模板
+          cp backend/config/config.yaml dist/backend/config/config.yaml.template
+          
+          # 复制部署脚本
+          cp scripts/deploy.sh dist/scripts/
+          chmod +x dist/scripts/deploy.sh
+          
+          # 创建压缩包
+          PACKAGE_NAME=nfa-dashboard-${{ matrix.platform }}-${{ matrix.arch }}
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            (cd dist && zip -r ../${PACKAGE_NAME}.zip .)
+          else
+            tar -czvf ${PACKAGE_NAME}.tar.gz -C dist .
+          fi
+      
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: nfa-dashboard-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            nfa-dashboard-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.platform == 'windows' && 'zip' || 'tar.gz' }}
+          retention-days: 1
+
+  create-release:
+    needs: build-all-platforms
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: 获取版本号
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      
+      - name: 下载所有构建产物
+        uses: actions/download-artifact@v4
+      
+      - name: 创建 Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: NFA Dashboard ${{ steps.get_version.outputs.VERSION }}
+          draft: false
+          prerelease: false
+          files: |
+            nfa-dashboard-linux-amd64/nfa-dashboard-linux-amd64.tar.gz
+            nfa-dashboard-linux-arm64/nfa-dashboard-linux-arm64.tar.gz
+            nfa-dashboard-darwin-amd64/nfa-dashboard-darwin-amd64.tar.gz
+            nfa-dashboard-darwin-arm64/nfa-dashboard-darwin-arm64.tar.gz
+            nfa-dashboard-windows-amd64/nfa-dashboard-windows-amd64.zip
