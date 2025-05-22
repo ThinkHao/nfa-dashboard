@@ -59,14 +59,22 @@ jobs:
           cp -r frontend/frontend/dist/* dist/frontend/
           
           # 复制后端构建产物
-          cp backend/nfa-dashboard-backend${{ matrix.platform == 'windows' && '.exe' || '' }} dist/backend/
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            cp backend/nfa-dashboard-backend.exe dist/backend/
+          else
+            cp backend/nfa-dashboard-backend dist/backend/
+          fi
           
           # 复制配置文件模板
           cp backend/config/config.yaml dist/backend/config/config.yaml.template
           
           # 复制部署脚本
-          cp scripts/deploy.sh dist/scripts/
-          chmod +x dist/scripts/deploy.sh
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            cp scripts/deploy.bat dist/scripts/
+          else
+            cp scripts/deploy.sh dist/scripts/
+            chmod +x dist/scripts/deploy.sh
+          fi
           
           # 创建压缩包
           PACKAGE_NAME=nfa-dashboard-${{ matrix.platform }}-${{ matrix.arch }}
