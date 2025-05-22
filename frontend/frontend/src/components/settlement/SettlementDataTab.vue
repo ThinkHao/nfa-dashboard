@@ -103,6 +103,7 @@ import { ref, reactive, onMounted } from 'vue'
 import api from '../../api'
 import { ElMessage } from 'element-plus'
 import type { SettlementListResponse, Settlement } from '../../types/settlement'
+import type { ApiResponse, School, PaginationParams } from '../../types/api'
 
 // 学校、地区和运营商数据
 interface School {
@@ -125,6 +126,8 @@ interface FilterForm {
   end_date: string;
   page: number;
   page_size: number;
+  limit?: number;
+  offset?: number;
 }
 
 const filterForm = reactive<FilterForm>({
@@ -154,10 +157,14 @@ const settlementData = ref<SettlementListResponse>({
 })
 
 // 将原始数据转换为 bits/s
-const convertToBitsPerSecond = (bytes: number): number => {
+const convertToBitsPerSecond = (bytes: number | null | undefined): number => {
   // 原始数据需要 *8/60 转换为 bits/s
   // *8 是将字节转换为比特
   // /60 是将每分钟的数据转换为每秒的数据
+  if (bytes === null || bytes === undefined) {
+    return 0
+  }
+  
   const factor = 60
   
   // 将字节转换为比特，然后除以时间因子
@@ -165,9 +172,9 @@ const convertToBitsPerSecond = (bytes: number): number => {
 }
 
 // 格式化比特率
-const formatBitRate = (bitsPerSecond: number, withUnit = true): string => {
+const formatBitRate = (bitsPerSecond: number | null | undefined, withUnit = true): string => {
   if (bitsPerSecond === null || bitsPerSecond === undefined) {
-    return '0.00 Mbps'
+    return withUnit ? '0.00 Mbps' : '0.00'
   }
   
   // 转换为 Mbps
@@ -180,9 +187,9 @@ const formatBitRate = (bitsPerSecond: number, withUnit = true): string => {
 const fetchBaseData = async () => {
   try {
     // 获取地区列表
-    const regionsResponse = await api.getRegions()
+    const regionsResponse = await api.getRegions() as ApiResponse<string[]>
     console.log('地区列表原始响应:', regionsResponse)
-    if (regionsResponse && regionsResponse.data) {
+    if (regionsResponse && regionsResponse.code === 0 && regionsResponse.data) {
       regions.value = regionsResponse.data
       console.log('地区列表设置为:', regions.value)
     } else {
@@ -191,9 +198,9 @@ const fetchBaseData = async () => {
     }
 
     // 获取运营商列表
-    const cpsResponse = await api.getCPs()
+    const cpsResponse = await api.getCPs() as ApiResponse<string[]>
     console.log('运营商列表原始响应:', cpsResponse)
-    if (cpsResponse && cpsResponse.data) {
+    if (cpsResponse && cpsResponse.code === 0 && cpsResponse.data) {
       cps.value = cpsResponse.data
       console.log('运营商列表设置为:', cps.value)
     } else {
@@ -216,68 +223,35 @@ const loadSchools = async (region: string = '', cp: string = ''): Promise<void> 
     schools.value = []
     
     // 构建请求参数
-    const params = { limit: 100 }
+    const params: PaginationParams & { region?: string; cp?: string } = {
+      limit: 1000 // 设置较大的限制，获取所有学校
+    }
+    
+    // 添加过滤条件
     if (region) {
       params.region = region
     }
+    
     if (cp) {
       params.cp = cp
     }
     
-    console.log('请求学校数据参数:', params)
-    const res = await api.getSchools(params)
-    console.log('学校数据原始响应:', res)
+    // 发送请求获取学校列表
+    const response = await api.getSchools(params) as ApiResponse<{ items: School[]; total: number }>
+    console.log('学校列表原始响应:', response)
     
-    let schoolsList = []
-    
-    if (res.code === 200 && res.data) {
-      // 正确的数据结构：data.items
-      if (Array.isArray(res.data.items)) {
-        schoolsList = res.data.items
-        console.log('加载学校数据成功:', schoolsList.length, '所学校')
-      } 
-      // 兼容旧的数据结构：data.schools
-      else if (Array.isArray(res.data.schools)) {
-        schoolsList = res.data.schools
-        console.log('加载学校数据成功(旧结构):', schoolsList.length, '所学校')
-      }
-      // 如果数据本身就是数组
-      else if (Array.isArray(res.data)) {
-        schoolsList = res.data
-        console.log('加载学校数据成功(直接数组):', schoolsList.length, '所学校')
-      }
-      // 如果没有有效数据
-      else {
-        console.warn('未找到有效的学校数据结构')
-        schoolsList = []
-      }
-      
-      schools.value = schoolsList
+    // 检查响应状态
+    if (response && response.code === 0 && response.data) {
+      schools.value = response.data.items || []
+      console.log('学校列表设置为:', schools.value)
     } else {
-      console.error('获取学校列表失败:', res)
-      
-      // 尝试直接获取学校列表
-      try {
-        const queryParams = new URLSearchParams()
-        if (region) queryParams.append('region', region)
-        if (cp) queryParams.append('cp', cp)
-        queryParams.append('limit', '100')
-        
-        const response = await fetch(`http://localhost:8081/api/v1/schools?${queryParams.toString()}`)
-        const data = await response.json()
-        console.log('直接获取学校列表响应:', data)
-        
-        if (data && data.code === 200 && data.data && Array.isArray(data.data.items)) {
-          schools.value = data.data.items
-          console.log('直接获取学校列表成功:', schools.value.length, '所学校')
-        }
-      } catch (fetchError) {
-        console.error('直接获取学校列表失败:', fetchError)
-      }
+      console.error('学校列表数据为空')
+      schools.value = []
     }
   } catch (error) {
-    console.error('加载学校数据失败:', error)
-    ElMessage.error('加载学校数据失败')
+    console.error('获取学校数据失败', error)
+    ElMessage.error('获取学校数据失败')
+    schools.value = []
   }
 }
 
@@ -340,72 +314,49 @@ const handleDateRangeChange = (val: [string, string] | null) => {
 const fetchData = async () => {
   loading.value = true
   
-  // 处理日期范围
-  if (dateRange.value) {
-    filterForm.start_date = dateRange.value[0]
-    filterForm.end_date = dateRange.value[1]
-  } else {
-    // 如果没有选择日期，默认使用当前日期
-    const today = new Date()
-    const year = today.getFullYear()
-    const month = String(today.getMonth() + 1).padStart(2, '0')
-    const day = String(today.getDate()).padStart(2, '0')
-    const formattedDate = `${year}-${month}-${day}`
-    
-    filterForm.start_date = formattedDate
-    filterForm.end_date = formattedDate
-    console.log('未选择日期，使用默认日期:', formattedDate)
-  }
-
-  // 设置分页参数
-  filterForm.limit = pageSize.value
-  filterForm.offset = (currentPage.value - 1) * pageSize.value
-
-  console.log('发送查询参数:', filterForm)
-
   try {
-    // 构建请求参数
-    const params = {
+    // 计算分页参数
+    const params: PaginationParams & { 
+      school_id?: string;
+      region?: string;
+      cp?: string;
+      start_date?: string;
+      end_date?: string;
+    } = {
+      limit: filterForm.page_size,
+      offset: (filterForm.page - 1) * filterForm.page_size,
       start_date: filterForm.start_date,
-      end_date: filterForm.end_date,
-      limit: filterForm.limit,
-      offset: filterForm.offset
+      end_date: filterForm.end_date
     }
     
-    // 添加可选过滤条件
-    if (filterForm.school_id) params.school_id = filterForm.school_id
-    if (filterForm.region) params.region = filterForm.region
-    if (filterForm.cp) params.cp = filterForm.cp
+    // 添加可选参数
+    if (filterForm.school_id) {
+      params.school_id = filterForm.school_id
+    }
     
-    console.log('学校ID筛选条件:', filterForm.school_id)
+    if (filterForm.region) {
+      params.region = filterForm.region
+    }
+    
+    if (filterForm.cp) {
+      params.cp = filterForm.cp
+    }
     
     console.log('最终请求参数:', params)
     
-    // 尝试使用API获取数据
-    const response = await api.settlement.getSettlements(params)
-    console.log('结算数据原始响应:', response)
+    // 发送请求
+    const response = await api.getSettlements(params) as ApiResponse<SettlementListResponse>
+    console.log('结算数据响应:', response)
     
-    // 处理数据
-    let items = []
-    let total = 0
-    
-    if (response && response.code === 200) {
-      if (response.data) {
-        // 正确的数据结构：data.items
-        if (Array.isArray(response.data.items)) {
-          items = response.data.items
-          total = response.data.total || 0
-          console.log('使用新结构数据:', items.length, '条记录')
-        }
-        // 兼容旧的数据结构：data直接是数组
-        else if (Array.isArray(response.data)) {
-          items = response.data
-          total = items.length
-          console.log('使用直接数组数据:', items.length, '条记录')
-        }
-      }
+    // 检查响应状态
+    if (response && response.code === 0) {
+      settlementData.value = response.data || { items: [], total: 0 }
+      console.log('结算数据设置为:', settlementData.value)
+    } else {
+      console.error('获取结算数据失败:', response)
+      ElMessage.error('获取结算数据失败: ' + (response?.message || '未知错误'))
+      settlementData.value = { items: [], total: 0 }
     }
-    
     // 如果没有数据，显示提示
     if (items.length === 0) {
       console.log('没有找到结算数据')
@@ -450,17 +401,12 @@ const fetchData = async () => {
       const daysDiff = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1
       console.log('日期范围天数:', daysDiff)
       
-      // 不再对结算值进行额外处理
-      // 后端已经返回了最大值，不需要除以天数
-      console.log('多日结算值不需要额外处理')
+      // 如果没有数据，显示提示
+      if (settlementData.value.items.length === 0) {
+        console.log('没有找到结算数据')
+        ElMessage.warning('没有找到符合条件的结算数据')
+      }
     }
-    
-    // 设置数据和总数
-    settlementData.value = {
-      items: items,
-      total: total
-    }
-    console.log('最终数据:', settlementData.value)
   } catch (error) {
     console.error('获取结算数据失败', error)
     ElMessage.error('获取结算数据失败')

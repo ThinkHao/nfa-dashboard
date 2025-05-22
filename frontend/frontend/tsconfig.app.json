@@ -6,9 +6,7 @@
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
     "noImplicitAny": false,
     "skipLibCheck": true,
-    "suppressImplicitAnyIndexErrors": true,
-    "suppressExcessPropertyErrors": true,
-    "noStrictGenericChecks": true,
+    "strict": false,
     "paths": {
       "@/*": ["./src/*"]
     }
