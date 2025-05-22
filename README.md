@@ -2,6 +2,8 @@
 
 NFA Dashboard 是一个用于网络流量分析和结算的仪表板系统。该系统包含前端和后端两部分，前端使用Vue 3 + TypeScript构建，后端使用Go语言开发。
 
+本项目仅支持在Linux服务器上部署。
+
 ## 项目结构
 
 ```
@@ -70,14 +72,12 @@ git push origin v1.0.0
 
 构建完成后，GitHub Release页面会自动生成以下发布包：
 - Linux (amd64/arm64): `nfa-dashboard-linux-amd64.tar.gz` / `nfa-dashboard-linux-arm64.tar.gz`
-- macOS (amd64/arm64): `nfa-dashboard-darwin-amd64.tar.gz` / `nfa-dashboard-darwin-arm64.tar.gz`
-- Windows (amd64): `nfa-dashboard-windows-amd64.zip`
 
 ### 部署方法
 
-#### Linux/macOS部署
+#### Linux部署
 
-1. 下载对应平台的压缩包
+1. 下载对应架构的压缩包（amd64或arm64）
 2. 解压压缩包
    ```bash
    tar -xzf nfa-dashboard-linux-amd64.tar.gz
@@ -105,26 +105,6 @@ git push origin v1.0.0
 - `--db-pass`: 数据库密码
 - `--db-name`: 数据库名称（默认：nfa_v2）
 - `--install-dir`: 安装目录（默认：/opt/nfa-dashboard）
-
-#### Windows部署
-
-1. 下载Windows版压缩包 `nfa-dashboard-windows-amd64.zip`
-2. 解压压缩包
-3. 以管理员身份运行部署脚本
-   ```
-   cd scripts
-   
-   # 安装
-   deploy.bat install --domain example.com --db-host localhost --db-user root --db-pass password
-   
-   # 更新
-   deploy.bat update
-   
-   # 卸载
-   deploy.bat uninstall
-   ```
-
-Windows版部署脚本支持与Linux/macOS版相同的参数，但安装目录默认为`C:\nfa-dashboard`。
 
 ### 配置管理
 
@@ -160,8 +140,8 @@ Windows版部署脚本支持与Linux/macOS版相同的参数，但安装目录�
 - 磁盘: 10GB可用空间
 
 ### 软件要求
-- Linux/macOS/Windows服务器
-- Nginx (Linux/macOS)
+- Linux服务器
+- Nginx
 - MySQL 5.7或以上
 
 ## 许可证

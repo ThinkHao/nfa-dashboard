@@ -7,15 +7,11 @@ on:
   workflow_dispatch:  # 允许手动触发
 
 jobs:
-  build-all-platforms:
+  build-linux:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        platform: [linux, darwin, windows]
         arch: [amd64, arm64]
-        exclude:
-          - platform: windows
-            arch: arm64  # 排除 Windows ARM64 构建
     steps:
       - uses: actions/checkout@v4
       
@@ -47,7 +43,7 @@ jobs:
       - name: 构建后端
         working-directory: ./backend
         run: |
-          CGO_ENABLED=0 GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} go build -o nfa-dashboard-backend${{ matrix.platform == 'windows' && '.exe' || '' }} main.go
+          CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} go build -o nfa-dashboard-backend main.go
       
       - name: 准备部署文件
         run: |
@@ -59,41 +55,28 @@ jobs:
           cp -r frontend/frontend/dist/* dist/frontend/
           
           # 复制后端构建产物
-          if [ "${{ matrix.platform }}" = "windows" ]; then
-            cp backend/nfa-dashboard-backend.exe dist/backend/
-          else
-            cp backend/nfa-dashboard-backend dist/backend/
-          fi
+          cp backend/nfa-dashboard-backend dist/backend/
           
           # 复制配置文件模板
           cp backend/config/config.yaml dist/backend/config/config.yaml.template
           
           # 复制部署脚本
-          if [ "${{ matrix.platform }}" = "windows" ]; then
-            cp scripts/deploy.bat dist/scripts/
-          else
-            cp scripts/deploy.sh dist/scripts/
-            chmod +x dist/scripts/deploy.sh
-          fi
+          cp scripts/deploy.sh dist/scripts/
+          chmod +x dist/scripts/deploy.sh
           
           # 创建压缩包
-          PACKAGE_NAME=nfa-dashboard-${{ matrix.platform }}-${{ matrix.arch }}
-          if [ "${{ matrix.platform }}" = "windows" ]; then
-            (cd dist && zip -r ../${PACKAGE_NAME}.zip .)
-          else
-            tar -czvf ${PACKAGE_NAME}.tar.gz -C dist .
-          fi
+          PACKAGE_NAME=nfa-dashboard-linux-${{ matrix.arch }}
+          tar -czvf ${PACKAGE_NAME}.tar.gz -C dist .
       
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: nfa-dashboard-${{ matrix.platform }}-${{ matrix.arch }}
-          path: |
-            nfa-dashboard-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.platform == 'windows' && 'zip' || 'tar.gz' }}
+          name: nfa-dashboard-linux-${{ matrix.arch }}
+          path: nfa-dashboard-linux-${{ matrix.arch }}.tar.gz
           retention-days: 1
 
   create-release:
-    needs: build-all-platforms
+    needs: build-linux
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -116,6 +99,3 @@ jobs:
           files: |
             nfa-dashboard-linux-amd64/nfa-dashboard-linux-amd64.tar.gz
             nfa-dashboard-linux-arm64/nfa-dashboard-linux-arm64.tar.gz
-            nfa-dashboard-darwin-amd64/nfa-dashboard-darwin-amd64.tar.gz
-            nfa-dashboard-darwin-arm64/nfa-dashboard-darwin-arm64.tar.gz
-            nfa-dashboard-windows-amd64/nfa-dashboard-windows-amd64.zip
