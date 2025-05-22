@@ -105,12 +105,29 @@ import { ElMessage } from 'element-plus'
 import type { SettlementListResponse, Settlement } from '../../types/settlement'
 
 // 学校、地区和运营商数据
-const schools = ref<any[]>([])
+interface School {
+  school_id: string;
+  school_name: string;
+  region?: string;
+  cp?: string;
+}
+
+const schools = ref<School[]>([])
 const regions = ref<string[]>([])
 const cps = ref<string[]>([])
 
 // 筛选表单
-const filterForm = reactive({
+interface FilterForm {
+  school_id: string;
+  region: string;
+  cp: string;
+  start_date: string;
+  end_date: string;
+  page: number;
+  page_size: number;
+}
+
+const filterForm = reactive<FilterForm>({
   school_id: '',
   region: '',
   cp: '',
@@ -137,7 +154,7 @@ const settlementData = ref<SettlementListResponse>({
 })
 
 // 将原始数据转换为 bits/s
-const convertToBitsPerSecond = (bytes) => {
+const convertToBitsPerSecond = (bytes: number): number => {
   // 原始数据需要 *8/60 转换为 bits/s
   // *8 是将字节转换为比特
   // /60 是将每分钟的数据转换为每秒的数据
@@ -148,7 +165,7 @@ const convertToBitsPerSecond = (bytes) => {
 }
 
 // 格式化比特率
-const formatBitRate = (bitsPerSecond, withUnit = true) => {
+const formatBitRate = (bitsPerSecond: number, withUnit = true): string => {
   if (bitsPerSecond === null || bitsPerSecond === undefined) {
     return '0.00 Mbps'
   }
@@ -193,7 +210,7 @@ const fetchBaseData = async () => {
 }
 
 // 加载学校数据
-const loadSchools = async (region = '', cp = '') => {
+const loadSchools = async (region: string = '', cp: string = ''): Promise<void> => {
   try {
     // 清空学校列表，避免显示旧数据
     schools.value = []
@@ -264,33 +281,43 @@ const loadSchools = async (region = '', cp = '') => {
   }
 }
 
-// 当选择省份变化时重新加载学校列表
-const handleRegionChange = (region) => {
-  filterForm.school_id = ''
-  loadSchools(region, filterForm.cp)
-  console.log('基于地区筛选学校:', region, filterForm.cp)
+// 处理地区选择变化
+const handleRegionChange = (region: string): void => {
+  console.log('地区选择变化:', region)
+  // 当地区变化时，重新加载学校列表
+  if (region) {
+    loadSchools(region, filterForm.cp)
+  } else {
+    loadSchools('', filterForm.cp)
+  }
   // 当地区变化时自动刷新数据
   fetchData()
 }
 
-// 当选择运营商变化时重新加载学校列表
-const handleCPChange = (cp) => {
-  filterForm.school_id = ''
-  loadSchools(filterForm.region, cp)
-  console.log('基于运营商筛选学校:', filterForm.region, cp)
+// 处理运营商选择变化
+const handleCPChange = (cp: string): void => {
+  console.log('运营商选择变化:', cp)
+  // 当运营商变化时，重新加载学校列表
+  if (cp) {
+    loadSchools(filterForm.region, cp)
+  } else {
+    loadSchools(filterForm.region, '')
+  }
   // 当运营商变化时自动刷新数据
   fetchData()
 }
 
 // 处理学校选择变化
-const handleSchoolChange = (schoolId) => {
-  console.log('选择学校变化:', schoolId)
+const handleSchoolChange = (schoolId: string): void => {
+  console.log('学校选择变化:', schoolId)
+  // 当学校变化时，可以在这里添加额外的逻辑
+  // 例如，根据学校ID获取更多详细信息等
   // 当学校变化时自动刷新数据
   fetchData()
 }
 
 // 处理日期范围变化
-const handleDateRangeChange = (val) => {
+const handleDateRangeChange = (val: [string, string] | null) => {
   if (val) {
     filterForm.start_date = val[0]
     filterForm.end_date = val[1]
