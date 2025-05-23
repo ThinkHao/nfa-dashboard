@@ -1,8 +1,20 @@
 import axios from 'axios'
 
+// 获取当前主机名和协议
+const getBaseUrl = () => {
+  // 在浏览器环境中使用window.location
+  if (typeof window !== 'undefined') {
+    const { protocol, hostname } = window.location;
+    // 使用与当前页面相同的主机名，但端口使用8081
+    return `${protocol}//${hostname}:8081`;
+  }
+  // 默认值，用于SSR或回退
+  return 'http://localhost:8081';
+};
+
 // 创建axios实例
 const api = axios.create({
-  baseURL: 'http://localhost:8081', // 后端API地址
+  baseURL: getBaseUrl(), // 动态设置后端API地址
   timeout: 60000, // 请求超时时间增加到60秒，以处理大量数据
   maxContentLength: 50 * 1024 * 1024, // 最大内容长度50MB
   maxBodyLength: 50 * 1024 * 1024 // 最大请求体长度50MB

@@ -382,7 +382,55 @@ update_dashboard() {
     
     # 检查前端目录结构
     FRONTEND_SRC="$(dirname "$0")/../frontend"
+    
+    # 修改前端 API 配置
+    echo -e "${BLUE}更新前端 API 配置...${NC}"
+    API_CONFIG_FILE=""
+    
+    if [ -f "$FRONTEND_SRC/frontend/src/api/index.ts" ]; then
+        API_CONFIG_FILE="$FRONTEND_SRC/frontend/src/api/index.ts"
+    elif [ -f "$FRONTEND_SRC/src/api/index.ts" ]; then
+        API_CONFIG_FILE="$FRONTEND_SRC/src/api/index.ts"
+    fi
+    
+    if [ -n "$API_CONFIG_FILE" ]; then
+        echo -e "${BLUE}找到 API 配置文件: $API_CONFIG_FILE${NC}"
+        
+        # 备份原始文件
+        cp "$API_CONFIG_FILE" "${API_CONFIG_FILE}.bak"
+        
+        # 替换硬编码的 localhost 为动态获取的主机名
+        if grep -q "baseURL: 'http://localhost:8081'" "$API_CONFIG_FILE"; then
+            echo -e "${BLUE}替换硬编码的 API 地址...${NC}"
+            sed -i.bak 's|baseURL: \'http://localhost:8081\',|baseURL: window.location.protocol + "//" + window.location.hostname + ":8081",|g' "$API_CONFIG_FILE"
+            rm -f "${API_CONFIG_FILE}.bak"
+        fi
+    else
+        echo -e "${YELLOW}未找到 API 配置文件，跳过更新${NC}"
+    fi
+    
+    # 重新构建前端
+    echo -e "${BLUE}重新构建前端...${NC}"
+    if [ -f "$FRONTEND_SRC/frontend/package.json" ]; then
+        cd "$FRONTEND_SRC/frontend"
+        if command -v npm &> /dev/null; then
+            npm install --production=false && npm run build-only
+        else
+            echo -e "${YELLOW}未找到 npm，跳过前端构建${NC}"
+        fi
+    elif [ -f "$FRONTEND_SRC/package.json" ]; then
+        cd "$FRONTEND_SRC"
+        if command -v npm &> /dev/null; then
+            npm install --production=false && npm run build-only
+        else
+            echo -e "${YELLOW}未找到 npm，跳过前端构建${NC}"
+        fi
+    else
+        echo -e "${YELLOW}未找到前端 package.json，跳过构建${NC}"
+    fi
+    
     # 复制前端文件
+    echo -e "${BLUE}复制前端文件...${NC}"
     rm -rf $INSTALL_DIR/frontend
     mkdir -p $INSTALL_DIR/frontend
     
