@@ -66,7 +66,16 @@
         border
         stripe
         style="width: 100%"
+        empty-text="暂无数据"
       >
+        <!-- 调试信息 -->
+        <template #empty>
+          <div>
+            <p>暂无数据</p>
+            <p v-if="settlementData.items">数据项数量: {{ settlementData.items.length }}</p>
+            <p v-else>数据项为空</p>
+          </div>
+        </template>
         <el-table-column prop="school_name" label="学校名称" min-width="180" />
         <el-table-column prop="region" label="地区" width="120" />
         <el-table-column prop="cp" label="运营商" width="120" />
@@ -75,9 +84,21 @@
             {{ scope.row.settlement_value ? formatBitRate(convertToBitsPerSecond(scope.row.settlement_value), false) : '0.00' }}
           </template>
         </el-table-column>
-        <el-table-column v-if="dateRange && dateRange[0] !== dateRange[1]" label="时间范围" width="200">
+        <el-table-column label="时间范围" width="200">
           <template #default="scope">
-            {{ dateRange ? `${dateRange[0]} 至 ${dateRange[1]}` : '-' }}
+            <span v-if="scope.row.settlement_date && typeof scope.row.settlement_date === 'string' && (!dateRange || dateRange[0] === dateRange[1])">
+              {{ formatDateDisplay(scope.row.settlement_date) }}
+            </span>
+            <span v-else-if="scope.row.settlement_date && typeof scope.row.settlement_date === 'string' && dateRange && dateRange[0] !== dateRange[1]">
+              {{ dateRange[0] }} 至 {{ dateRange[1] }}
+            </span>
+            <span v-else-if="dateRange && dateRange[0] === dateRange[1]">
+              {{ dateRange[0] }}
+            </span>
+            <span v-else-if="dateRange">
+              {{ dateRange[0] }} 至 {{ dateRange[1] }}
+            </span>
+            <span v-else>-</span>
           </template>
         </el-table-column>
       </el-table>
@@ -181,6 +202,24 @@ const formatBitRate = (bitsPerSecond: number | null | undefined, withUnit = true
   const mbps = bitsPerSecond / 1000000
   
   return withUnit ? `${mbps.toFixed(2)} Mbps` : mbps.toFixed(2)
+}
+
+// 格式化日期显示
+const formatDateDisplay = (dateStr: string): string => {
+  // 如果包含时间部分，只返回日期部分
+  if (dateStr.includes(' ')) {
+    return dateStr.split(' ')[0]
+  }
+  
+  // 如果包含时区信息，去除时区信息
+  if (dateStr.includes('T')) {
+    // 处理ISO格式日期
+    const parts = dateStr.split('T')
+    return parts[0]
+  }
+  
+  // 如果是纯日期格式，直接返回
+  return dateStr
 }
 
 // 获取基础数据
@@ -329,11 +368,13 @@ const fetchData = async () => {
       start_date?: string;
       end_date?: string;
     } = {
-      limit: filterForm.page_size,
-      offset: (filterForm.page - 1) * filterForm.page_size,
+      limit: pageSize.value,
+      offset: (currentPage.value - 1) * pageSize.value,
       start_date: filterForm.start_date,
       end_date: filterForm.end_date
     }
+    
+    console.log('分页参数:', { 页码: currentPage.value, 每页条数: pageSize.value, offset: (currentPage.value - 1) * pageSize.value })
     
     // 添加可选参数
     if (filterForm.school_id) {
@@ -355,16 +396,53 @@ const fetchData = async () => {
     console.log('结算数据响应:', response)
     
     // 检查响应状态
-    if (response && response.code === 0) {
-      settlementData.value = response.data || { items: [], total: 0 }
-      console.log('结算数据设置为:', settlementData.value)
+    if (response && (response.code === 0 || response.code === 200)) {
+      console.log('原始响应数据:', JSON.stringify(response.data))
+      
+      // 直接使用后端返回的数据结构
+      if (response.data && typeof response.data === 'object') {
+        // 如果数据是数组，将其包装为预期的结构
+        if (Array.isArray(response.data)) {
+          settlementData.value = { items: response.data, total: response.data.length }
+          console.log('将数组转换为预期结构:', settlementData.value)
+        } 
+        // 如果数据已经有items属性，直接使用
+        else if (response.data.items && Array.isArray(response.data.items)) {
+          settlementData.value = response.data
+          console.log('使用现有items结构:', settlementData.value)
+        } 
+        // 如果数据是单个对象，将其包装为数组
+        else {
+          settlementData.value = { items: [response.data], total: 1 }
+          console.log('将单个对象转换为预期结构:', settlementData.value)
+        }
+      } else {
+        settlementData.value = { items: [], total: 0 }
+        console.log('数据为空或不是对象:', response.data)
+      }
+      
+      // 检查数据结构
+      if (settlementData.value.items && Array.isArray(settlementData.value.items)) {
+        console.log('结算数据项目数量:', settlementData.value.items.length)
+        if (settlementData.value.items.length > 0) {
+          console.log('第一个数据项:', JSON.stringify(settlementData.value.items[0]))
+        }
+      } else {
+        console.error('数据结构不符合预期:', settlementData.value)
+        // 尝试修复数据结构
+        if (typeof settlementData.value === 'object' && !settlementData.value.items) {
+          settlementData.value = { items: [settlementData.value], total: 1 }
+          console.log('尝试修复后的数据:', settlementData.value)
+        }
+      }
     } else {
       console.error('获取结算数据失败:', response)
       ElMessage.error('获取结算数据失败: ' + (response?.message || '未知错误'))
       settlementData.value = { items: [], total: 0 }
     }
+    
     // 如果没有数据，显示提示
-    if (items.length === 0) {
+    if (!settlementData.value.items || settlementData.value.items.length === 0) {
       console.log('没有找到结算数据')
       ElMessage.warning(`没有找到${filterForm.start_date}至${filterForm.end_date}的结算数据`)
       
@@ -373,8 +451,8 @@ const fetchData = async () => {
         const queryParams = new URLSearchParams()
         queryParams.append('start_date', filterForm.start_date)
         queryParams.append('end_date', filterForm.end_date)
-        queryParams.append('limit', String(filterForm.limit))
-        queryParams.append('offset', String(filterForm.offset))
+        queryParams.append('limit', String(pageSize.value))
+        queryParams.append('offset', String((currentPage.value - 1) * pageSize.value))
         
         if (filterForm.school_name) queryParams.append('school_name', filterForm.school_name)
         if (filterForm.region) queryParams.append('region', filterForm.region)
@@ -389,9 +467,9 @@ const fetchData = async () => {
         
         if (fetchData && fetchData.code === 200 && fetchData.data) {
           if (Array.isArray(fetchData.data.items)) {
-            items = fetchData.data.items
-            total = fetchData.data.total || 0
-            console.log('直接请求获取数据成功:', items.length, '条记录')
+            settlementData.value.items = fetchData.data.items
+            settlementData.value.total = fetchData.data.total || 0
+            console.log('直接请求获取数据成功:', settlementData.value.items.length, '条记录')
           }
         }
       } catch (fetchError) {
