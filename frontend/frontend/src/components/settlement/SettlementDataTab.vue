@@ -345,7 +345,7 @@ const fetchData = async () => {
     console.log('最终请求参数:', params)
     
     // 发送请求
-    const response = await api.getSettlements(params) as ApiResponse<SettlementListResponse>
+    const response = await api.settlement.getSettlements(params) as ApiResponse<SettlementListResponse>
     console.log('结算数据响应:', response)
     
     // 检查响应状态

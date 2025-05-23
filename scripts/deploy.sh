@@ -402,7 +402,7 @@ update_dashboard() {
         # 替换硬编码的 localhost 为动态获取的主机名
         if grep -q "baseURL: 'http://localhost:8081'" "$API_CONFIG_FILE"; then
             echo -e "${BLUE}替换硬编码的 API 地址...${NC}"
-            sed -i.bak 's|baseURL: \'http://localhost:8081\',|baseURL: window.location.protocol + "//" + window.location.hostname + ":8081",|g' "$API_CONFIG_FILE"
+            sed -i.bak "s|baseURL: 'http://localhost:8081'|baseURL: window.location.protocol + \"//\" + window.location.hostname + \":8081\"|g" "$API_CONFIG_FILE"
             rm -f "${API_CONFIG_FILE}.bak"
         fi
     else
