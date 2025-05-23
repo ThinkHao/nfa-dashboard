@@ -79,6 +79,35 @@ check_dependencies() {
 configure_database() {
     echo -e "${BLUE}配置数据库连接...${NC}"
     
+    # 检查配置文件是否存在，如果不存在但有模板文件，则复制模板
+    if [ ! -f "$INSTALL_DIR/backend/config/config.yaml" ]; then
+        if [ -f "$INSTALL_DIR/backend/config/config.yaml.template" ]; then
+            echo -e "${BLUE}使用配置模板创建配置文件...${NC}"
+            cp "$INSTALL_DIR/backend/config/config.yaml.template" "$INSTALL_DIR/backend/config/config.yaml"
+        else
+            echo -e "${RED}错误: 找不到配置文件或模板${NC}"
+            echo -e "${YELLOW}创建默认配置文件...${NC}"
+            mkdir -p "$INSTALL_DIR/backend/config"
+            cat > "$INSTALL_DIR/backend/config/config.yaml" << EOL
+server:
+  port: 8081
+
+database:
+  host: localhost
+  port: 3306
+  username: root
+  password: 
+  dbname: nfa_v2
+
+redis:
+  host: localhost
+  port: 6379
+  password: ""
+  db: 0
+EOL
+        fi
+    fi
+    
     # 替换配置文件中的数据库信息
     sed -i.bak "s/host:.*/host: $DB_HOST/g" $INSTALL_DIR/backend/config/config.yaml
     sed -i.bak "s/port:.*/port: $DB_PORT/g" $INSTALL_DIR/backend/config/config.yaml
@@ -194,17 +223,38 @@ install_dashboard() {
     
     # 创建安装目录
     mkdir -p $INSTALL_DIR
+    mkdir -p $INSTALL_DIR/frontend
+    mkdir -p $INSTALL_DIR/backend/config
     
     # 复制文件到安装目录
     echo -e "${BLUE}复制文件到安装目录...${NC}"
     
-    # 复制前端文件
-    mkdir -p $INSTALL_DIR/frontend
-    cp -r "$(dirname "$0")/../frontend"/* $INSTALL_DIR/frontend/
+    # 检查前端目录结构
+    FRONTEND_SRC="$(dirname "$0")/../frontend"
+    if [ -d "$FRONTEND_SRC/frontend/dist" ]; then
+        # 新结构: frontend/frontend/dist
+        cp -r "$FRONTEND_SRC/frontend/dist"/* $INSTALL_DIR/frontend/
+    elif [ -d "$FRONTEND_SRC/dist" ]; then
+        # 旧结构: frontend/dist
+        cp -r "$FRONTEND_SRC/dist"/* $INSTALL_DIR/frontend/
+    else
+        # 直接复制所有前端文件
+        cp -r "$FRONTEND_SRC"/* $INSTALL_DIR/frontend/
+    fi
     
-    # 复制后端文件
-    mkdir -p $INSTALL_DIR/backend
-    cp -r "$(dirname "$0")/../backend"/* $INSTALL_DIR/backend/
+    # 检查后端目录结构
+    BACKEND_SRC="$(dirname "$0")/../backend"
+    # 复制后端可执行文件
+    if [ -f "$BACKEND_SRC/nfa-dashboard-backend" ]; then
+        cp "$BACKEND_SRC/nfa-dashboard-backend" $INSTALL_DIR/backend/
+    fi
+    
+    # 复制配置文件模板
+    if [ -f "$BACKEND_SRC/config/config.yaml.template" ]; then
+        cp "$BACKEND_SRC/config/config.yaml.template" $INSTALL_DIR/backend/config/
+    elif [ -f "$BACKEND_SRC/config/config.yaml" ]; then
+        cp "$BACKEND_SRC/config/config.yaml" $INSTALL_DIR/backend/config/config.yaml.template
+    fi
     
     # 设置可执行权限
     chmod +x $INSTALL_DIR/backend/nfa-dashboard-backend
@@ -251,14 +301,37 @@ update_dashboard() {
     # 复制文件到安装目录
     echo -e "${BLUE}更新文件...${NC}"
     
+    # 检查前端目录结构
+    FRONTEND_SRC="$(dirname "$0")/../frontend"
     # 复制前端文件
     rm -rf $INSTALL_DIR/frontend
     mkdir -p $INSTALL_DIR/frontend
-    cp -r "$(dirname "$0")/../frontend"/* $INSTALL_DIR/frontend/
     
+    if [ -d "$FRONTEND_SRC/frontend/dist" ]; then
+        # 新结构: frontend/frontend/dist
+        cp -r "$FRONTEND_SRC/frontend/dist"/* $INSTALL_DIR/frontend/
+    elif [ -d "$FRONTEND_SRC/dist" ]; then
+        # 旧结构: frontend/dist
+        cp -r "$FRONTEND_SRC/dist"/* $INSTALL_DIR/frontend/
+    else
+        # 直接复制所有前端文件
+        cp -r "$FRONTEND_SRC"/* $INSTALL_DIR/frontend/
+    fi
+    
+    # 检查后端目录结构
+    BACKEND_SRC="$(dirname "$0")/../backend"
     # 复制后端文件（保留config目录）
     find $INSTALL_DIR/backend -type f -not -path "*/config/*" -delete
-    cp -r "$(dirname "$0")/../backend"/* $INSTALL_DIR/backend/
+    
+    # 复制后端可执行文件
+    if [ -f "$BACKEND_SRC/nfa-dashboard-backend" ]; then
+        cp "$BACKEND_SRC/nfa-dashboard-backend" $INSTALL_DIR/backend/
+    fi
+    
+    # 复制配置文件模板（如果不存在配置文件）
+    if [ ! -f "$INSTALL_DIR/backend/config/config.yaml" ] && [ -f "$BACKEND_SRC/config/config.yaml.template" ]; then
+        cp "$BACKEND_SRC/config/config.yaml.template" $INSTALL_DIR/backend/config/config.yaml.template
+    fi
     
     # 恢复配置文件
     echo -e "${BLUE}恢复配置文件...${NC}"

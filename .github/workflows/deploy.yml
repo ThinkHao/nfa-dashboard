@@ -45,6 +45,19 @@ jobs:
         run: |
           CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} go build -o nfa-dashboard-backend main.go
       
+      - name: 获取版本号
+        id: get_version
+        run: |
+          # 从标签获取版本号，如果有标签
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          else
+            # 如果没有标签，使用时间戳
+            VERSION=dev-$(date +'%Y%m%d%H%M')
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "版本号: $VERSION"
+      
       - name: 准备部署文件
         run: |
           mkdir -p dist/frontend
@@ -64,15 +77,15 @@ jobs:
           cp scripts/deploy.sh dist/scripts/
           chmod +x dist/scripts/deploy.sh
           
-          # 创建压缩包
-          PACKAGE_NAME=nfa-dashboard-linux-${{ matrix.arch }}
+          # 创建带版本号的压缩包
+          PACKAGE_NAME=nfa-dashboard-${{ steps.get_version.outputs.VERSION }}-linux-${{ matrix.arch }}
           tar -czvf ${PACKAGE_NAME}.tar.gz -C dist .
       
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: nfa-dashboard-linux-${{ matrix.arch }}
-          path: nfa-dashboard-linux-${{ matrix.arch }}.tar.gz
+          name: nfa-dashboard-${{ steps.get_version.outputs.VERSION }}-linux-${{ matrix.arch }}
+          path: nfa-dashboard-${{ steps.get_version.outputs.VERSION }}-linux-${{ matrix.arch }}.tar.gz
           retention-days: 1
 
   create-release:
@@ -97,5 +110,5 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            nfa-dashboard-linux-amd64/nfa-dashboard-linux-amd64.tar.gz
-            nfa-dashboard-linux-arm64/nfa-dashboard-linux-arm64.tar.gz
+            nfa-dashboard-${{ steps.get_version.outputs.VERSION }}-linux-amd64/nfa-dashboard-${{ steps.get_version.outputs.VERSION }}-linux-amd64.tar.gz
+            nfa-dashboard-${{ steps.get_version.outputs.VERSION }}-linux-arm64/nfa-dashboard-${{ steps.get_version.outputs.VERSION }}-linux-arm64.tar.gz
