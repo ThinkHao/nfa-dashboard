@@ -125,7 +125,31 @@ EOL
 configure_nginx() {
     echo -e "${BLUE}配置Nginx...${NC}"
     
+    # 检查Nginx是否安装
+    if ! command -v nginx &> /dev/null; then
+        echo -e "${YELLOW}警告: Nginx未安装，跳过Nginx配置${NC}"
+        return 0
+    fi
+    
+    # 检查Nginx配置目录是否存在
+    NGINX_CONF_DIR="/etc/nginx/conf.d"
+    if [ ! -d "$NGINX_CONF_DIR" ]; then
+        echo -e "${YELLOW}警告: Nginx配置目录 $NGINX_CONF_DIR 不存在${NC}"
+        # 尝试其他常见的Nginx配置目录
+        for dir in "/etc/nginx/sites-available" "/etc/nginx/sites-enabled" "/usr/local/etc/nginx/conf.d"; do
+            if [ -d "$dir" ]; then
+                NGINX_CONF_DIR="$dir"
+                echo -e "${BLUE}使用替代Nginx配置目录: $NGINX_CONF_DIR${NC}"
+                break
+            fi
+        done
+    fi
+    
+    # 更新Nginx配置文件路径
+    NGINX_CONF="$NGINX_CONF_DIR/nfa-dashboard.conf"
+    
     # 创建Nginx配置
+    mkdir -p "$(dirname "$NGINX_CONF")"
     cat > $NGINX_CONF << EOL
 server {
     listen 80;
@@ -147,8 +171,17 @@ server {
 }
 EOL
     
-    # 检查Nginx配置并重新加载
-    nginx -t && systemctl reload nginx
+    # 检查Nginx配置
+    if nginx -t; then
+        # 尝试重新加载Nginx
+        if systemctl is-active --quiet nginx; then
+            systemctl reload nginx || echo -e "${YELLOW}警告: 无法重新加载Nginx，请手动重启${NC}"
+        else
+            systemctl start nginx || echo -e "${YELLOW}警告: 无法启动Nginx，请手动启动${NC}"
+        fi
+    else
+        echo -e "${RED}错误: Nginx配置测试失败${NC}"
+    fi
     
     echo -e "${GREEN}Nginx配置完成${NC}"
 }
@@ -157,7 +190,22 @@ EOL
 configure_systemd() {
     echo -e "${BLUE}配置系统服务...${NC}"
     
+    # 检查是否使用systemd
+    if ! command -v systemctl &> /dev/null; then
+        echo -e "${YELLOW}警告: 系统不支持systemd，跳过服务配置${NC}"
+        echo -e "${YELLOW}请手动启动后端服务: $INSTALL_DIR/backend/nfa-dashboard-backend${NC}"
+        return 0
+    fi
+    
+    # 检查systemd服务目录
+    SYSTEMD_DIR="/etc/systemd/system"
+    if [ ! -d "$SYSTEMD_DIR" ]; then
+        echo -e "${RED}错误: systemd服务目录不存在${NC}"
+        return 1
+    fi
+    
     # 创建systemd服务文件
+    mkdir -p "$(dirname "$SYSTEMD_SERVICE")"
     cat > $SYSTEMD_SERVICE << EOL
 [Unit]
 Description=NFA Dashboard Backend Service
@@ -175,10 +223,17 @@ RestartSec=5
 WantedBy=multi-user.target
 EOL
     
+    # 设置正确的权限
+    chmod 644 $SYSTEMD_SERVICE
+    
     # 重新加载systemd配置
-    systemctl daemon-reload
+    systemctl daemon-reload || {
+        echo -e "${RED}错误: 无法重新加载systemd配置${NC}"
+        return 1
+    }
     
     echo -e "${GREEN}系统服务配置完成${NC}"
+    return 0
 }
 
 # 检查必要的文件和目录是否存在
@@ -270,8 +325,19 @@ install_dashboard() {
     
     # 启动服务
     echo -e "${BLUE}启动服务...${NC}"
-    systemctl enable $SERVICE_NAME
-    systemctl start $SERVICE_NAME
+    if command -v systemctl &> /dev/null; then
+        systemctl enable $SERVICE_NAME || echo -e "${YELLOW}警告: 无法启用服务${NC}"
+        systemctl start $SERVICE_NAME || {
+            echo -e "${RED}错误: 无法启动服务${NC}"
+            echo -e "${YELLOW}尝试手动启动后端...${NC}"
+            nohup $INSTALL_DIR/backend/nfa-dashboard-backend > /var/log/nfa-dashboard.log 2>&1 &
+            echo -e "${GREEN}后端服务已手动启动${NC}"
+        }
+    else
+        echo -e "${YELLOW}系统不支持systemd，手动启动后端...${NC}"
+        nohup $INSTALL_DIR/backend/nfa-dashboard-backend > /var/log/nfa-dashboard.log 2>&1 &
+        echo -e "${GREEN}后端服务已手动启动${NC}"
+    fi
     
     echo -e "${GREEN}NFA Dashboard 安装完成!${NC}"
     echo -e "您可以通过访问 http://$DOMAIN 来使用 NFA Dashboard"
@@ -345,7 +411,18 @@ update_dashboard() {
     
     # 启动服务
     echo -e "${BLUE}启动服务...${NC}"
-    systemctl start $SERVICE_NAME
+    if command -v systemctl &> /dev/null; then
+        systemctl start $SERVICE_NAME || {
+            echo -e "${RED}错误: 无法启动服务${NC}"
+            echo -e "${YELLOW}尝试手动启动后端...${NC}"
+            nohup $INSTALL_DIR/backend/nfa-dashboard-backend > /var/log/nfa-dashboard.log 2>&1 &
+            echo -e "${GREEN}后端服务已手动启动${NC}"
+        }
+    else
+        echo -e "${YELLOW}系统不支持systemd，手动启动后端...${NC}"
+        nohup $INSTALL_DIR/backend/nfa-dashboard-backend > /var/log/nfa-dashboard.log 2>&1 &
+        echo -e "${GREEN}后端服务已手动启动${NC}"
+    fi
     
     echo -e "${GREEN}NFA Dashboard 更新完成!${NC}"
 }
