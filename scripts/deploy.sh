@@ -155,18 +155,31 @@ server {
     listen 80;
     server_name $DOMAIN;
     
+    # 设置跨域头
+    add_header Access-Control-Allow-Origin *;
+    add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS';
+    add_header Access-Control-Allow-Headers 'DNT,X-Mx-ReqToken,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Authorization';
+    
+    # 处理OPTIONS请求
+    if (\$request_method = 'OPTIONS') {
+        return 204;
+    }
+    
     location / {
         root $INSTALL_DIR/frontend;
         index index.html;
         try_files \$uri \$uri/ /index.html;
     }
     
+    # 代理所有API请求到后端服务
     location /api/ {
         proxy_pass http://localhost:8081/;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 75s;
     }
 }
 EOL
