@@ -152,16 +152,59 @@ EOL
     echo -e "${GREEN}系统服务配置完成${NC}"
 }
 
+# 检查必要的文件和目录是否存在
+check_files() {
+    # 检查前端目录
+    if [ ! -d "$(dirname "$0")/../frontend" ]; then
+        echo -e "${RED}错误: 找不到前端目录${NC}"
+        return 1
+    fi
+    
+    # 检查后端目录
+    if [ ! -d "$(dirname "$0")/../backend" ]; then
+        echo -e "${RED}错误: 找不到后端目录${NC}"
+        return 1
+    fi
+    
+    # 检查后端可执行文件
+    if [ ! -f "$(dirname "$0")/../backend/nfa-dashboard-backend" ]; then
+        echo -e "${RED}错误: 找不到后端可执行文件${NC}"
+        return 1
+    fi
+    
+    # 检查配置文件
+    if [ ! -f "$(dirname "$0")/../backend/config/config.yaml.template" ] && [ ! -f "$(dirname "$0")/../backend/config/config.yaml" ]; then
+        echo -e "${RED}错误: 找不到配置文件${NC}"
+        return 1
+    fi
+    
+    return 0
+}
+
 # 安装NFA Dashboard
 install_dashboard() {
     echo -e "${BLUE}开始安装 NFA Dashboard...${NC}"
     
+    # 检查必要的文件和目录
+    if ! check_files; then
+        echo -e "${RED}错误: 缺少必要的文件或目录${NC}"
+        echo -e "${YELLOW}请确保您在解压缩包后的正确目录中运行此脚本${NC}"
+        exit 1
+    fi
+    
     # 创建安装目录
     mkdir -p $INSTALL_DIR
     
-    # 解压文件到安装目录
-    echo -e "${BLUE}解压文件到安装目录...${NC}"
-    tar -xzf $(dirname "$0")/../nfa-dashboard.tar.gz -C $INSTALL_DIR
+    # 复制文件到安装目录
+    echo -e "${BLUE}复制文件到安装目录...${NC}"
+    
+    # 复制前端文件
+    mkdir -p $INSTALL_DIR/frontend
+    cp -r "$(dirname "$0")/../frontend"/* $INSTALL_DIR/frontend/
+    
+    # 复制后端文件
+    mkdir -p $INSTALL_DIR/backend
+    cp -r "$(dirname "$0")/../backend"/* $INSTALL_DIR/backend/
     
     # 设置可执行权限
     chmod +x $INSTALL_DIR/backend/nfa-dashboard-backend
@@ -188,6 +231,13 @@ install_dashboard() {
 update_dashboard() {
     echo -e "${BLUE}开始更新 NFA Dashboard...${NC}"
     
+    # 检查必要的文件和目录
+    if ! check_files; then
+        echo -e "${RED}错误: 缺少必要的文件或目录${NC}"
+        echo -e "${YELLOW}请确保您在解压缩包后的正确目录中运行此脚本${NC}"
+        exit 1
+    fi
+    
     # 备份配置文件
     echo -e "${BLUE}备份配置文件...${NC}"
     if [ -f $INSTALL_DIR/backend/config/config.yaml ]; then
@@ -198,9 +248,17 @@ update_dashboard() {
     echo -e "${BLUE}停止服务...${NC}"
     systemctl stop $SERVICE_NAME || true
     
-    # 解压文件到安装目录
+    # 复制文件到安装目录
     echo -e "${BLUE}更新文件...${NC}"
-    tar -xzf $(dirname "$0")/../nfa-dashboard.tar.gz -C $INSTALL_DIR
+    
+    # 复制前端文件
+    rm -rf $INSTALL_DIR/frontend
+    mkdir -p $INSTALL_DIR/frontend
+    cp -r "$(dirname "$0")/../frontend"/* $INSTALL_DIR/frontend/
+    
+    # 复制后端文件（保留config目录）
+    find $INSTALL_DIR/backend -type f -not -path "*/config/*" -delete
+    cp -r "$(dirname "$0")/../backend"/* $INSTALL_DIR/backend/
     
     # 恢复配置文件
     echo -e "${BLUE}恢复配置文件...${NC}"
