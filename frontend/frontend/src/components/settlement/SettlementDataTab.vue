@@ -189,8 +189,9 @@ const fetchBaseData = async () => {
     // 获取地区列表
     const regionsResponse = await api.getRegions() as ApiResponse<string[]>
     console.log('地区列表原始响应:', regionsResponse)
-    if (regionsResponse && regionsResponse.code === 0 && regionsResponse.data) {
-      regions.value = regionsResponse.data
+    if (regionsResponse && (regionsResponse.code === 0 || regionsResponse.code === 200) && regionsResponse.data) {
+      // 过滤掉 "NULL" 值
+      regions.value = regionsResponse.data.filter(region => region !== "NULL")
       console.log('地区列表设置为:', regions.value)
     } else {
       console.error('地区列表数据为空')
@@ -200,8 +201,9 @@ const fetchBaseData = async () => {
     // 获取运营商列表
     const cpsResponse = await api.getCPs() as ApiResponse<string[]>
     console.log('运营商列表原始响应:', cpsResponse)
-    if (cpsResponse && cpsResponse.code === 0 && cpsResponse.data) {
-      cps.value = cpsResponse.data
+    if (cpsResponse && (cpsResponse.code === 0 || cpsResponse.code === 200) && cpsResponse.data) {
+      // 过滤掉 "NULL" 值
+      cps.value = cpsResponse.data.filter(cp => cp !== "NULL")
       console.log('运营商列表设置为:', cps.value)
     } else {
       console.error('运营商列表数据为空')
@@ -223,11 +225,9 @@ const loadSchools = async (region: string = '', cp: string = ''): Promise<void> 
     schools.value = []
     
     // 构建请求参数
-    const params: PaginationParams & { region?: string; cp?: string } = {
-      limit: 1000 // 设置较大的限制，获取所有学校
-    }
+    const params: { region?: string; cp?: string; limit?: number; offset?: number } = {}
     
-    // 添加过滤条件
+    // 添加可选参数
     if (region) {
       params.region = region
     }
@@ -236,22 +236,28 @@ const loadSchools = async (region: string = '', cp: string = ''): Promise<void> 
       params.cp = cp
     }
     
-    // 发送请求获取学校列表
+    // 分页参数
+    params.limit = 1000 // 获取足够多的学校数据
+    params.offset = 0
+    
     const response = await api.getSchools(params) as ApiResponse<{ items: School[]; total: number }>
     console.log('学校列表原始响应:', response)
     
     // 检查响应状态
-    if (response && response.code === 0 && response.data) {
+    if (response && (response.code === 0 || response.code === 200) && response.data) {
       schools.value = response.data.items || []
       console.log('学校列表设置为:', schools.value)
+      return response.data.total || 0
     } else {
       console.error('学校列表数据为空')
       schools.value = []
+      return 0
     }
   } catch (error) {
     console.error('获取学校数据失败', error)
     ElMessage.error('获取学校数据失败')
     schools.value = []
+    return 0
   }
 }
 
