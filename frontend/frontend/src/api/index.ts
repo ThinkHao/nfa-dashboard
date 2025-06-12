@@ -109,6 +109,11 @@ export default {
     // 获取结算数据列表
     getSettlements(params?: any) {
       return api.get('/api/v1/settlement/data', { params })
+    },
+
+    // 获取日95明细数据列表
+    getDailySettlementDetails(params?: any) {
+      return api.get('/api/v1/settlement/daily-details', { params })
     }
   }
 }

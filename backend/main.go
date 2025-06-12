@@ -68,6 +68,7 @@ func main() {
 
 			// 结算数据相关接口
 			settlement.GET("/data", settlementController.GetSettlements)
+			settlement.GET("/daily-details", settlementController.GetDailySettlementDetails)
 		}
 	}
 

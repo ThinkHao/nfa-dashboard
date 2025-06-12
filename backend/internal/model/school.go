@@ -45,12 +45,12 @@ func (SchoolTraffic) TableName() string {
 type TrafficResponse struct {
 	CreateTime time.Time `json:"create_time"`
 	SchoolID   string    `json:"school_id,omitempty"`
-	SchoolName string     `json:"school_name,omitempty"`
-	Region     string     `json:"region,omitempty"`
-	CP         string     `json:"cp,omitempty"`
-	TotalRecv  int64      `json:"total_recv"`
-	TotalSend  int64      `json:"total_send"`
-	Total      int64      `json:"total"`
+	SchoolName string    `json:"school_name,omitempty"`
+	Region     string    `json:"region,omitempty"`
+	CP         string    `json:"cp,omitempty"`
+	TotalRecv  int64     `json:"total_recv"`
+	TotalSend  int64     `json:"total_send"`
+	Total      int64     `json:"total"`
 }
 
 // TrafficFilter 流量查询过滤条件

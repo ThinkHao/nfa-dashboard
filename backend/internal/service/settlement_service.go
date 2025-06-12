@@ -34,6 +34,8 @@ type SettlementService interface {
 	ExecuteWeeklySettlement(taskID int64, weekStartDate time.Time) error
 	// 执行周结算任务（支持日期范围）
 	ExecuteWeeklySettlementWithDateRange(taskID int64, startDate, endDate time.Time) error
+	// GetDailySettlementDetails 获取日95明细数据列表
+	GetDailySettlementDetails(filter model.SettlementFilter) ([]model.DailySettlementDetail, int64, error) // 假设 model.DailySettlementDetail 存在
 }
 
 // settlementService 结算服务实现
@@ -298,6 +300,21 @@ func (s *settlementService) ExecuteWeeklySettlement(taskID int64, weekStartDate 
 	// 默认结束日期为开始日期后的6天（一周）
 	weekEndDate := weekStartDate.AddDate(0, 0, 6)
 	return s.ExecuteWeeklySettlementWithDateRange(taskID, weekStartDate, weekEndDate)
+}
+
+// GetDailySettlementDetails 获取日95明细数据列表
+func (s *settlementService) GetDailySettlementDetails(filter model.SettlementFilter) ([]model.DailySettlementDetail, int64, error) {
+	// 如果没有提供日期范围，则默认查询最近一个月的数据
+	if filter.StartDate.IsZero() || filter.EndDate.IsZero() {
+		now := time.Now()
+		filter.EndDate = now
+		// 一个月前
+		filter.StartDate = now.AddDate(0, -1, 0)
+		log.Printf("日95明细查询未提供日期范围，默认查询最近一个月: %s to %s",
+			filter.StartDate.Format("2006-01-02"),
+			filter.EndDate.Format("2006-01-02"))
+	}
+	return s.repo.GetDailySettlementDetails(filter)
 }
 
 // ExecuteWeeklySettlementWithDateRange 执行周结算任务（支持自定义日期范围）

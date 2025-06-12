@@ -296,6 +296,80 @@ func (c *SettlementController) GetSettlements(ctx *gin.Context) {
 	})
 }
 
+// GetDailySettlementDetails 获取日95明细数据列表
+func (c *SettlementController) GetDailySettlementDetails(ctx *gin.Context) {
+	var filter model.SettlementFilter // 可以复用 SettlementFilter，或者为其创建一个新的类型
+
+	// 获取查询参数
+	startDateStr := ctx.Query("start_date")
+	endDateStr := ctx.Query("end_date")
+	filter.SchoolID = ctx.Query("school_id")
+	filter.Region = ctx.Query("region")
+	filter.CP = ctx.Query("cp")
+
+	limitStr := ctx.DefaultQuery("limit", "10")
+	offsetStr := ctx.DefaultQuery("offset", "0")
+
+	// 解析日期
+	var err error
+	if startDateStr != "" {
+		filter.StartDate, err = time.Parse("2006-01-02", startDateStr)
+		if err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"code":    400,
+				"message": "开始日期格式错误，应为YYYY-MM-DD",
+				"error":   err.Error(),
+			})
+			return
+		}
+	}
+
+	if endDateStr != "" {
+		filter.EndDate, err = time.Parse("2006-01-02", endDateStr)
+		if err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"code":    400,
+				"message": "结束日期格式错误，应为YYYY-MM-DD",
+				"error":   err.Error(),
+			})
+			return
+		}
+	}
+
+	// 解析分页参数
+	filter.Limit, err = strconv.Atoi(limitStr)
+	if err != nil {
+		filter.Limit = 10
+	}
+
+	filter.Offset, err = strconv.Atoi(offsetStr)
+	if err != nil {
+		filter.Offset = 0
+	}
+
+	// 获取日95明细数据列表
+	// 注意：这里我们假设 SettlementService 会有一个 GetDailySettlementDetails 方法
+	// 并且返回的数据结构是 []model.DailySettlementDetail 和 total count
+	dailyDetails, total, err := c.settlementService.GetDailySettlementDetails(filter)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": "获取日95明细数据列表失败",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "获取日95明细数据列表成功",
+		"data": gin.H{
+			"total": total,
+			"items": dailyDetails,
+		},
+	})
+}
+
 // CreateDailySettlementTask 创建日结算任务
 func (c *SettlementController) CreateDailySettlementTask(ctx *gin.Context) {
 	// 获取日期参数

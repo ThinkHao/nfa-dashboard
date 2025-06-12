@@ -96,3 +96,23 @@ type SettlementResponse struct {
 	SettlementDate  time.Time `json:"settlement_date"`
 	CreateTime      time.Time `json:"create_time"`
 }
+
+// DailySettlementDetail 对应日95明细数据，可能来自 nfa_school_settlement 或类似表
+// 假设它与 SchoolSettlement 结构相似，但代表单日数据
+type DailySettlementDetail struct {
+	ID             int64     `gorm:"column:id;primaryKey;autoIncrement" json:"id,omitempty"`
+	DailyDate      time.Time `gorm:"column:settlement_date;not null;type:date" json:"daily_date"`
+	SchoolID       string    `gorm:"column:school_id;not null" json:"school_id"`
+	SchoolName     string    `gorm:"column:school_name;not null" json:"school_name"`
+	Region         string    `gorm:"column:region;not null" json:"region"`
+	CP             string    `gorm:"column:cp;not null" json:"cp"`
+	Daily95Value   int64     `gorm:"column:settlement_value;not null;default:0" json:"daily_95_value"` // 对应原始的 settlement_value
+	CreateTime     time.Time `gorm:"column:create_time;not null;default:CURRENT_TIMESTAMP" json:"create_time,omitempty"`
+	// UpdateTime  time.Time `gorm:"column:update_time;not null;default:CURRENT_TIMESTAMP;autoUpdateTime" json:"update_time,omitempty"` // 可选
+}
+
+// TableName 方法可以根据实际情况决定是否需要，如果 DailySettlementDetail 直接映射 nfa_school_settlement，则可以不单独定义
+// func (DailySettlementDetail) TableName() string {
+// 	 return "nfa_school_settlement" // 或者其他表名
+// }
+

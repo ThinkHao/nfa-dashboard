@@ -115,10 +115,10 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 
 	// 记录查询时间信息
 	_ = filter.Interval // 避免未使用警告
-	
+
 	// 计算时间范围分钟数
 	timeMinutes := timeRange.Minutes()
-	
+
 	// 如果前端指定了granularity参数，则使用前端指定的粒度
 	if filter.Granularity != "" {
 		log.Printf("使用前端指定的粒度: %s", filter.Granularity)
@@ -127,11 +127,11 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 		// 始终使用原始5分钟粒度，不进行自动调整
 		filter.Interval = "" // 原始5分钟粒度
 		log.Printf("时间范围为%.2f小时(%.2f分钟)，使用原始5分钟粒度", timeRange.Hours(), timeMinutes)
-		
+
 		// 计算预期数据点数量（每5分钟一个点）
 		expectedPoints := int(timeMinutes/5) + 10 // 每5分钟一个点，加上缓冲
 		log.Printf("预期数据点数量: %d", expectedPoints)
-		
+
 		// 确保返回足够的数据点
 		if expectedPoints > filter.Limit {
 			filter.Limit = expectedPoints
@@ -145,14 +145,14 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 	timeDiffMinutes := filter.EndTime.Sub(filter.StartTime).Minutes()
 	timeDiffHours := timeDiffMinutes / 60
 	timeDiffDays := timeDiffHours / 24
-	
+
 	// 记录原始预期数据点数量
 	filter.OriginalExpectedPoints = int(timeDiffMinutes / 5) // 每5分钟一个数据点
 	log.Printf("预期数据点数量: %d，当前限制: %d", filter.OriginalExpectedPoints, filter.Limit)
 
 	// 检查前端传来的限制值
 	log.Printf("前端请求的数据限制为: %d条", filter.Limit)
-	
+
 	// 根据时间范围确保最小数据量，但不覆盖前端请求的更大限制
 	minLimit := 0
 	if timeDiffDays > 25 { // 超过25天
@@ -169,7 +169,7 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 		minLimit = int(timeDiffMinutes/5) + 100 // 每5分钟一个点，加上缓冲
 		log.Printf("短时间范围查询(%.2f天)，建议最少%d条", timeDiffDays, minLimit)
 	}
-	
+
 	// 使用前端请求的限制和最小限制中的较大值
 	if filter.Limit < minLimit {
 		filter.Limit = minLimit
@@ -181,10 +181,10 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 	// 对于长时间范围，使用更高效的查询策略
 	var query string
 	var args []interface{}
-	
+
 	if timeDiffDays > 14 {
 		// 对于超过14天的查询，使用平均采样策略
-		
+
 		// 计算时间间隔（小时）
 		timeIntervalHours := 1.0 // 默认1小时
 		if timeDiffDays > 25 {
@@ -192,7 +192,7 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 		} else if timeDiffDays > 20 {
 			timeIntervalHours = 2.0 // 20-25天用2小时间隔
 		}
-		
+
 		// 创建带时间间隔的查询
 		query = fmt.Sprintf(`
 			SELECT 
@@ -207,7 +207,7 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 			WHERE create_time BETWEEN ? AND ?
 				AND MOD(HOUR(create_time), %.1f) < 1
 				AND MINUTE(create_time) BETWEEN 0 AND 10`, timeIntervalHours)
-		
+
 		log.Printf("长时间范围查询(%.2f天)，使用%.1f小时间隔采样", timeDiffDays, timeIntervalHours)
 	} else {
 		// 对于14天以内的查询，使用原始查询
@@ -222,7 +222,7 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 				total_send
 			FROM nfa_school_traffic
 			WHERE create_time BETWEEN ? AND ?`
-		
+
 		if timeDiffDays > 7 {
 			// 7-14天，每30分钟采样一个点
 			query += " AND MINUTE(create_time) % 30 < 5"
@@ -233,10 +233,10 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 			log.Printf("短时间范围查询(%.2f天)，使用每15分钟采样", timeDiffDays)
 		}
 	}
-	
+
 	// 初始化参数
 	args = []interface{}{filter.StartTime, filter.EndTime}
-	
+
 	// 添加过滤条件
 	if filter.SchoolName != "" {
 		query += " AND school_name LIKE ?"
@@ -250,13 +250,13 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 		query += " AND cp = ?"
 		args = append(args, filter.CP)
 	}
-	
+
 	// 不使用FORCE INDEX，因为语法位置有问题
 	// 我们的查询已经足够高效，不需要强制指定索引
-	
+
 	// 添加排序
 	query += " ORDER BY create_time ASC"
-	
+
 	// 添加限制
 	if filter.Limit > 0 {
 		query += " LIMIT ?"
@@ -268,13 +268,13 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 
 	// 执行查询
 	log.Printf("查询参数: %v", args)
-	
+
 	// 如果查询的数据量过大，可能需要增加数据库连接超时时间
 	// 创建一个带超时的上下文
 	backgroundCtx := context.Background()
 	ctxWithTimeout, cancel := context.WithTimeout(backgroundCtx, 60*time.Second)
 	defer cancel() // 确保资源释放
-	
+
 	// 使用带超时的上下文执行查询
 	rows, err := model.DB.WithContext(ctxWithTimeout).Raw(query, args...).Rows()
 	if err != nil {
@@ -285,18 +285,18 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 
 	// 使用批量处理来提高性能
 	const batchSize = 1000 // 每批处理的数据量
-	
+
 	// 初始化结果切片，预分配空间以提高性能
 	results = make([]model.TrafficResponse, 0, filter.Limit)
-	
+
 	// 批量计数器
 	batchCount := 0
 	totalCount := 0
 	batchStartTime := time.Now()
-	
+
 	// 创建一个临时批次切片
 	batch := make([]model.TrafficResponse, 0, batchSize)
-	
+
 	// 处理查询结果
 	for rows.Next() {
 		var result model.TrafficResponse
@@ -308,34 +308,34 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 			log.Printf("扫描查询结果时出错: %v", err)
 			continue
 		}
-		
+
 		// 设置创建时间
 		result.CreateTime = createTime
-		
+
 		// 计算总流量
 		result.Total = result.TotalRecv + result.TotalSend
-		
+
 		// 添加到当前批次
 		batch = append(batch, result)
 		batchCount++
 		totalCount++
-		
+
 		// 当批次达到指定大小时，将其添加到结果中
 		if batchCount >= batchSize {
 			// 将当前批次添加到结果中
 			results = append(results, batch...)
-			
+
 			// 记录批处理时间
 			batchDuration := time.Since(batchStartTime)
 			log.Printf("处理了 %d 条数据，耗时 %.2f 秒", batchCount, batchDuration.Seconds())
-			
+
 			// 重置批次
 			batch = make([]model.TrafficResponse, 0, batchSize)
 			batchCount = 0
 			batchStartTime = time.Now()
 		}
 	}
-	
+
 	// 处理最后一批不足batchSize的数据
 	if len(batch) > 0 {
 		results = append(results, batch...)
@@ -353,10 +353,10 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 	if filter.Limit > 0 && len(results) > filter.Limit {
 		results = results[:filter.Limit]
 	}
-	
+
 	// 记录查询结果数量
 	log.Printf("查询到 %d 条数据记录", len(results))
-	
+
 	// 如果没有数据，打印警告
 	if len(results) == 0 {
 		log.Printf("警告: 没有找到符合条件的数据，时间范围: %v 至 %v", filter.StartTime, filter.EndTime)
@@ -364,7 +364,7 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 		var count int64
 		model.DB.Table("nfa_school_traffic").Count(&count)
 		log.Printf("数据库中共有 %d 条数据记录", count)
-		
+
 		// 检查最早和最晚的数据时间
 		var earliest, latest time.Time
 		model.DB.Table("nfa_school_traffic").Select("MIN(create_time)").Row().Scan(&earliest)

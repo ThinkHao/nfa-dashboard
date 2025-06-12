@@ -267,10 +267,13 @@ onMounted(async () => {
       loadCPs()
     ])
     
-    // 加载学校数据（不依赖于地区）
+    // 加载学校数据（不依赖于地区和内容方）
     await loadSchools()
     
-    // 加载流量数据
+    // 加载流量数据，确保默认查询条件下数据正确
+    queryForm.school_name = ''
+    queryForm.region = ''
+    queryForm.cp = ''
     await loadTrafficData()
   } catch (error) {
     console.error('初始化数据失败:', error)
@@ -314,7 +317,7 @@ async function loadSchools(region = '', cp = '') {
     schools.value = []
     
     // 构建请求参数
-    const params = { limit: 100 }
+    const params = { limit: 500 } // 增加限制以获取更多学校
     if (region) {
       params.region = region
     }
@@ -356,7 +359,7 @@ async function loadSchools(region = '', cp = '') {
         // 确保 school.cp 存在，如果不存在则设置为空字符串
         if (!school.cp) school.cp = ''
         
-        // 使用学校名称+地区+运营商作为唯一标识
+        // 使用学校名称+地区+内容方作为唯一标识
         const key = `${school.school_name}_${school.region}_${school.cp}`
         
         // 只保留每个唯一标识的第一个学校
@@ -430,14 +433,30 @@ async function loadTrafficData() {
     
     // 构建查询参数
     const params = {
-      school_name: queryForm.school_name,
-      region: queryForm.region,
-      cp: queryForm.cp,
       start_time: queryForm.start_time,
       end_time: queryForm.end_time,
       limit: limit, // 使用计算出的限制
       offset: 0, // 不使用分页
       granularity: granularity // 指定时间粒度
+    }
+    
+    // 处理学校和内容方的过滤逻辑
+    if (queryForm.region) {
+      params.region = queryForm.region
+    }
+    
+    // 如果选择了学校名称但没有选择内容方，则使用学校名称过滤
+    if (queryForm.school_name) {
+      params.school_name = queryForm.school_name
+      
+      // 如果没有选择内容方，则不添加内容方过滤条件
+      // 这样后端会返回该学校所有内容方的数据
+      if (queryForm.cp) {
+        params.cp = queryForm.cp
+      }
+    } else if (queryForm.cp) {
+      // 如果只选择了内容方而没有选择学校，则使用内容方过滤
+      params.cp = queryForm.cp
     }
     
     // 在图表上显示当前使用的粒度
@@ -480,8 +499,39 @@ async function loadTrafficData() {
         return itemTime >= startDate.getTime() && itemTime <= endDate.getTime()
       })
       
-      trafficData.value = filteredData
-      total.value = filteredData.length
+      // 如果选择了学校名称但没有选择内容方，需要对数据进行特殊处理
+      let finalData = filteredData
+      if (queryForm.school_name && !queryForm.cp) {
+        console.log('检测到选择了学校但未选择内容方，将进行数据合并处理')
+        
+        // 按时间点分组数据
+        const dataByTime = {}
+        filteredData.forEach(item => {
+          const timeKey = item.create_time
+          if (!dataByTime[timeKey]) {
+            dataByTime[timeKey] = {
+              create_time: timeKey,
+              school_name: queryForm.school_name,
+              region: item.region || '',
+              total_recv: 0,
+              total_send: 0,
+              // 保留其他必要字段
+              time_str: item.time_str || timeKey
+            }
+          }
+          
+          // 累加流量数据
+          dataByTime[timeKey].total_recv += Number(item.total_recv) || 0
+          dataByTime[timeKey].total_send += Number(item.total_send) || 0
+        })
+        
+        // 转换回数组形式
+        finalData = Object.values(dataByTime)
+        console.log(`合并后的数据点数量: ${finalData.length}, 原始数据点数量: ${filteredData.length}`)
+      }
+      
+      trafficData.value = finalData
+      total.value = finalData.length
       
       console.log(`加载流量数据成功: 原始${res.data.length}条, 处理后${processedData.length}条, 过滤后${filteredData.length}条`)
       
@@ -729,8 +779,8 @@ function formatDate(date, granularity) {
           </ElSelect>
         </ElFormItem>
         
-        <ElFormItem label="运营商">
-          <ElSelect v-model="queryForm.cp" placeholder="选择运营商" clearable @change="handleCPChange">
+        <ElFormItem label="内容方">
+          <ElSelect v-model="queryForm.cp" placeholder="选择内容方" clearable @change="handleCPChange">
             <ElOption 
               v-for="cp in cps" 
               :key="cp" 
@@ -805,20 +855,10 @@ function formatDate(date, granularity) {
         </ElTableColumn>
         <ElTableColumn prop="school_name" label="学校名称" />
         <ElTableColumn prop="region" label="地区" />
-        <ElTableColumn prop="cp" label="运营商" />
-        <ElTableColumn prop="total_recv" label="服务流量">
-          <template #default="scope">
-            {{ formatTraffic(scope.row.total_recv) }}
-          </template>
-        </ElTableColumn>
+        <ElTableColumn prop="cp" label="内容方" />
         <ElTableColumn prop="total_recv" label="服务流速">
           <template #default="scope">
             {{ formatBitRate(convertToBitsPerSecond(scope.row.total_recv)) }}
-          </template>
-        </ElTableColumn>
-        <ElTableColumn prop="total_send" label="回源流量">
-          <template #default="scope">
-            {{ formatTraffic(scope.row.total_send) }}
           </template>
         </ElTableColumn>
         <ElTableColumn prop="total_send" label="回源流速">

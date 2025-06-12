@@ -4,6 +4,9 @@
       <el-tab-pane label="结算数据" name="data">
         <settlement-data-tab />
       </el-tab-pane>
+      <el-tab-pane label="日95明细" name="dailyDetail">
+        <settlement-daily-detail-tab />
+      </el-tab-pane>
       <el-tab-pane label="结算任务" name="tasks">
         <settlement-tasks-tab />
       </el-tab-pane>
@@ -19,6 +22,7 @@ import { ref } from 'vue'
 import SettlementDataTab from '../components/settlement/SettlementDataTab.vue'
 import SettlementTasksTab from '../components/settlement/SettlementTasksTab.vue'
 import SettlementConfigTab from '../components/settlement/SettlementConfigTab.vue'
+import SettlementDailyDetailTab from '../components/settlement/SettlementDailyDetailTab.vue'
 
 // 当前激活的标签页
 const activeTab = ref('data')
