@@ -1,6 +1,19 @@
 <script setup lang="ts">
 import { RouterLink, RouterView } from 'vue-router'
 import { ElConfigProvider } from 'element-plus'
+import { computed } from 'vue'
+import { useAuthStore } from '@/stores/auth'
+
+const auth = useAuthStore()
+const isAuthed = computed(() => auth.isAuthenticated)
+const canOpLogs = computed(() => auth.hasPermission('operation_logs.read'))
+const canSettlement = computed(() => auth.hasPermission('settlement.calculate'))
+const canSysUser = computed(() => auth.hasPermission('system.user.manage'))
+const canSysRole = computed(() => auth.hasPermission('system.role.manage'))
+
+function onLogout() {
+  auth.logout()
+}
 </script>
 
 <template>
@@ -14,7 +27,14 @@ import { ElConfigProvider } from 'element-plus'
           <RouterLink to="/" class="nav-link">首页</RouterLink>
           <RouterLink to="/traffic" class="nav-link">流量监控</RouterLink>
           <RouterLink to="/schools" class="nav-link">学校管理</RouterLink>
-          <RouterLink to="/settlement" class="nav-link">结算系统</RouterLink>
+          <RouterLink to="/settlement" class="nav-link" v-if="canSettlement">结算系统</RouterLink>
+          <RouterLink to="/operation-logs" class="nav-link" v-if="canOpLogs">操作日志</RouterLink>
+          <RouterLink to="/system/users" class="nav-link" v-if="canSysUser">用户管理</RouterLink>
+          <RouterLink to="/system/roles" class="nav-link" v-if="canSysRole">角色管理</RouterLink>
+          <RouterLink to="/system/permissions" class="nav-link" v-if="canSysRole">权限设置</RouterLink>
+          <RouterLink to="/login" class="nav-link" v-if="!isAuthed">登录</RouterLink>
+          <span class="nav-user" v-if="isAuthed">{{ auth.user?.display_name || auth.user?.username }}</span>
+          <a href="javascript:void(0)" class="nav-link logout" v-if="isAuthed" @click="onLogout">退出</a>
         </nav>
       </header>
       

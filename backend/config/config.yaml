@@ -2,14 +2,19 @@ server:
   port: 8081
 
 database:
-  host: fxdata-sql.rwlb.rds.aliyuncs.com
+  host: 192.168.7.39
   port: 3306
-  username: root4nfa
-  password: atz7DGZ_cpn9zfw2rvt
-  dbname: nfa_v2
+  username: root
+  password: mysql_ht8Zic
+  dbname: nfa
 
 redis:
   host: localhost
   port: 6379
   password: ""
   db: 0
+ 
+auth:
+  secret: "dev-secret-change-me"
+  access_token_ttl_minutes: 60
+  refresh_token_ttl_minutes: 43200
