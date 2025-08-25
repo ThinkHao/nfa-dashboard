@@ -48,6 +48,7 @@ func (ctl *SystemUserController) ListUsers(c *gin.Context) {
 func (ctl *SystemUserController) CreateUser(c *gin.Context) {
 	type reqT struct{
 		Username string   `json:"username" binding:"required"`
+		Alias    *string  `json:"alias"`
 		Password string   `json:"password" binding:"required"`
 		Email    *string  `json:"email"`
 		Phone    *string  `json:"phone"`
@@ -56,7 +57,7 @@ func (ctl *SystemUserController) CreateUser(c *gin.Context) {
 	}
 	var req reqT
 	if err := c.ShouldBindJSON(&req); err != nil { c.JSON(http.StatusBadRequest, gin.H{"message":"invalid request"}); return }
-	u, err := ctl.userSvc.Create(req.Username, req.Password, req.Email, req.Phone, req.Status, req.RoleIDs)
+	u, err := ctl.userSvc.Create(req.Username, req.Alias, req.Password, req.Email, req.Phone, req.Status, req.RoleIDs)
 	if err != nil {
 		if service.IsBadRequest(err) { c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()}); return }
 		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()}); return
@@ -83,6 +84,20 @@ func (ctl *SystemUserController) SetUserRoles(c *gin.Context) {
 	var req reqT
 	if err := c.ShouldBindJSON(&req); err != nil { c.JSON(http.StatusBadRequest, gin.H{"message":"invalid request"}); return }
 	if err := ctl.userSvc.SetRoles(id, req.RoleIDs); err != nil {
+		if service.IsBadRequest(err) { c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()}); return }
+		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()}); return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// PUT /api/v1/system/users/:id/alias
+func (ctl *SystemUserController) UpdateUserAlias(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 { c.JSON(http.StatusBadRequest, gin.H{"message":"invalid id"}); return }
+	type reqT struct{ Alias *string `json:"alias"` }
+	var req reqT
+	if err := c.ShouldBindJSON(&req); err != nil { c.JSON(http.StatusBadRequest, gin.H{"message":"invalid request"}); return }
+	if err := ctl.userSvc.UpdateAlias(id, req.Alias); err != nil {
 		if service.IsBadRequest(err) { c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()}); return }
 		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()}); return
 	}

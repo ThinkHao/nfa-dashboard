@@ -34,7 +34,7 @@
       <el-table :data="items" border stripe height="600px" v-loading="loading">
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="username" label="用户名" width="180" />
-        <el-table-column prop="display_name" label="姓名" width="180" />
+        <el-table-column prop="alias" label="别名" width="180" />
         <el-table-column prop="status" label="状态" width="100">
           <template #default="{ row }">
             <el-tag :type="row.status === 1 ? 'success' : 'info'">{{ row.status === 1 ? '启用' : '禁用' }}</el-tag>
@@ -50,8 +50,9 @@
             <span>{{ formatTime(row.created_at) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="260" fixed="right">
+        <el-table-column label="操作" width="320" fixed="right">
           <template #default="{ row }">
+            <el-button size="small" @click="openEditAlias(row)">编辑别名</el-button>
             <el-button size="small" type="primary" @click="openAssignRoles(row)">分配角色</el-button>
             <el-button
               size="small"
@@ -81,6 +82,9 @@
       <el-form label-width="90px">
         <el-form-item label="用户名" required>
           <el-input v-model="createForm.username" placeholder="请输入用户名" />
+        </el-form-item>
+        <el-form-item label="别名">
+          <el-input v-model="createForm.alias" placeholder="可选，用于显示" />
         </el-form-item>
         <el-form-item label="密码" required>
           <el-input v-model="createForm.password" type="password" show-password placeholder="至少6位" />
@@ -126,6 +130,18 @@
         </span>
       </template>
     </el-dialog>
+
+    <!-- 编辑别名弹窗 -->
+    <el-dialog v-model="editAliasDialogVisible" title="编辑别名" width="420px">
+      <div style="margin-bottom: 8px;">用户：{{ editAliasUser?.username }}</div>
+      <el-input v-model="editAliasValue" placeholder="留空可清除别名" maxlength="64" show-word-limit />
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="editAliasDialogVisible = false">取 消</el-button>
+          <el-button type="primary" :loading="editAliasSubmitting" @click="submitEditAlias">确 定</el-button>
+        </span>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -156,9 +172,15 @@ const selectedRoleIds = ref<number[]>([])
 // 新建用户弹窗
 const createDialogVisible = ref(false)
 const createSubmitting = ref(false)
-const createForm = reactive<{ username: string; password: string; email?: string; phone?: string; status: number; role_ids: number[] }>({
-  username: '', password: '', email: '', phone: '', status: 1, role_ids: []
+const createForm = reactive<{ username: string; alias?: string; password: string; email?: string; phone?: string; status: number; role_ids: number[] }>({
+  username: '', alias: '', password: '', email: '', phone: '', status: 1, role_ids: []
 })
+
+// 编辑别名弹窗
+const editAliasDialogVisible = ref(false)
+const editAliasSubmitting = ref(false)
+const editAliasUser = ref<SystemUser | null>(null)
+const editAliasValue = ref<string>('')
 
 function formatTime(ts?: string) {
   if (!ts) return ''
@@ -190,6 +212,7 @@ async function openCreateUser() {
   await ensureAllRolesLoaded()
   // reset form
   createForm.username = ''
+  createForm.alias = ''
   createForm.password = ''
   createForm.email = ''
   createForm.phone = ''
@@ -205,6 +228,7 @@ async function submitCreateUser() {
   try {
     const payload: any = {
       username: createForm.username.trim(),
+      alias: createForm.alias?.trim() || undefined,
       password: createForm.password,
       status: createForm.status,
     }
@@ -275,6 +299,30 @@ async function submitAssignRoles() {
     ElMessage.error(e?.response?.data?.message || e?.message || '分配失败')
   } finally {
     opLoadingId.value = null; opType.value = null
+  }
+}
+
+function openEditAlias(row: SystemUser) {
+  editAliasUser.value = row
+  editAliasValue.value = row.alias || ''
+  editAliasDialogVisible.value = true
+}
+
+async function submitEditAlias() {
+  if (!editAliasUser.value) return
+  const raw = editAliasValue.value || ''
+  const trimmed = raw.trim()
+  if (trimmed.length > 64) { ElMessage.error('别名长度不能超过64个字符'); return }
+  editAliasSubmitting.value = true
+  try {
+    await api.system.users.updateAlias(editAliasUser.value.id, { alias: trimmed || null })
+    ElMessage.success('更新成功')
+    editAliasDialogVisible.value = false
+    fetchData()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '更新失败')
+  } finally {
+    editAliasSubmitting.value = false
   }
 }
 </script>

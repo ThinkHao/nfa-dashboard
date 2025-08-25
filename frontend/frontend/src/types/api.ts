@@ -17,6 +17,7 @@ export interface RefreshResponse {
   user: {
     id: number;
     username: string;
+    alias?: string;
     display_name?: string;
     status?: number;
   };
@@ -43,6 +44,7 @@ export interface LoginResponse {
   user: {
     id: number;
     username: string;
+    alias?: string;
     display_name?: string;
     status?: number;
   };
@@ -53,6 +55,7 @@ export interface ProfileResponse {
   user: {
     id: number;
     username: string;
+    alias?: string;
     display_name?: string;
     status?: number;
   };
@@ -121,6 +124,7 @@ export interface Role {
 export interface SystemUser {
   id: number;
   username: string;
+  alias?: string;
   display_name?: string;
   status?: number;
   roles?: Role[];
@@ -131,6 +135,10 @@ export interface UpdateUserStatusRequest {
   status: number;
 }
 
+export interface UpdateUserAliasRequest {
+  alias?: string | null;
+}
+
 export interface SetUserRolesRequest {
   role_ids: number[];
 }
@@ -138,6 +146,7 @@ export interface SetUserRolesRequest {
 // 新建系统用户请求
 export interface CreateUserRequest {
   username: string;
+  alias?: string;
   password: string;
   email?: string;
   phone?: string;

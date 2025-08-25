@@ -5,6 +5,7 @@ import api from '@/api'
 export interface AuthUser {
   id: number
   username: string
+  alias?: string
   display_name?: string
   status?: number
 }

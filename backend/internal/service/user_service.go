@@ -11,8 +11,28 @@ type UserService interface {
 	List(username string, status *int8, page, pageSize int) ([]model.User, int64, error)
 	SetRoles(userID uint64, roleIDs []uint64) error
 	UpdateStatus(userID uint64, status int8) error
-	Create(username, password string, email, phone *string, status *int8, roleIDs []uint64) (*model.User, error)
+	Create(username string, alias *string, password string, email, phone *string, status *int8, roleIDs []uint64) (*model.User, error)
 	GetUserRoles(userID uint64) ([]model.Role, error)
+	UpdateAlias(userID uint64, alias *string) error
+}
+
+func (s *userService) UpdateAlias(userID uint64, alias *string) error {
+    if userID == 0 { return NewBadRequest("invalid user id") }
+    // normalize alias: trim, empty string -> nil, length check
+    if alias != nil {
+        trimmed := strings.TrimSpace(*alias)
+        if trimmed == "" {
+            alias = nil
+        } else {
+            if len(trimmed) > 64 { return NewBadRequest("alias too long (max 64)") }
+            v := trimmed
+            alias = &v
+        }
+    }
+    exists, err := s.userRepo.Exists(userID)
+    if err != nil { return err }
+    if !exists { return NewBadRequestf("user %d not found", userID) }
+    return s.userRepo.UpdateAlias(userID, alias)
 }
 
 func (s *userService) GetUserRoles(userID uint64) ([]model.Role, error) {
@@ -62,7 +82,7 @@ func (s *userService) SetRoles(userID uint64, roleIDs []uint64) error {
 }
 func (s *userService) UpdateStatus(userID uint64, status int8) error { return s.userRepo.UpdateStatus(userID, status) }
 
-func (s *userService) Create(username, password string, email, phone *string, status *int8, roleIDs []uint64) (*model.User, error) {
+func (s *userService) Create(username string, alias *string, password string, email, phone *string, status *int8, roleIDs []uint64) (*model.User, error) {
 	// basic validation
 	if username == "" { return nil, NewBadRequest("username is required") }
 	if len(password) < 6 { return nil, NewBadRequest("password must be at least 6 chars") }
@@ -74,7 +94,7 @@ func (s *userService) Create(username, password string, email, phone *string, st
 	st := int8(1)
 	if status != nil { st = *status }
 
-	u := &model.User{ Username: username, PasswordHash: string(hash), Email: email, Phone: phone, Status: st }
+	u := &model.User{ Username: username, Alias: alias, PasswordHash: string(hash), Email: email, Phone: phone, Status: st }
 	created, err := s.userRepo.Create(u)
 	if err != nil {
 		// handle duplicate username (unique key)

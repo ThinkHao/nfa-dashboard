@@ -18,7 +18,8 @@ const router = createRouter({
       name: 'traffic',
       component: () => import('../views/TrafficView.vue'),
       meta: {
-        title: '流量监控'
+        title: '流量监控',
+        permissions: ['traffic.read']
       }
     },
     {
@@ -26,7 +27,8 @@ const router = createRouter({
       name: 'schools',
       component: () => import('../views/SchoolsView.vue'),
       meta: {
-        title: '学校管理'
+        title: '学校管理',
+        permissions: ['school.manage']
       }
     },
     {
@@ -35,7 +37,7 @@ const router = createRouter({
       component: () => import('../views/SettlementView.vue'),
       meta: {
         title: '结算系统',
-        permissions: ['settlement.calculate']
+        permissions: ['settlement.read', 'settlement.calculate']
       }
     },
     {

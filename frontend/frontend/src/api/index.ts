@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { PaginatedData, OperationLog, LoginRequest, LoginResponse, ProfileResponse, RefreshRequest, RefreshResponse, Role, SystemUser, UpdateUserStatusRequest, SetUserRolesRequest, RoleCreateRequest, RoleUpdateRequest, SetRolePermissionsRequest, PermissionLite, CreateUserRequest } from '@/types/api'
+import type { PaginatedData, OperationLog, LoginRequest, LoginResponse, ProfileResponse, RefreshRequest, RefreshResponse, Role, SystemUser, UpdateUserStatusRequest, UpdateUserAliasRequest, SetUserRolesRequest, RoleCreateRequest, RoleUpdateRequest, SetRolePermissionsRequest, PermissionLite, CreateUserRequest } from '@/types/api'
 
 // 获取当前主机名和协议
 const getBaseUrl = () => {
@@ -245,6 +245,9 @@ export default {
       },
       setRoles(id: number, data: SetUserRolesRequest) {
         return api.put(`/api/v1/system/users/${id}/roles`, data)
+      },
+      updateAlias(id: number, data: UpdateUserAliasRequest) {
+        return api.put(`/api/v1/system/users/${id}/alias`, data)
       },
     },
     roles: {

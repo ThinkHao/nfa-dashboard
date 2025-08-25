@@ -1,6 +1,6 @@
 <template>
   <div class="sys-perms-view">
-    <el-card class="box-card" shadow="never">
+    <el-card class="page-card" shadow="always">
       <template #header>
         <div class="card-header">
           <span>权限设置<span v-if="!canManage">（只读）</span></span>
@@ -24,7 +24,7 @@
       </div>
     </el-card>
 
-    <el-card class="box-card" shadow="never" style="margin-top: 16px">
+    <el-card class="page-card" shadow="always" style="margin-top: 16px">
       <template #header>
         <div class="card-header">
           <span>权限列表</span>

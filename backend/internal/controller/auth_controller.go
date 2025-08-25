@@ -48,6 +48,7 @@ func (a *AuthController) Login(c *gin.Context) {
 		"user": gin.H{
 			"id": user.ID,
 			"username": user.Username,
+			"alias": user.Alias,
 			"email": user.Email,
 			"phone": user.Phone,
 		},
@@ -101,6 +102,7 @@ func (a *AuthController) Refresh(c *gin.Context) {
 		"user": gin.H{
 			"id": user.ID,
 			"username": user.Username,
+			"alias": user.Alias,
 			"email": user.Email,
 			"phone": user.Phone,
 		},
@@ -117,6 +119,7 @@ func (a *AuthController) Profile(c *gin.Context) {
 		"user": gin.H{
 			"id": user.ID,
 			"username": user.Username,
+			"alias": user.Alias,
 			"email": user.Email,
 			"phone": user.Phone,
 		},

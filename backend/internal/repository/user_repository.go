@@ -15,6 +15,7 @@ type UserRepository interface {
 	Create(u *model.User) (*model.User, error)
 	SetRoles(userID uint64, roleIDs []uint64) error
 	UpdateStatus(userID uint64, status int8) error
+	UpdateAlias(userID uint64, alias *string) error
 	Exists(id uint64) (bool, error)
 }
 
@@ -113,6 +114,12 @@ func (r *userRepository) SetRoles(userID uint64, roleIDs []uint64) error {
 func (r *userRepository) UpdateStatus(userID uint64, status int8) error {
 	if userID == 0 { return errors.New("invalid userID") }
 	return model.DB.Model(&model.User{}).Where("id = ?", userID).Update("status", status).Error
+}
+
+func (r *userRepository) UpdateAlias(userID uint64, alias *string) error {
+	if userID == 0 { return errors.New("invalid userID") }
+	// Using single-column Update will set NULL when alias is nil
+	return model.DB.Model(&model.User{}).Where("id = ?", userID).Update("alias", alias).Error
 }
 
 func (r *userRepository) Exists(id uint64) (bool, error) {

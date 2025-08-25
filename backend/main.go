@@ -135,6 +135,7 @@ func main() {
 				users.GET("", systemUserController.ListUsers)
 				users.PUT(":id/status", systemUserController.UpdateUserStatus)
 				users.PUT(":id/roles", systemUserController.SetUserRoles)
+				users.PUT(":id/alias", systemUserController.UpdateUserAlias)
 			}
 
 			// 操作日志查询与导出（需要 operation_logs.read）
