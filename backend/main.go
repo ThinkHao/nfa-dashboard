@@ -39,6 +39,15 @@ func main() {
 	settlementService := service.NewSettlementService(settlementRepo)
 	settlementController := controller.NewSettlementController(settlementService)
 
+	// 结算子模块：费率与业务对象依赖与控制器
+	ratesRepo := repository.NewRatesRepository()
+	ratesSvc := service.NewRatesService(ratesRepo)
+	ratesController := controller.NewSettlementRatesController(ratesSvc)
+
+	entitiesRepo := repository.NewEntitiesRepository()
+	entitiesSvc := service.NewEntitiesService(entitiesRepo)
+	entitiesController := controller.NewSettlementEntitiesController(entitiesSvc)
+
 	// 认证与权限依赖
 	userRepo := repository.NewUserRepository()
 	authService := service.NewAuthService(userRepo)
@@ -102,6 +111,30 @@ func main() {
 			// 结算数据相关接口
 			settlement.GET("/data", settlementController.GetSettlements)
 			settlement.GET("/daily-details", settlementController.GetDailySettlementDetails)
+
+			// 费率模块（归属结算系统）
+			rates := settlement.Group("/rates")
+			{
+				// 客户业务费率
+				rates.GET("/customer", authMW.PermissionRequired("rates.customer.read"), ratesController.ListCustomerRates)
+				rates.POST("/customer", authMW.PermissionRequired("rates.customer.write"), ratesController.UpsertCustomerRate)
+				// 节点业务费率
+				rates.GET("/node", authMW.PermissionRequired("rates.node.read"), ratesController.ListNodeRates)
+				rates.POST("/node", authMW.PermissionRequired("rates.node.write"), ratesController.UpsertNodeRate)
+				// 最终客户费率
+				rates.GET("/final", authMW.PermissionRequired("rates.final.read"), ratesController.ListFinalCustomerRates)
+				rates.POST("/final", authMW.PermissionRequired("rates.final.write"), ratesController.UpsertFinalCustomerRate)
+				rates.POST("/final/refresh", authMW.PermissionRequired("rates.final.write"), ratesController.RefreshFinalCustomerRates)
+			}
+
+			// 业务对象（归属结算系统）
+			entities := settlement.Group("/entities")
+			{
+				entities.GET("", authMW.PermissionRequired("entities.read"), entitiesController.ListEntities)
+				entities.POST("", authMW.PermissionRequired("entities.write"), entitiesController.CreateEntity)
+				entities.PUT("/:id", authMW.PermissionRequired("entities.write"), entitiesController.UpdateEntity)
+				entities.DELETE("/:id", authMW.PermissionRequired("entities.write"), entitiesController.DeleteEntity)
+			}
 		}
 
 		// 系统管理接口（需要登录）

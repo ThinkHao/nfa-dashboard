@@ -2,9 +2,7 @@ package repository
 
 import (
 	"context"
-	"fmt"
 	"log"
-	"sort"
 	"time"
 
 	"nfa-dashboard/internal/model"
@@ -119,32 +117,23 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 	// 计算时间范围分钟数
 	timeMinutes := timeRange.Minutes()
 
-	// 如果前端指定了granularity参数，则使用前端指定的粒度
-	if filter.Granularity != "" {
-		log.Printf("使用前端指定的粒度: %s", filter.Granularity)
-		filter.Interval = filter.Granularity
-	} else if filter.Interval == "" {
-		// 始终使用原始5分钟粒度，不进行自动调整
-		filter.Interval = "" // 原始5分钟粒度
-		log.Printf("时间范围为%.2f小时(%.2f分钟)，使用原始5分钟粒度", timeRange.Hours(), timeMinutes)
+	// 始终使用原始5分钟粒度，不进行自动调整
+	filter.Interval = "" // 原始5分钟粒度
+	log.Printf("时间范围为%.2f小时(%.2f分钟)，使用原始5分钟粒度", timeRange.Hours(), timeMinutes)
 
-		// 计算预期数据点数量（每5分钟一个点）
-		expectedPoints := int(timeMinutes/5) + 10 // 每5分钟一个点，加上缓冲
-		log.Printf("预期数据点数量: %d", expectedPoints)
+	// 计算预期数据点数量（每5分钟一个点）
+	expectedPoints := int(timeMinutes/5) + 10 // 每5分钟一个点，加上缓冲
+	log.Printf("预期数据点数量: %d", expectedPoints)
 
-		// 确保返回足够的数据点
-		if expectedPoints > filter.Limit {
-			filter.Limit = expectedPoints
-			log.Printf("增加限制数量为%d，以确保返回足够的数据点", filter.Limit)
-		}
+	// 确保返回足够的数据点
+	if filter.Limit > 0 && filter.Limit < expectedPoints {
+		filter.Limit = expectedPoints
+		log.Printf("增加限制数量为%d，以确保返回足够的数据点", filter.Limit)
 	}
 
-	// 不再需要检查是否有过滤条件，因为我们始终使用原始5分钟粒度
-
-	// 计算时间范围差值（分钟和小时）
+	// 计算时间范围差值（分钟和天数）
 	timeDiffMinutes := filter.EndTime.Sub(filter.StartTime).Minutes()
-	timeDiffHours := timeDiffMinutes / 60
-	timeDiffDays := timeDiffHours / 24
+	timeDiffDays := timeDiffMinutes / 60 / 24
 
 	// 记录原始预期数据点数量
 	filter.OriginalExpectedPoints = int(timeDiffMinutes / 5) // 每5分钟一个数据点
@@ -178,61 +167,19 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 		log.Printf("使用前端请求的限制值: %d条", filter.Limit)
 	}
 
-	// 对于长时间范围，使用更高效的查询策略
 	var query string
 	var args []interface{}
-
-	if timeDiffDays > 14 {
-		// 对于超过14天的查询，使用平均采样策略
-
-		// 计算时间间隔（小时）
-		timeIntervalHours := 1.0 // 默认1小时
-		if timeDiffDays > 25 {
-			timeIntervalHours = 3.0 // 超过25天用3小时间隔
-		} else if timeDiffDays > 20 {
-			timeIntervalHours = 2.0 // 20-25天用2小时间隔
-		}
-
-		// 创建带时间间隔的查询
-		query = fmt.Sprintf(`
-			SELECT 
-				create_time,
-				school_id,
-				school_name,
-				region,
-				cp,
-				total_recv,
-				total_send
-			FROM nfa_school_traffic
-			WHERE create_time BETWEEN ? AND ?
-				AND MOD(HOUR(create_time), %.1f) < 1
-				AND MINUTE(create_time) BETWEEN 0 AND 10`, timeIntervalHours)
-
-		log.Printf("长时间范围查询(%.2f天)，使用%.1f小时间隔采样", timeDiffDays, timeIntervalHours)
-	} else {
-		// 对于14天以内的查询，使用原始查询
-		query = `
-			SELECT 
-				create_time,
-				school_id,
-				school_name,
-				region,
-				cp,
-				total_recv,
-				total_send
-			FROM nfa_school_traffic
-			WHERE create_time BETWEEN ? AND ?`
-
-		if timeDiffDays > 7 {
-			// 7-14天，每30分钟采样一个点
-			query += " AND MINUTE(create_time) % 30 < 5"
-			log.Printf("中时间范围查询(%.2f天)，使用每30分钟采样", timeDiffDays)
-		} else if timeDiffDays > 3 {
-			// 3-7天，每15分钟采样一个点
-			query += " AND MINUTE(create_time) % 15 < 5"
-			log.Printf("短时间范围查询(%.2f天)，使用每15分钟采样", timeDiffDays)
-		}
-	}
+	query = `
+            SELECT 
+                create_time,
+                school_id,
+                school_name,
+                region,
+                cp,
+                total_recv,
+                total_send
+            FROM nfa_school_traffic
+            WHERE create_time BETWEEN ? AND ?`
 
 	// 初始化参数
 	args = []interface{}{filter.StartTime, filter.EndTime}
@@ -250,9 +197,6 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 		query += " AND cp = ?"
 		args = append(args, filter.CP)
 	}
-
-	// 不使用FORCE INDEX，因为语法位置有问题
-	// 我们的查询已经足够高效，不需要强制指定索引
 
 	// 添加排序
 	query += " ORDER BY create_time ASC"
@@ -342,20 +286,14 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 		log.Printf("处理最后一批 %d 条数据", len(batch))
 	}
 
-	// 按照创建时间排序结果
-	if len(results) > 0 {
-		sort.Slice(results, func(i, j int) bool {
-			return results[i].CreateTime.After(results[j].CreateTime)
-		})
-	}
-
-	// 限制返回结果数量
+	// 结果顺序保持与SQL中 ORDER BY create_time ASC 一致，不再进行二次排序
+	// 仍保留最终的保护性截断（在SQL已LIMIT的情况下通常不会触发）
 	if filter.Limit > 0 && len(results) > filter.Limit {
 		results = results[:filter.Limit]
 	}
 
 	// 记录查询结果数量
-	log.Printf("查询到 %d 条数据记录", len(results))
+	log.Printf("查询到 %d 条数据记录(总处理行数: %d)", len(results), totalCount)
 
 	// 如果没有数据，打印警告
 	if len(results) == 0 {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { RouterLink, RouterView } from 'vue-router'
+import { RouterView } from 'vue-router'
 import { ElConfigProvider } from 'element-plus'
 import { computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
@@ -13,6 +13,10 @@ const canSchools = computed(() => auth.hasPermission('school.manage'))
 const canSysUser = computed(() => auth.hasPermission('system.user.manage'))
 const canSysRole = computed(() => auth.hasPermission('system.role.manage'))
 const canSysPerm = computed(() => auth.hasAnyPermission(['system.role.manage', 'system.permission.manage']))
+const canRatesCustomer = computed(() => auth.hasPermission('rates.customer.read'))
+const canRatesNode = computed(() => auth.hasPermission('rates.node.read'))
+const canRatesFinal = computed(() => auth.hasPermission('rates.final.read'))
+const canEntities = computed(() => auth.hasPermission('entities.read'))
 
 function onLogout() {
   auth.logout()
@@ -21,35 +25,64 @@ function onLogout() {
 
 <template>
   <ElConfigProvider>
-    <div class="app-container">
-      <header class="app-header app-header--solid">
-        <div class="logo-container">
-          <h1 class="app-title">学校流量监控系统</h1>
+    <el-container class="layout">
+      <el-aside width="220px" class="sidebar">
+        <div class="logo">
+          <span class="brand">NFA Dashboard</span>
         </div>
-        <nav class="main-nav">
-          <RouterLink to="/" class="nav-link">首页</RouterLink>
-          <RouterLink to="/traffic" class="nav-link" v-if="canTraffic">流量监控</RouterLink>
-          <RouterLink to="/schools" class="nav-link" v-if="canSchools">学校管理</RouterLink>
-          <RouterLink to="/settlement" class="nav-link" v-if="canSettlement">结算系统</RouterLink>
-          <RouterLink to="/operation-logs" class="nav-link" v-if="canOpLogs">操作日志</RouterLink>
-          <RouterLink to="/system/users" class="nav-link" v-if="canSysUser">用户管理</RouterLink>
-          <RouterLink to="/system/roles" class="nav-link" v-if="canSysRole">角色管理</RouterLink>
-          <RouterLink to="/system/permissions" class="nav-link" v-if="canSysPerm">权限设置</RouterLink>
-          <RouterLink to="/login" class="nav-link" v-if="!isAuthed">登录</RouterLink>
-          <span class="nav-user" v-if="isAuthed">{{ auth.user?.alias || auth.user?.username }}</span>
-          <a href="javascript:void(0)" class="nav-link logout" v-if="isAuthed" @click="onLogout">退出</a>
-        </nav>
-      </header>
-      
-      <main class="app-main page-container">
-        <RouterView />
-      </main>
-      
-      <footer class="app-footer">
-        <p>© 2025 学校流量监控系统 - NFA Dashboard</p>
-      </footer>
-    </div>
+        <el-menu
+          :default-active="$route.path"
+          router
+          background-color="#001529"
+          text-color="#e5e7eb"
+          active-text-color="#fff"
+          class="menu"
+        >
+          <el-menu-item index="/">首页</el-menu-item>
+          <el-menu-item v-if="canTraffic" index="/traffic">流量监控</el-menu-item>
+          <el-menu-item v-if="canSchools" index="/schools">学校管理</el-menu-item>
+
+          <el-sub-menu v-if="canSettlement" index="/settlement-group">
+            <template #title>结算系统</template>
+            <el-menu-item index="/settlement">结算面板</el-menu-item>
+            <!-- 费率与业务对象页面预留，创建后放开（归属结算系统） -->
+            <el-menu-item v-if="canRatesCustomer" index="/settlement/rates/customer">客户业务费率</el-menu-item>
+            <el-menu-item v-if="canRatesNode" index="/settlement/rates/node">节点业务费率</el-menu-item>
+            <el-menu-item v-if="canRatesFinal" index="/settlement/rates/final">最终客户费率</el-menu-item>
+            <el-menu-item v-if="canEntities" index="/settlement/entities">业务对象</el-menu-item>
+          </el-sub-menu>
+
+          <el-menu-item v-if="canOpLogs" index="/operation-logs">操作日志</el-menu-item>
+
+          <el-sub-menu v-if="canSysUser || canSysRole || canSysPerm" index="/system-group">
+            <template #title>系统管理</template>
+            <el-menu-item v-if="canSysUser" index="/system/users">用户管理</el-menu-item>
+            <el-menu-item v-if="canSysRole" index="/system/roles">角色管理</el-menu-item>
+            <el-menu-item v-if="canSysPerm" index="/system/permissions">权限设置</el-menu-item>
+          </el-sub-menu>
+
+          <el-menu-item v-if="!isAuthed" index="/login">登录</el-menu-item>
+        </el-menu>
+      </el-aside>
+
+      <el-container>
+        <el-header class="topbar">
+          <div class="spacer"></div>
+          <div class="user-area" v-if="isAuthed">
+            <span class="nav-user">{{ auth.user?.alias || auth.user?.username }}</span>
+            <el-button link type="primary" class="logout" @click="onLogout">退出</el-button>
+          </div>
+        </el-header>
+        <el-main class="content">
+          <RouterView />
+        </el-main>
+        <el-footer class="app-footer">
+          <p>© 2025 学校流量监控系统 - NFA Dashboard</p>
+        </el-footer>
+      </el-container>
+    </el-container>
   </ElConfigProvider>
+  
 </template>
 
 <style scoped>
@@ -68,102 +101,81 @@ function onLogout() {
   box-sizing: border-box;
 }
 
-.app-container {
-  display: flex;
-  flex-direction: column;
+.layout {
   min-height: 100vh;
   background-color: var(--light-color);
 }
 
-.app-header {
+.sidebar {
+  background: var(--dark-color);
+  color: #fff;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 2rem;
+  flex-direction: column;
+  height: 100vh;
+  position: sticky;
+  top: 0;
+}
+
+.logo {
   height: 64px;
-  background-color: transparent; /* default, overridden by modifiers */
-  color: white;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-}
-
-.app-header--solid {
-  background-color: var(--dark-color);
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-
-.app-title {
-  font-size: 1.5rem;
-  font-weight: 600;
-}
-
-.main-nav {
   display: flex;
-  gap: 1.5rem;
+  align-items: center;
+  padding: 0 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
 }
 
-.nav-link {
-  color: #e5e7eb; /* gray-200 for contrast on dark */
-  text-decoration: none;
-  font-size: 0.95rem;
-  font-weight: 500;
-  padding: 8px 14px;
-  border-radius: var(--el-border-radius-round);
-  border: 1px solid transparent;
-  transition: all 0.2s ease;
+.brand {
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: 0.3px;
 }
 
-.nav-link:hover { background-color: rgba(255, 255, 255, 0.14); }
-.nav-link:focus-visible { outline: 2px solid var(--el-color-primary); outline-offset: 2px; }
+.menu {
+  border-right: none;
+}
 
-.router-link-active { background-color: var(--el-color-primary); color: #fff; box-shadow: var(--el-box-shadow-light); }
+.topbar {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  background: #fff;
+  border-bottom: 1px solid var(--border-color);
+}
 
-.app-main {
+.spacer {
   flex: 1;
-  padding: 2rem 0;
 }
 
-/* Ensure content below header is centered and constrained */
-.app-main.page-container {
+.user-area .nav-user {
+  margin-right: 8px;
+  padding: 6px 10px;
+  background: #f5f7fa;
+  border-radius: var(--el-border-radius-round);
+  font-size: 0.9rem;
+}
+
+.content {
   max-width: 1280px;
   width: 100%;
   margin: 0 auto;
-  padding-left: 24px;
-  padding-right: 24px;
+  padding: 20px 24px 24px;
 }
 
 .app-footer {
   text-align: center;
-  padding: 1.5rem;
+  padding: 16px;
   background-color: #0b1220;
   color: white;
   font-size: 0.875rem;
 }
 
-.nav-user {
-  margin-left: 4px;
-  padding: 6px 10px;
-  background: rgba(255,255,255,0.12);
-  border-radius: var(--el-border-radius-round);
-  font-size: 0.9rem;
+@media (max-width: 992px) {
+  .sidebar { width: 200px !important; }
 }
 
 @media (max-width: 768px) {
-  .app-header {
-    flex-direction: column;
-    height: auto;
-    padding: 1rem;
-  }
-  
-  .main-nav {
-    margin-top: 1rem;
-    width: 100%;
-    justify-content: center;
-  }
-  
-  .app-main {
-    padding: 1rem;
-  }
+  .sidebar { display: none; }
+  .content { padding: 12px; }
 }
 </style>

@@ -285,8 +285,15 @@ const fetchTasks = async () => {
   filterForm.page_size = pageSize.value
 
   try {
-    const response = await api.settlement.getTasks(filterForm)
-    taskData.value = response.data || { items: [], total: 0 }
+    const response = await api.settlement.getTasks(filterForm) as any
+    // 统一仅处理数组或 { items, total }
+    if (Array.isArray(response)) {
+      taskData.value = { items: response, total: response.length }
+    } else if (response && Array.isArray(response.items)) {
+      taskData.value = { items: response.items, total: Number(response.total) || response.items.length }
+    } else {
+      taskData.value = { items: [], total: 0 }
+    }
     
     // 检查是否有进行中的任务，如果有则启动自动刷新
     if (hasRunningTasks.value && !refreshTimer.value) {
@@ -330,7 +337,7 @@ const handleSizeChange = (size: number) => {
 const viewTaskDetail = async (task: SettlementTask) => {
   try {
     const response = await api.settlement.getTaskById(task.id)
-    currentTask.value = response.data
+    currentTask.value = response as any
     taskDetailVisible.value = true
   } catch (error) {
     console.error('获取任务详情失败', error)

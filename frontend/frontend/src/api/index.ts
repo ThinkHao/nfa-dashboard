@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { PaginatedData, OperationLog, LoginRequest, LoginResponse, ProfileResponse, RefreshRequest, RefreshResponse, Role, SystemUser, UpdateUserStatusRequest, UpdateUserAliasRequest, SetUserRolesRequest, RoleCreateRequest, RoleUpdateRequest, SetRolePermissionsRequest, PermissionLite, CreateUserRequest } from '@/types/api'
+import type { PaginatedData, OperationLog, LoginRequest, LoginResponse, ProfileResponse, RefreshRequest, RefreshResponse, Role, SystemUser, UpdateUserStatusRequest, UpdateUserAliasRequest, SetUserRolesRequest, RoleCreateRequest, RoleUpdateRequest, SetRolePermissionsRequest, PermissionLite, CreateUserRequest, RateCustomer, UpsertRateCustomerRequest, RateNode, UpsertRateNodeRequest, RateFinalCustomer, UpsertRateFinalCustomerRequest, BusinessEntity, CreateBusinessEntityRequest, UpdateBusinessEntityRequest } from '@/types/api'
 
 // 获取当前主机名和协议
 const getBaseUrl = () => {
@@ -146,27 +146,27 @@ export default {
   },
   // 获取学校列表
   getSchools(params?: any) {
-    return api.get('/api/v1/schools', { params })
+    return api.get('/api/v1/schools', { params }).then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
   },
   
   // 获取地区列表
   getRegions() {
-    return api.get('/api/v1/regions')
+    return api.get('/api/v1/regions').then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
   },
   
   // 获取运营商列表
   getCPs() {
-    return api.get('/api/v1/cps')
+    return api.get('/api/v1/cps').then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
   },
   
   // 获取流量数据
   getTrafficData(params?: any) {
-    return api.get('/api/v1/traffic', { params })
+    return api.get('/api/v1/traffic', { params }).then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
   },
   
   // 获取流量汇总数据
   getTrafficSummary(params?: any) {
-    return api.get('/api/v1/traffic/summary', { params })
+    return api.get('/api/v1/traffic/summary', { params }).then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
   },
 
   // 结算系统相关API
@@ -229,7 +229,7 @@ export default {
       // 使用后端导出接口，服务端分页并流式生成CSV
       return api.get('/api/v1/system/operation-logs/export', { params, responseType: 'blob' as any })
         .then((d: any) => d as Blob)
-    }
+    },
   },
   // 系统管理 API
   system: {
@@ -293,6 +293,53 @@ export default {
       sync() {
         return api.post('/api/v1/system/permissions/sync', {})
       },
+    },
+  },
+
+  // 结算 - 费率 API
+  settlementRates: {
+    customer: {
+      list(params?: any): Promise<PaginatedData<RateCustomer>> {
+        return api.get('/api/v1/settlement/rates/customer', { params }).then((d: any) => d as PaginatedData<RateCustomer>)
+      },
+      upsert(data: UpsertRateCustomerRequest): Promise<void> {
+        return api.post('/api/v1/settlement/rates/customer', data).then(() => undefined)
+      },
+    },
+    node: {
+      list(params?: any): Promise<PaginatedData<RateNode>> {
+        return api.get('/api/v1/settlement/rates/node', { params }).then((d: any) => d as PaginatedData<RateNode>)
+      },
+      upsert(data: UpsertRateNodeRequest): Promise<void> {
+        return api.post('/api/v1/settlement/rates/node', data).then(() => undefined)
+      },
+    },
+    final: {
+      list(params?: any): Promise<PaginatedData<RateFinalCustomer>> {
+        return api.get('/api/v1/settlement/rates/final', { params }).then((d: any) => d as PaginatedData<RateFinalCustomer>)
+      },
+      upsert(data: UpsertRateFinalCustomerRequest): Promise<void> {
+        return api.post('/api/v1/settlement/rates/final', data).then(() => undefined)
+      },
+      refresh(payload: any = {}) {
+        return api.post('/api/v1/settlement/rates/final/refresh', payload)
+      }
+    },
+  },
+
+  // 结算 - 业务对象 API
+  settlementEntities: {
+    list(params?: any): Promise<PaginatedData<BusinessEntity>> {
+      return api.get('/api/v1/settlement/entities', { params }).then((d: any) => d as PaginatedData<BusinessEntity>)
+    },
+    create(data: CreateBusinessEntityRequest): Promise<BusinessEntity> {
+      return api.post('/api/v1/settlement/entities', data).then((d: any) => d as BusinessEntity)
+    },
+    update(id: number, data: UpdateBusinessEntityRequest): Promise<void> {
+      return api.put(`/api/v1/settlement/entities/${id}`, data).then(() => undefined)
+    },
+    remove(id: number): Promise<void> {
+      return api.delete(`/api/v1/settlement/entities/${id}`).then(() => undefined)
     },
   }
 }

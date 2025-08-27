@@ -51,10 +51,10 @@ onMounted(async () => {
 // 加载地区数据
 async function loadRegions() {
   try {
-    const res = await api.getRegions()
-    if (res.code === 200) {
-      regions.value = res.data
-    }
+    const res = await api.getRegions() as any
+    // 响应已被拦截器解包，可能返回数组或对象
+    const list = Array.isArray(res) ? res : (Array.isArray(res?.items) ? res.items : [])
+    regions.value = list.filter((r: string) => r !== 'NULL')
   } catch (error) {
     console.error('加载地区数据失败:', error)
   }
@@ -63,10 +63,9 @@ async function loadRegions() {
 // 加载运营商数据
 async function loadCPs() {
   try {
-    const res = await api.getCPs()
-    if (res.code === 200) {
-      cps.value = res.data
-    }
+    const res = await api.getCPs() as any
+    const list = Array.isArray(res) ? res : (Array.isArray(res?.items) ? res.items : [])
+    cps.value = list.filter((c: string) => c !== 'NULL')
   } catch (error) {
     console.error('加载运营商数据失败:', error)
   }
@@ -83,36 +82,18 @@ async function loadSchools() {
       offset: (currentPage.value - 1) * pageSize.value
     }
     
-    const res = await api.getSchools(params)
+    const res = await api.getSchools(params) as any
     console.log('学校数据原始响应:', res)
     
-    if (res.code === 200 && res.data) {
-      // 正确的数据结构：data.items
-      if (Array.isArray(res.data.items)) {
-        schools.value = res.data.items
-        total.value = res.data.total || 0
-        console.log('加载学校数据成功:', schools.value.length, '所学校')
-      } 
-      // 兼容旧的数据结构：data.schools
-      else if (Array.isArray(res.data.schools)) {
-        schools.value = res.data.schools
-        total.value = res.data.total || 0
-        console.log('加载学校数据成功(旧结构):', schools.value.length, '所学校')
-      }
-      // 如果数据本身就是数组
-      else if (Array.isArray(res.data)) {
-        schools.value = res.data
-        total.value = res.data.length
-        console.log('加载学校数据成功(直接数组):', schools.value.length, '所学校')
-      }
-      // 如果没有有效数据
-      else {
-        console.warn('未找到有效的学校数据结构')
-        schools.value = []
-        total.value = 0
-      }
+    // 已解包：只支持数组或 { items, total }
+    if (Array.isArray(res)) {
+      schools.value = res
+      total.value = res.length
+    } else if (res && Array.isArray(res.items)) {
+      schools.value = res.items
+      total.value = typeof res.total === 'number' ? res.total : res.items.length
     } else {
-      console.warn('学校数据请求失败:', res)
+      console.warn('未找到有效的学校数据结构')
       schools.value = []
       total.value = 0
     }

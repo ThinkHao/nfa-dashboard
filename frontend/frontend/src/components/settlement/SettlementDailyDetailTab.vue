@@ -103,7 +103,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import api from '../../api' // 假设 api/index.ts 中会添加新的接口
 import { ElMessage } from 'element-plus'
-import type { ApiResponse, School, PaginationParams } from '../../types/api'
+import type { School } from '../../types/api'
 
 // 定义日95明细数据项接口
 interface DailySettlementDetail {
@@ -197,19 +197,15 @@ const formatDateDisplay = (dateStr: string): string => {
 // 获取基础数据 (地区、运营商、学校)
 const fetchBaseData = async () => {
   try {
-    const regionsResponse = await api.getRegions() as ApiResponse<string[]>
-    if (regionsResponse && (regionsResponse.code === 0 || regionsResponse.code === 200) && regionsResponse.data) {
-      regions.value = regionsResponse.data.filter(region => region !== "NULL")
-    } else {
-      regions.value = []
-    }
+    const regionsResponse = await api.getRegions() as any
+    regions.value = Array.isArray(regionsResponse)
+      ? regionsResponse.filter((region: string) => region !== 'NULL')
+      : []
 
-    const cpsResponse = await api.getCPs() as ApiResponse<string[]>
-    if (cpsResponse && (cpsResponse.code === 0 || cpsResponse.code === 200) && cpsResponse.data) {
-      cps.value = cpsResponse.data.filter(cp => cp !== "NULL")
-    } else {
-      cps.value = []
-    }
+    const cpsResponse = await api.getCPs() as any
+    cps.value = Array.isArray(cpsResponse)
+      ? cpsResponse.filter((cp: string) => cp !== 'NULL')
+      : []
     
     await loadSchools()
   } catch (error) {
@@ -228,9 +224,11 @@ const loadSchools = async (region: string = '', cp: string = ''): Promise<void> 
     params.limit = 1000 
     params.offset = 0
     
-    const response = await api.getSchools(params) as ApiResponse<{ items: School[]; total: number }>
-    if (response && (response.code === 0 || response.code === 200) && response.data) {
-      schools.value = response.data.items || []
+    const response = await api.getSchools(params) as any
+    if (Array.isArray(response)) {
+      schools.value = response
+    } else if (response && Array.isArray(response.items)) {
+      schools.value = response.items
     } else {
       schools.value = []
     }
@@ -286,19 +284,19 @@ const fetchData = async () => {
 
     console.log('Fetching daily settlement details with params:', params)
 
-    const response = await api.settlement.getDailySettlementDetails(params) as ApiResponse<DailySettlementDetailListResponse>
-
-    if (response.data) {
-      dailyDetailData.value = {
-        items: response.data.items || [],
-        total: response.data.total || 0
-      }
-      if (response.data.items.length === 0 && (filterForm.start_date && filterForm.end_date)) {
-        ElMessage.warning(`没有找到 ${filterForm.start_date} 至 ${filterForm.end_date} 的日95明细数据`)
-      }
-    } else {
-      dailyDetailData.value = { items: [], total: 0 }
-      ElMessage.error('获取日95明细数据失败: ' + (response.message || '未知错误'))
+    const response = await api.settlement.getDailySettlementDetails(params) as any
+    let items: any[] = []
+    let total = 0
+    if (Array.isArray(response)) {
+      items = response
+      total = response.length
+    } else if (response && Array.isArray(response.items)) {
+      items = response.items
+      total = typeof response.total === 'number' ? response.total : response.items.length
+    }
+    dailyDetailData.value = { items, total }
+    if (dailyDetailData.value.items.length === 0 && (filterForm.start_date && filterForm.end_date)) {
+      ElMessage.warning(`没有找到 ${filterForm.start_date} 至 ${filterForm.end_date} 的日95明细数据`)
     }
   } catch (error) {
     console.error('获取日95明细数据失败:', error)

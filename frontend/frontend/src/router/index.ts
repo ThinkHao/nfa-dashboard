@@ -41,6 +41,42 @@ const router = createRouter({
       }
     },
     {
+      path: '/settlement/rates/customer',
+      name: 'settlement-rates-customer',
+      component: () => import('../views/CustomerRatesView.vue'),
+      meta: {
+        title: '客户业务费率',
+        permissions: ['rates.customer.read']
+      }
+    },
+    {
+      path: '/settlement/rates/node',
+      name: 'settlement-rates-node',
+      component: () => import('../views/NodeRatesView.vue'),
+      meta: {
+        title: '节点业务费率',
+        permissions: ['rates.node.read']
+      }
+    },
+    {
+      path: '/settlement/rates/final',
+      name: 'settlement-rates-final',
+      component: () => import('../views/FinalCustomerRatesView.vue'),
+      meta: {
+        title: '最终客户费率',
+        permissions: ['rates.final.read']
+      }
+    },
+    {
+      path: '/settlement/entities',
+      name: 'settlement-entities',
+      component: () => import('../views/SettlementEntitiesView.vue'),
+      meta: {
+        title: '业务对象',
+        permissions: ['entities.read']
+      }
+    },
+    {
       path: '/operation-logs',
       name: 'operation-logs',
       component: () => import('../views/OperationLogsView.vue'),

@@ -24,8 +24,9 @@
         >
           <el-form-item label="日结算时间">
             <el-time-picker
-              v-model="dailyTime"
+              v-model="config.daily_time"
               format="HH:mm"
+              value-format="HH:mm"
               placeholder="选择时间"
               :disabled="!isEditing"
             />
@@ -47,8 +48,9 @@
 
           <el-form-item label="周结算时间">
             <el-time-picker
-              v-model="weeklyTime"
+              v-model="config.weekly_time"
               format="HH:mm"
+              value-format="HH:mm"
               placeholder="选择时间"
               :disabled="!isEditing"
             />
@@ -83,7 +85,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import api from '../../api'
 import { ElMessage } from 'element-plus'
 import type { SettlementConfig } from '../../types/settlement'
@@ -106,48 +108,15 @@ const config = reactive<SettlementConfig>({
   update_time: ''
 })
 
-// 时间选择器绑定值
-const dailyTime = computed({
-  get: () => {
-    if (!config.daily_time) return null
-    const [hours, minutes] = config.daily_time.split(':').map(Number)
-    const date = new Date()
-    date.setHours(hours, minutes, 0)
-    return date
-  },
-  set: (value: Date | null) => {
-    if (value) {
-      const hours = value.getHours().toString().padStart(2, '0')
-      const minutes = value.getMinutes().toString().padStart(2, '0')
-      config.daily_time = `${hours}:${minutes}`
-    }
-  }
-})
-
-const weeklyTime = computed({
-  get: () => {
-    if (!config.weekly_time) return null
-    const [hours, minutes] = config.weekly_time.split(':').map(Number)
-    const date = new Date()
-    date.setHours(hours, minutes, 0)
-    return date
-  },
-  set: (value: Date | null) => {
-    if (value) {
-      const hours = value.getHours().toString().padStart(2, '0')
-      const minutes = value.getMinutes().toString().padStart(2, '0')
-      config.weekly_time = `${hours}:${minutes}`
-    }
-  }
-})
+// 时间选择器直接绑定字符串（value-format="HH:mm"）
 
 // 获取结算配置
 const fetchConfig = async () => {
   loading.value = true
   try {
     const response = await api.settlement.getConfig()
-    if (response.data) {
-      Object.assign(config, response.data)
+    if (response && typeof response === 'object') {
+      Object.assign(config, response as any)
     }
   } catch (error) {
     console.error('获取结算配置失败', error)

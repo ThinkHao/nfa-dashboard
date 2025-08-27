@@ -167,3 +167,119 @@ export interface RoleUpdateRequest {
 export interface SetRolePermissionsRequest {
   permission_ids: number[];
 }
+
+// ------------------------------
+// Settlement Rates & Entities
+// ------------------------------
+
+// 业务对象（business_entities）
+export interface BusinessEntity {
+  id: number;
+  entity_type: string;
+  entity_name: string;
+  contact_info?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CreateBusinessEntityRequest {
+  entity_type: string;
+  entity_name: string;
+  contact_info?: string | null;
+}
+
+export interface UpdateBusinessEntityRequest {
+  entity_type?: string;
+  entity_name?: string;
+  contact_info?: string | null;
+}
+
+// 客户业务费率（rate_customer）
+export interface RateCustomer {
+  id: number;
+  region: string;
+  cp: string;
+  school_name?: string | null;
+  customer_fee?: number | null;
+  network_line_fee?: number | null;
+  general_fee?: number | null;
+  customer_fee_owner_id?: number | null;
+  network_line_fee_owner_id?: number | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface UpsertRateCustomerRequest {
+  region: string;
+  cp: string;
+  school_name?: string | null;
+  customer_fee?: number | null;
+  network_line_fee?: number | null;
+  general_fee?: number | null;
+  customer_fee_owner_id?: number | null;
+  network_line_fee_owner_id?: number | null;
+}
+
+// 节点业务费率（rate_node）
+export interface RateNode {
+  id: number;
+  region: string;
+  cp: string;
+  settlement_type: string; // IDC/...
+  cp_fee?: number | null;
+  cp_fee_owner_id?: number | null;
+  node_construction_fee?: number | null;
+  node_construction_fee_owner_id?: number | null;
+  rack_fee?: number | null;
+  rack_fee_owner_id?: number | null;
+  other_fee?: number | null;
+  other_fee_owner_id?: number | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface UpsertRateNodeRequest {
+  region: string;
+  cp: string;
+  settlement_type: string;
+  cp_fee?: number | null;
+  cp_fee_owner_id?: number | null;
+  node_construction_fee?: number | null;
+  node_construction_fee_owner_id?: number | null;
+  rack_fee?: number | null;
+  rack_fee_owner_id?: number | null;
+  other_fee?: number | null;
+  other_fee_owner_id?: number | null;
+}
+
+// 最终客户费率（rate_final_customer）
+export interface RateFinalCustomer {
+  id: number;
+  region: string;
+  cp: string;
+  school_name: string;
+  fee_type: string; // standard / ...
+  final_fee?: number | null;
+  customer_fee?: number | null;
+  customer_fee_owner_id?: number | null;
+  network_line_fee?: number | null;
+  network_line_fee_owner_id?: number | null;
+  node_deduction_fee?: number | null;
+  node_deduction_fee_owner_id?: number | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface UpsertRateFinalCustomerRequest {
+  region: string;
+  cp: string;
+  school_name: string;
+  fee_type: string;
+  final_fee?: number | null;
+  customer_fee?: number | null;
+  customer_fee_owner_id?: number | null;
+  network_line_fee?: number | null;
+  network_line_fee_owner_id?: number | null;
+  node_deduction_fee?: number | null;
+  node_deduction_fee_owner_id?: number | null;
+}

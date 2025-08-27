@@ -84,9 +84,4 @@ func (ctl *SystemRoleController) SetRolePermissions(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// helpers
-func parseIntDefault(s string, def int) int {
-	if s == "" { return def }
-	if v, err := strconv.Atoi(s); err == nil && v > 0 { return v }
-	return def
-}
+// helpers moved to helpers.go
