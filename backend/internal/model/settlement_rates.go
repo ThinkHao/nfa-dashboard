@@ -1,6 +1,10 @@
 package model
 
-import "time"
+import (
+    "time"
+
+    "gorm.io/datatypes"
+)
 
 // BusinessEntity 对应 business_entities 表
 // 费用归属对象（客户、线路、节点、销售等）
@@ -27,6 +31,9 @@ type RateCustomer struct {
     GeneralFee                *float64  `gorm:"column:general_fee" json:"general_fee,omitempty"`
     CustomerFeeOwnerID        *uint64   `gorm:"column:customer_fee_owner_id" json:"customer_fee_owner_id,omitempty"`
     NetworkLineFeeOwnerID     *uint64   `gorm:"column:network_line_fee_owner_id" json:"network_line_fee_owner_id,omitempty"`
+    Extra                     datatypes.JSON `gorm:"column:extra" json:"extra,omitempty"`
+    LastSyncTime              *time.Time     `gorm:"column:last_sync_time" json:"last_sync_time,omitempty"`
+    LastSyncRuleID            *uint64        `gorm:"column:last_sync_rule_id" json:"last_sync_rule_id,omitempty"`
     CreatedAt                 time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at"`
     UpdatedAt                 time.Time `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
 }
@@ -154,3 +161,46 @@ type SettlementNodeMonthly95 struct {
 }
 
 func (SettlementNodeMonthly95) TableName() string { return "settlement_node_monthly95" }
+
+// RateCustomerCustomFieldDef 对应 rate_customer_custom_field_defs 表
+// 自定义字段定义：用于扩展 rate_customer.extra 的结构和校验
+type RateCustomerCustomFieldDef struct {
+    ID            uint64         `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+    FieldKey      string         `gorm:"column:field_key;size:64;not null;unique" json:"field_key"`
+    Label         string         `gorm:"column:label;size:64;not null" json:"label"`
+    DataType      string         `gorm:"column:data_type;size:16;not null" json:"data_type"`
+    Required      bool           `gorm:"column:required;not null" json:"required"`
+    DefaultValue  datatypes.JSON `gorm:"column:default_value" json:"default_value,omitempty"`
+    ValidateRegex *string        `gorm:"column:validate_regex;size:255" json:"validate_regex,omitempty"`
+    Min           *float64       `gorm:"column:min" json:"min,omitempty"`
+    Max           *float64       `gorm:"column:max" json:"max,omitempty"`
+    Precision     *int           `gorm:"column:precision" json:"precision,omitempty"`
+    EnumOptions   datatypes.JSON `gorm:"column:enum_options" json:"enum_options,omitempty"`
+    UsableInRules bool           `gorm:"column:usable_in_rules;not null" json:"usable_in_rules"`
+    Enabled       bool           `gorm:"column:enabled;not null" json:"enabled"`
+    CreatedAt     time.Time      `gorm:"column:created_at;autoCreateTime" json:"created_at"`
+    UpdatedAt     time.Time      `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
+}
+
+func (RateCustomerCustomFieldDef) TableName() string { return "rate_customer_custom_field_defs" }
+
+// RateCustomerSyncRule 对应 rate_customer_sync_rules 表
+// 同步规则：支持范围、条件、字段白名单、覆盖策略与动作（模板/表达式）
+type RateCustomerSyncRule struct {
+    ID                uint64         `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+    Name              string         `gorm:"column:name;size:100;not null" json:"name"`
+    Enabled           bool           `gorm:"column:enabled;not null" json:"enabled"`
+    Priority          int            `gorm:"column:priority;not null" json:"priority"`
+    ScopeRegion       datatypes.JSON `gorm:"column:scope_region" json:"scope_region,omitempty"`
+    ScopeCP           datatypes.JSON `gorm:"column:scope_cp" json:"scope_cp,omitempty"`
+    ConditionExpr     *string        `gorm:"column:condition_expr" json:"condition_expr,omitempty"`
+    FieldsToUpdate    datatypes.JSON `gorm:"column:fields_to_update" json:"fields_to_update,omitempty"`
+    OverwriteStrategy string         `gorm:"column:overwrite_strategy;size:16;not null" json:"overwrite_strategy"`
+    Actions           datatypes.JSON `gorm:"column:actions;not null" json:"actions"`
+    CreatedBy         *uint64        `gorm:"column:created_by" json:"created_by,omitempty"`
+    UpdatedBy         *uint64        `gorm:"column:updated_by" json:"updated_by,omitempty"`
+    CreatedAt         time.Time      `gorm:"column:created_at;autoCreateTime" json:"created_at"`
+    UpdatedAt         time.Time      `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
+}
+
+func (RateCustomerSyncRule) TableName() string { return "rate_customer_sync_rules" }
