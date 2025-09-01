@@ -68,12 +68,30 @@ const router = createRouter({
       }
     },
     {
+      path: '/settlement/rates/sync-rules',
+      name: 'settlement-rates-sync-rules',
+      component: () => import('../views/SyncRulesView.vue'),
+      meta: {
+        title: '同步规则管理',
+        permissions: ['rates.sync_rules.read']
+      }
+    },
+    {
       path: '/settlement/entities',
       name: 'settlement-entities',
       component: () => import('../views/SettlementEntitiesView.vue'),
       meta: {
         title: '业务对象',
         permissions: ['entities.read']
+      }
+    },
+    {
+      path: '/settlement/business-types',
+      name: 'settlement-business-types',
+      component: () => import('../views/BusinessTypesView.vue'),
+      meta: {
+        title: '业务类型管理',
+        permissions: ['business_types.read']
       }
     },
     {

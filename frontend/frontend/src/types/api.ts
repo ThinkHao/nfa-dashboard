@@ -194,6 +194,30 @@ export interface UpdateBusinessEntityRequest {
   contact_info?: string | null;
 }
 
+// 业务类型（business_types）
+export interface BusinessType {
+  id: number;
+  code: string;
+  name: string;
+  description?: string | null;
+  enabled: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CreateBusinessTypeRequest {
+  code: string;
+  name: string;
+  description?: string | null;
+  enabled?: boolean;
+}
+
+export interface UpdateBusinessTypeRequest {
+  name?: string;
+  description?: string | null;
+  enabled?: boolean;
+}
+
 // 客户业务费率（rate_customer）
 export interface RateCustomer {
   id: number;
@@ -282,4 +306,50 @@ export interface UpsertRateFinalCustomerRequest {
   network_line_fee_owner_id?: number | null;
   node_deduction_fee?: number | null;
   node_deduction_fee_owner_id?: number | null;
+}
+
+// ------------------------------
+// Settlement Rates - Sync Rules
+// ------------------------------
+
+// 同步规则（rate_customer_sync_rules）
+export interface SyncRule {
+  id: number;
+  name: string;
+  enabled: boolean;
+  priority: number;
+  scope_region?: any;
+  scope_cp?: any;
+  condition_expr?: string | null;
+  fields_to_update?: any;
+  overwrite_strategy: string;
+  actions: any;
+  created_by?: number | null;
+  updated_by?: number | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CreateSyncRuleRequest {
+  name: string;
+  enabled?: boolean;
+  priority?: number;
+  scope_region?: any;
+  scope_cp?: any;
+  condition_expr?: string | null;
+  fields_to_update?: any;
+  overwrite_strategy: string;
+  actions: any;
+}
+
+export interface UpdateSyncRuleRequest {
+  name?: string;
+  enabled?: boolean;
+  priority?: number;
+  scope_region?: any;
+  scope_cp?: any;
+  condition_expr?: string | null;
+  fields_to_update?: any;
+  overwrite_strategy?: string;
+  actions?: any;
 }
