@@ -3,6 +3,7 @@ package controller
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"nfa-dashboard/internal/service"
@@ -11,6 +12,14 @@ import (
 // SettlementEntitiesController hosts endpoints under /api/v1/settlement/entities
 type SettlementEntitiesController struct{ svc service.EntitiesService }
 
+func splitAndTrim(s, sep string) []string {
+    parts := strings.Split(s, sep)
+    for i := range parts {
+        parts[i] = strings.TrimSpace(parts[i])
+    }
+    return parts
+}
+
 func NewSettlementEntitiesController(svc service.EntitiesService) *SettlementEntitiesController { return &SettlementEntitiesController{svc: svc} }
 
 func (ctl *SettlementEntitiesController) ListEntities(c *gin.Context) {
@@ -18,6 +27,20 @@ func (ctl *SettlementEntitiesController) ListEntities(c *gin.Context) {
 	pageSize := parseIntDefault(c.Query("page_size"), 10)
 	entityType := c.Query("entity_type")
 	entityName := c.Query("entity_name")
+	// 支持按 ids 批量查询（逗号分隔）
+	if idsStr := c.Query("ids"); idsStr != "" {
+		var ids []uint64
+		for _, s := range splitAndTrim(idsStr, ",") {
+			if s == "" { continue }
+			if v, err := strconv.ParseUint(s, 10, 64); err == nil && v > 0 {
+				ids = append(ids, v)
+			}
+		}
+		items, total, err := ctl.svc.ListByIDs(ids)
+		if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()}); return }
+		c.JSON(http.StatusOK, gin.H{"items": items, "total": total})
+		return
+	}
 	items, total, err := ctl.svc.List(entityType, entityName, page, pageSize)
 	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()}); return }
 	c.JSON(http.StatusOK, gin.H{"items": items, "total": total})

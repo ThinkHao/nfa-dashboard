@@ -27,6 +27,11 @@ func (r *entitiesRepository) List(filter map[string]interface{}, limit, offset i
         total int64
     )
     q := model.DB.Model(&model.BusinessEntity{})
+    // 支持按ID集合过滤
+    if v, ok := filter["ids"]; ok {
+        // 期望为切片类型（[]uint64/[]int64/[]int/[]interface{}）
+        q = q.Where("id IN ?", v)
+    }
     if v, ok := filter["entity_type"]; ok && v != "" { q = q.Where("entity_type = ?", v) }
     if v, ok := filter["entity_name"]; ok && v != "" { q = q.Where("entity_name LIKE ?", "%"+v.(string)+"%") }
     if err := q.Count(&total).Error; err != nil { return nil, 0, err }
