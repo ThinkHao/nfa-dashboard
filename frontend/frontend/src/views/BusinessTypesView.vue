@@ -1,9 +1,9 @@
 <template>
-  <div class="entities-view">
+  <div class="bt-view">
     <el-card shadow="never" class="box-card">
       <template #header>
         <div class="card-header">
-          <span>业务对象筛选</span>
+          <span>业务类型筛选</span>
           <div>
             <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
             <el-button @click="onReset">重置</el-button>
@@ -11,29 +11,37 @@
           </div>
         </div>
       </template>
-
       <el-form :inline="true" :model="query" label-width="90px" class="filter-form">
-        <el-form-item label="类型">
-          <el-select v-model="query.entity_type" clearable filterable placeholder="选择类型" style="width: 220px">
-            <el-option v-for="bt in btOptions" :key="bt.code" :label="`${bt.name} (${bt.code})`" :value="bt.code" />
-          </el-select>
+        <el-form-item label="编码">
+          <el-input v-model="query.code" clearable placeholder="如 customer" style="width: 200px" />
         </el-form-item>
         <el-form-item label="名称">
-          <el-input v-model="query.entity_name" clearable placeholder="对象名称" style="width: 240px" />
+          <el-input v-model="query.name" clearable placeholder="名称" style="width: 200px" />
+        </el-form-item>
+        <el-form-item label="启用">
+          <el-select v-model="query.enabled" clearable style="width: 140px" placeholder="全部">
+            <el-option :value="true" label="启用" />
+            <el-option :value="false" label="禁用" />
+          </el-select>
         </el-form-item>
       </el-form>
     </el-card>
 
     <el-card shadow="never" class="box-card" style="margin-top: 16px">
       <template #header>
-        <div class="card-header"><span>业务对象列表</span></div>
+        <div class="card-header"><span>业务类型列表</span></div>
       </template>
-
       <el-table :data="items" border stripe height="600px" v-loading="loading">
         <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="entity_type" label="类型" width="160" />
-        <el-table-column prop="entity_name" label="名称" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="contact_info" label="联系信息" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="code" label="编码" width="160" />
+        <el-table-column prop="name" label="名称" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="description" label="描述" min-width="220" show-overflow-tooltip />
+        <el-table-column label="启用" width="120">
+          <template #default="{ row }">
+            <el-tag v-if="!canWrite" :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '禁用' }}</el-tag>
+            <el-switch v-else v-model="row.enabled" @change="onToggleEnabled(row)" />
+          </template>
+        </el-table-column>
         <el-table-column prop="updated_at" label="更新时间" min-width="180" />
         <el-table-column v-if="canWrite" label="操作" width="180">
           <template #default="{ row }">
@@ -42,7 +50,6 @@
           </template>
         </el-table-column>
       </el-table>
-
       <div class="pagination">
         <el-pagination
           background
@@ -57,18 +64,19 @@
       </div>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑业务对象' : '新增业务对象'" width="560px">
+    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑业务类型' : '新增业务类型'" width="560px">
       <el-form :model="form" label-width="110px">
-        <el-form-item label="类型" required>
-          <el-select v-model="form.entity_type" filterable placeholder="选择类型">
-            <el-option v-for="bt in btOptions" :key="bt.code" :label="`${bt.name} (${bt.code})`" :value="bt.code" />
-          </el-select>
+        <el-form-item label="编码" required>
+          <el-input v-model="form.code" :disabled="isEdit" />
         </el-form-item>
         <el-form-item label="名称" required>
-          <el-input v-model="form.entity_name" />
+          <el-input v-model="form.name" />
         </el-form-item>
-        <el-form-item label="联系信息">
-          <el-input v-model="form.contact_info" type="textarea" :rows="3" />
+        <el-form-item label="描述">
+          <el-input v-model="form.description" type="textarea" :rows="3" />
+        </el-form-item>
+        <el-form-item label="启用">
+          <el-switch v-model="form.enabled" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -83,32 +91,32 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api'
-import type { BusinessEntity, PaginatedData, CreateBusinessEntityRequest, UpdateBusinessEntityRequest, BusinessType } from '@/types/api'
+import type { BusinessType, PaginatedData, CreateBusinessTypeRequest, UpdateBusinessTypeRequest } from '@/types/api'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
-const canWrite = computed(() => auth.hasPermission('entities.write'))
+const canWrite = computed(() => auth.hasPermission('business_types.write'))
 
 const loading = ref(false)
-const items = ref<BusinessEntity[]>([])
+const items = ref<BusinessType[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
 
-const query = reactive<{ entity_type?: string; entity_name?: string }>({})
-const btOptions = ref<BusinessType[]>([])
+const query = reactive<{ code?: string; name?: string; enabled?: boolean | null }>({ enabled: null })
 
 function buildParams() {
   const p: any = { page: page.value, page_size: pageSize.value }
-  if (query.entity_type) p.entity_type = query.entity_type
-  if (query.entity_name) p.entity_name = query.entity_name
+  if (query.code) p.code = query.code
+  if (query.name) p.name = query.name
+  if (query.enabled !== null && query.enabled !== undefined) p.enabled = query.enabled
   return p
 }
 
 async function fetchData() {
   loading.value = true
   try {
-    const res: PaginatedData<BusinessEntity> = await api.settlementEntities.list(buildParams())
+    const res: PaginatedData<BusinessType> = await api.settlementBusinessTypes.list(buildParams())
     items.value = res.items || []
     total.value = res.total || 0
   } catch (e: any) {
@@ -118,14 +126,8 @@ async function fetchData() {
   }
 }
 
-async function loadBusinessTypes() {
-  try {
-    btOptions.value = await api.settlementBusinessTypes.listAllEnabled()
-  } catch {}
-}
-
 function onSearch() { page.value = 1; fetchData() }
-function onReset() { Object.assign(query, { entity_type: undefined, entity_name: undefined }); page.value=1; pageSize.value=10; fetchData() }
+function onReset() { Object.assign(query, { code: undefined, name: undefined, enabled: null }); page.value=1; pageSize.value=10; fetchData() }
 function onPageChange(p: number) { page.value = p; fetchData() }
 function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; fetchData() }
 
@@ -135,41 +137,33 @@ const isEdit = ref(false)
 const saving = ref(false)
 const editingId = ref<number | null>(null)
 
-const form = reactive<{ entity_type: string; entity_name: string; contact_info?: string | null }>({ entity_type: '', entity_name: '', contact_info: '' })
+const form = reactive<{ code: string; name: string; description?: string | null; enabled: boolean }>({ code: '', name: '', description: '', enabled: true })
 
 function openCreateDialog() {
   isEdit.value = false
   editingId.value = null
-  Object.assign(form, { entity_type: '', entity_name: '', contact_info: '' })
+  Object.assign(form, { code: '', name: '', description: '', enabled: true })
   dialogVisible.value = true
 }
 
-function openEditDialog(row: BusinessEntity) {
+function openEditDialog(row: BusinessType) {
   isEdit.value = true
   editingId.value = row.id
-  Object.assign(form, { entity_type: row.entity_type, entity_name: row.entity_name, contact_info: row.contact_info || '' })
+  Object.assign(form, { code: row.code, name: row.name, description: row.description || '', enabled: !!row.enabled })
   dialogVisible.value = true
 }
 
 async function onSave() {
-  if (!form.entity_type || !form.entity_name) { ElMessage.warning('类型与名称为必填'); return }
+  if (!form.code || !form.name) { ElMessage.warning('编码与名称为必填'); return }
   saving.value = true
   try {
     if (isEdit.value && editingId.value) {
-      const payload: UpdateBusinessEntityRequest = {
-        entity_type: form.entity_type,
-        entity_name: form.entity_name,
-        contact_info: form.contact_info || null,
-      }
-      await api.settlementEntities.update(editingId.value, payload)
+      const payload: UpdateBusinessTypeRequest = { name: form.name, description: form.description || null, enabled: form.enabled }
+      await api.settlementBusinessTypes.update(editingId.value, payload)
       ElMessage.success('更新成功')
     } else {
-      const payload: CreateBusinessEntityRequest = {
-        entity_type: form.entity_type,
-        entity_name: form.entity_name,
-        contact_info: form.contact_info || null,
-      }
-      await api.settlementEntities.create(payload)
+      const payload: CreateBusinessTypeRequest = { code: form.code, name: form.name, description: form.description || null, enabled: form.enabled }
+      await api.settlementBusinessTypes.create(payload)
       ElMessage.success('创建成功')
     }
     dialogVisible.value = false
@@ -181,12 +175,10 @@ async function onSave() {
   }
 }
 
-async function onRemove(row: BusinessEntity) {
+async function onRemove(row: BusinessType) {
+  try { await ElMessageBox.confirm(`确认删除业务类型「${row.name}」？`, '提示', { type: 'warning' }) } catch { return }
   try {
-    await ElMessageBox.confirm(`确认删除业务对象「${row.entity_name}」？`, '提示', { type: 'warning' })
-  } catch { return }
-  try {
-    await api.settlementEntities.remove(row.id)
+    await api.settlementBusinessTypes.remove(row.id)
     ElMessage.success('删除成功')
     fetchData()
   } catch (e: any) {
@@ -194,11 +186,21 @@ async function onRemove(row: BusinessEntity) {
   }
 }
 
-onMounted(() => { loadBusinessTypes(); fetchData() })
+async function onToggleEnabled(row: BusinessType) {
+  if (!canWrite.value) return
+  try {
+    await api.settlementBusinessTypes.update(row.id, { enabled: !!row.enabled })
+    ElMessage.success('已更新启用状态')
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '更新失败')
+  }
+}
+
+onMounted(fetchData)
 </script>
 
 <style scoped>
-.entities-view { padding: 20px; }
+.bt-view { padding: 20px; }
 .box-card { margin-bottom: 12px; }
 .card-header { display: flex; justify-content: space-between; align-items: center; }
 .filter-form { row-gap: 8px; }

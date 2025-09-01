@@ -8,7 +8,7 @@
             <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
             <el-button @click="onReset">重置</el-button>
             <el-button v-if="canWrite" type="success" @click="openDialog()">新增/更新</el-button>
-            <el-button v-if="canWrite" type="warning" :loading="refreshing" @click="onRefresh">刷新最终费率</el-button>
+            <el-button v-if="canWrite" type="warning" :loading="refreshing" @click="onRefresh">初始化并刷新最终费率</el-button>
           </div>
         </div>
       </template>
@@ -39,13 +39,31 @@
         <el-table-column prop="cp" label="运营商" width="120" />
         <el-table-column prop="school_name" label="学校" min-width="160" show-overflow-tooltip />
         <el-table-column prop="fee_type" label="费率类型" width="120" />
-        <el-table-column prop="final_fee" label="最终费" width="120" />
+        <el-table-column prop="final_fee" label="毛利" width="120" />
         <el-table-column prop="customer_fee" label="客户费" width="120" />
-        <el-table-column prop="customer_fee_owner_id" label="客户费归属" width="120" />
+        <el-table-column label="客户费归属" min-width="160">
+          <template #default="{ row }">
+            <el-tooltip placement="top" :content="`ID: ${row.customer_fee_owner_id ?? '-'}`">
+              <span>{{ getEntityName(row.customer_fee_owner_id) }}</span>
+            </el-tooltip>
+          </template>
+        </el-table-column>
         <el-table-column prop="network_line_fee" label="专线费" width="120" />
-        <el-table-column prop="network_line_fee_owner_id" label="专线费归属" width="120" />
+        <el-table-column label="专线费归属" min-width="160">
+          <template #default="{ row }">
+            <el-tooltip placement="top" :content="`ID: ${row.network_line_fee_owner_id ?? '-'}`">
+              <span>{{ getEntityName(row.network_line_fee_owner_id) }}</span>
+            </el-tooltip>
+          </template>
+        </el-table-column>
         <el-table-column prop="node_deduction_fee" label="节点扣减" width="120" />
-        <el-table-column prop="node_deduction_fee_owner_id" label="扣减归属" width="120" />
+        <el-table-column label="扣减归属" min-width="160">
+          <template #default="{ row }">
+            <el-tooltip placement="top" :content="`ID: ${row.node_deduction_fee_owner_id ?? '-'}`">
+              <span>{{ getEntityName(row.node_deduction_fee_owner_id) }}</span>
+            </el-tooltip>
+          </template>
+        </el-table-column>
         <el-table-column prop="updated_at" label="更新时间" min-width="180" />
       </el-table>
 
@@ -77,7 +95,7 @@
         <el-form-item label="费率类型" required>
           <el-input v-model="form.fee_type" />
         </el-form-item>
-        <el-form-item label="最终费">
+        <el-form-item label="毛利">
           <el-input-number v-model="form.final_fee" :min="0" :step="0.01" :precision="2" />
         </el-form-item>
         <el-form-item label="客户费">
@@ -111,7 +129,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api'
-import type { RateFinalCustomer, PaginatedData, UpsertRateFinalCustomerRequest } from '@/types/api'
+import type { RateFinalCustomer, PaginatedData, UpsertRateFinalCustomerRequest, BusinessEntity } from '@/types/api'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
@@ -153,6 +171,37 @@ function onReset() { Object.assign(query, { region: undefined, cp: undefined, sc
 function onPageChange(p: number) { page.value = p; fetchData() }
 function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; fetchData() }
 
+// 业务对象映射（id -> name），用于展示归属名称
+const entityMap = ref<Record<number, string>>({})
+
+async function fetchEntitiesAll() {
+  try {
+    const pageSize = 1000
+    let page = 1
+    const map: Record<number, string> = {}
+    while (true) {
+      const res = await api.settlementEntities.list({ page, page_size: pageSize })
+      const list = (res?.items || []) as BusinessEntity[]
+      for (const e of list) {
+        if (e && typeof e.id === 'number') {
+          map[e.id] = e.entity_name
+        }
+      }
+      const total = Number(res?.total || 0)
+      if (page * pageSize >= total || list.length === 0) break
+      page += 1
+    }
+    entityMap.value = map
+  } catch (_) {
+    // 显示归属名是增强体验，失败不阻塞主流程
+  }
+}
+
+function getEntityName(id?: number | null): string {
+  if (id == null) return '-'
+  return entityMap.value[id] || `#${id}`
+}
+
 // Dialog
 const dialogVisible = ref(false)
 const saving = ref(false)
@@ -181,18 +230,19 @@ async function onSave() {
 async function onRefresh() {
   refreshing.value = true
   try {
-    await api.settlementRates.final.refresh({})
-    ElMessage.success('已触发刷新（若后端未实现将返回Not Implemented）')
+    const initAffected = await api.settlementRates.final.initFromCustomer()
+    const refreshAffected = await api.settlementRates.final.refresh({})
+    ElMessage.success(`初始化 ${initAffected} 条，刷新 ${refreshAffected} 条`)
     fetchData()
   } catch (e: any) {
-    const msg = e?.response?.data?.message || e?.message || '刷新失败'
+    const msg = e?.response?.data?.message || e?.message || '初始化/刷新失败'
     ElMessage.error(msg)
   } finally {
     refreshing.value = false
   }
 }
 
-onMounted(fetchData)
+onMounted(() => { fetchEntitiesAll(); fetchData() })
 </script>
 
 <style scoped>
