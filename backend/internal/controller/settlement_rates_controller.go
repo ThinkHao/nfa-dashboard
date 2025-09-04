@@ -152,6 +152,22 @@ func (ctl *SettlementRatesController) UpsertFinalCustomerRate(c *gin.Context) {
     c.Status(http.StatusNoContent)
 }
 
+// 初始化最终客户费率：从 rate_customer 同步（仅插入缺失或覆盖 auto，保护 config）
+func (ctl *SettlementRatesController) InitFinalCustomerRatesFromCustomer(c *gin.Context) {
+    affected, err := ctl.svc.InitFinalCustomerRatesFromCustomer()
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+        return
+    }
+    c.JSON(http.StatusOK, gin.H{"affected": affected})
+}
+
+// 刷新最终客户费率：仅针对 auto 计算 final_fee
 func (ctl *SettlementRatesController) RefreshFinalCustomerRates(c *gin.Context) {
-    c.JSON(http.StatusNotImplemented, gin.H{"message": "Not Implemented"})
+    affected, err := ctl.svc.RefreshFinalCustomerRates()
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+        return
+    }
+    c.JSON(http.StatusOK, gin.H{"affected": affected})
 }

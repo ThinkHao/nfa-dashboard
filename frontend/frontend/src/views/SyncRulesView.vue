@@ -5,7 +5,7 @@
         <div class="card-header">
           <div class="header-left">
             <el-button @click="goBack">返回</el-button>
-            <span class="title">同步规则管理</span>
+            <span class="card-title">同步规则管理</span>
           </div>
           <div>
             <el-button v-if="canWrite" type="primary" @click="openDialog()">新增规则</el-button>
@@ -32,7 +32,7 @@
 
     <el-card shadow="never" class="box-card" style="margin-top: 16px">
       <template #header>
-        <div class="card-header"><span>规则列表</span></div>
+        <div class="card-header"><span class="card-title">规则列表</span></div>
       </template>
 
       <el-table :data="items" border stripe height="600px" v-loading="loading">
@@ -92,17 +92,57 @@
         <el-form-item label="条件表达式">
           <el-input v-model="form.condition_expr" placeholder="可选：如 region == '华北' && cp in ['CT','CM']" />
         </el-form-item>
-        <el-form-item label="范围-Region(JSON)">
-          <el-input v-model="scopeRegionText" type="textarea" :rows="3" placeholder='如 ["华北","华南"] 或 空' />
+        <el-form-item label="范围-Region">
+          <el-select v-model="scopeRegion" multiple filterable :reserve-keyword="false" allow-create default-first-option clearable placeholder="如：华北、华南" style="width: 100%" />
+          <div class="help">留空表示不限</div>
         </el-form-item>
-        <el-form-item label="范围-CP(JSON)">
-          <el-input v-model="scopeCPText" type="textarea" :rows="3" placeholder='如 ["CT","CM"] 或 空' />
+        <el-form-item label="范围-CP">
+          <el-select v-model="scopeCP" multiple filterable :reserve-keyword="false" allow-create default-first-option clearable placeholder="如：CT、CM" style="width: 100%" />
+          <div class="help">留空表示不限</div>
         </el-form-item>
-        <el-form-item label="更新字段(JSON)">
-          <el-input v-model="fieldsToUpdateText" type="textarea" :rows="4" placeholder='如 {"extra":{"k":"v"}} 或 {"customer_fee": 1.23} 或 空' />
+
+        <el-form-item label="更新字段">
+          <el-radio-group v-model="fieldsUpdateMode">
+            <el-radio-button label="simple">简单</el-radio-button>
+            <el-radio-button label="json">JSON</el-radio-button>
+          </el-radio-group>
+          <div v-if="fieldsUpdateMode==='simple'" class="kv-list">
+            <div v-for="(row, idx) in kvRows" :key="idx" class="kv-row">
+              <el-input v-model="row.key" placeholder="键（保存在 extra 下，如 remark）" style="width: 220px" />
+              <el-input v-model="row.value" placeholder="值" style="width: 260px; margin-left: 8px;" />
+              <el-button link type="danger" @click="removeKv(idx)">删除</el-button>
+            </div>
+            <el-button size="small" @click="addKv">新增一行</el-button>
+            <div class="help">将保存到 fields_to_update.extra 下</div>
+          </div>
+          <div v-else>
+            <el-input v-model="fieldsToUpdateText" type="textarea" :rows="4" placeholder='例如 {"extra":{"remark":"批量"}} 或 空' />
+          </div>
         </el-form-item>
-        <el-form-item label="动作(JSON)" required>
-          <el-input v-model="actionsText" type="textarea" :rows="6" placeholder='必填，如 {"type":"template","values":{}} 或 {"type":"expr","expr":"..."}' />
+
+        <el-form-item label="动作" required>
+          <el-radio-group v-model="actionMode">
+            <el-radio-button label="template">模板</el-radio-button>
+            <el-radio-button label="expr">表达式</el-radio-button>
+            <el-radio-button label="json">JSON</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+
+        <el-form-item v-if="actionMode==='template'" label="模板值">
+          <div class="template-grid">
+            <el-input-number v-model="templateValues.customer_fee" :step="0.01" :min="0" placeholder="customer_fee" />
+            <el-input-number v-model="templateValues.network_line_fee" :step="0.01" :min="0" placeholder="network_line_fee" />
+            <el-input-number v-model="templateValues.general_fee" :step="0.01" :min="0" placeholder="general_fee" />
+          </div>
+          <div class="help">留空的字段将不会写入</div>
+        </el-form-item>
+
+        <el-form-item v-if="actionMode==='expr'" label="表达式">
+          <el-input v-model="exprText" type="textarea" :rows="4" placeholder="例如：customer_fee = base_fee + 0.02; network_line_fee = 0.12" />
+        </el-form-item>
+
+        <el-form-item v-if="actionMode==='json'" label="动作(JSON)" required>
+          <el-input v-model="actionsText" type="textarea" :rows="6" placeholder='如 {"type":"template","values":{}} 或 {"type":"expr","expr":"..."}' />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -185,12 +225,22 @@ const dialogVisible = ref(false)
 const saving = ref(false)
 const editing = ref(false)
 const editingId = ref<number | null>(null)
+const originalEnabled = ref<boolean>(true)
+const originalPriority = ref<number>(0)
 
 const form = reactive<CreateSyncRuleRequest>({ name: '', enabled: true, priority: 0, overwrite_strategy: 'always', actions: {} as any, condition_expr: undefined, scope_region: undefined, scope_cp: undefined, fields_to_update: undefined })
-const scopeRegionText = ref('')
-const scopeCPText = ref('')
-const fieldsToUpdateText = ref('')
-const actionsText = ref('')
+// 范围（表单化）
+const scopeRegion = ref<string[]>([])
+const scopeCP = ref<string[]>([])
+// 更新字段：simple/json 两种模式
+const fieldsUpdateMode = ref<'simple' | 'json'>('simple')
+const kvRows = ref<{ key: string; value: string }[]>([])
+const fieldsToUpdateText = ref('') // 仅 json 模式使用
+// 动作：template/expr/json 三种模式
+const actionMode = ref<'template' | 'expr' | 'json'>('template')
+const templateValues = reactive<{ customer_fee?: number | null; network_line_fee?: number | null; general_fee?: number | null }>({})
+const exprText = ref('')
+const actionsText = ref('') // 仅 json 模式使用
 
 function openDialog(row?: SyncRule) {
   if (row) {
@@ -198,20 +248,77 @@ function openDialog(row?: SyncRule) {
     editingId.value = row.id
     form.name = row.name
     form.enabled = !!row.enabled
+    originalEnabled.value = !!row.enabled
     form.priority = row.priority
+    originalPriority.value = row.priority
     form.overwrite_strategy = row.overwrite_strategy
     form.condition_expr = row.condition_expr || undefined
-    scopeRegionText.value = row.scope_region ? JSON.stringify(row.scope_region, null, 2) : ''
-    scopeCPText.value = row.scope_cp ? JSON.stringify(row.scope_cp, null, 2) : ''
-    fieldsToUpdateText.value = row.fields_to_update ? JSON.stringify(row.fields_to_update, null, 2) : ''
-    actionsText.value = row.actions ? JSON.stringify(row.actions, null, 2) : ''
+    // 作用范围
+    scopeRegion.value = Array.isArray(row.scope_region) ? [...(row.scope_region as string[])] : []
+    scopeCP.value = Array.isArray(row.scope_cp) ? [...(row.scope_cp as string[])] : []
+
+    // 更新字段
+    if (row.fields_to_update && typeof row.fields_to_update === 'object') {
+      const ft = row.fields_to_update as any
+      if (ft.extra && typeof ft.extra === 'object') {
+        fieldsUpdateMode.value = 'simple'
+        kvRows.value = Object.entries(ft.extra).map(([key, value]) => ({ key: String(key), value: String(value as any) }))
+        fieldsToUpdateText.value = ''
+      } else {
+        fieldsUpdateMode.value = 'json'
+        fieldsToUpdateText.value = JSON.stringify(row.fields_to_update, null, 2)
+        kvRows.value = []
+      }
+    } else {
+      fieldsUpdateMode.value = 'simple'
+      kvRows.value = []
+      fieldsToUpdateText.value = ''
+    }
+
+    // 动作
+    actionMode.value = 'json'
+    actionsText.value = ''
+    exprText.value = ''
+    templateValues.customer_fee = null
+    templateValues.network_line_fee = null
+    templateValues.general_fee = null
+    const act = row.actions as any
+    if (act && typeof act === 'object' && typeof act.type === 'string') {
+      if (act.type === 'template') {
+        actionMode.value = 'template'
+        const v = (act.values || {}) as any
+        templateValues.customer_fee = v.customer_fee ?? null
+        templateValues.network_line_fee = v.network_line_fee ?? null
+        templateValues.general_fee = v.general_fee ?? null
+      } else if (act.type === 'expr') {
+        actionMode.value = 'expr'
+        exprText.value = String(act.expr || '')
+      } else {
+        actionMode.value = 'json'
+        actionsText.value = JSON.stringify(row.actions, null, 2)
+      }
+    } else if (row.actions) {
+      actionMode.value = 'json'
+      actionsText.value = JSON.stringify(row.actions, null, 2)
+    } else {
+      actionMode.value = 'template'
+    }
   } else {
     editing.value = false
     editingId.value = null
     Object.assign(form, { name: '', enabled: true, priority: 0, overwrite_strategy: 'always', condition_expr: undefined })
-    scopeRegionText.value = ''
-    scopeCPText.value = ''
+    originalEnabled.value = !!form.enabled
+    originalPriority.value = Number(form.priority) || 0
+    scopeRegion.value = []
+    scopeCP.value = []
+    fieldsUpdateMode.value = 'simple'
+    kvRows.value = []
     fieldsToUpdateText.value = ''
+    actionMode.value = 'template'
+    templateValues.customer_fee = null
+    templateValues.network_line_fee = null
+    templateValues.general_fee = null
+    exprText.value = ''
     actionsText.value = ''
   }
   dialogVisible.value = true
@@ -226,37 +333,69 @@ async function onSave() {
   if (!canWrite.value) { ElMessage.warning('无写权限'); return }
   if (!form.name?.trim()) { ElMessage.warning('规则名为必填'); return }
   if (!form.overwrite_strategy?.trim()) { ElMessage.warning('覆盖策略为必填'); return }
-  if (!actionsText.value?.trim()) { ElMessage.warning('动作(JSON)为必填'); return }
 
-  let payload: CreateSyncRuleRequest | UpdateSyncRuleRequest
-  try {
-    const scope_region = safeParse(scopeRegionText.value)
-    const scope_cp = safeParse(scopeCPText.value)
-    const fields_to_update = safeParse(fieldsToUpdateText.value)
-    const actions = safeParse(actionsText.value)
-    payload = {
-      name: form.name,
-      enabled: !!form.enabled,
-      priority: Number(form.priority) || 0,
-      overwrite_strategy: form.overwrite_strategy,
-      condition_expr: form.condition_expr || undefined,
-      scope_region,
-      scope_cp,
-      fields_to_update,
-      actions: actions as any,
+  // 组装范围
+  const scope_region = scopeRegion.value.length ? [...scopeRegion.value] : undefined
+  const scope_cp = scopeCP.value.length ? [...scopeCP.value] : undefined
+
+  // 组装更新字段
+  let fields_to_update: any | undefined
+  if (fieldsUpdateMode.value === 'json') {
+    try {
+      fields_to_update = safeParse(fieldsToUpdateText.value)
+    } catch (e: any) {
+      ElMessage.error(e?.message || '更新字段 JSON 格式错误')
+      return
     }
-  } catch (e: any) {
-    ElMessage.error(e?.message || '请检查 JSON 字段格式')
-    return
+  } else {
+    const extraEntries = kvRows.value.filter(r => r.key && r.key.trim().length)
+    if (extraEntries.length) {
+      fields_to_update = { extra: Object.fromEntries(extraEntries.map(r => [r.key.trim(), r.value])) }
+    }
+  }
+
+  // 组装动作
+  let actions: any
+  if (actionMode.value === 'template') {
+    const values: any = {}
+    if (templateValues.customer_fee != null) values.customer_fee = Number(templateValues.customer_fee)
+    if (templateValues.network_line_fee != null) values.network_line_fee = Number(templateValues.network_line_fee)
+    if (templateValues.general_fee != null) values.general_fee = Number(templateValues.general_fee)
+    if (Object.keys(values).length === 0) { ElMessage.warning('请至少填写一项模板值'); return }
+    actions = { type: 'template', values }
+  } else if (actionMode.value === 'expr') {
+    if (!exprText.value?.trim()) { ElMessage.warning('请填写表达式'); return }
+    actions = { type: 'expr', expr: exprText.value }
+  } else {
+    if (!actionsText.value?.trim()) { ElMessage.warning('请填写动作 JSON'); return }
+    try { actions = safeParse(actionsText.value) } catch (e: any) { ElMessage.error(e?.message || '动作 JSON 格式错误'); return }
+  }
+
+  const payloadBase = {
+    name: form.name,
+    overwrite_strategy: form.overwrite_strategy,
+    condition_expr: form.condition_expr || undefined,
+    scope_region,
+    scope_cp,
+    fields_to_update,
+    actions,
   }
 
   saving.value = true
   try {
     if (editing.value && editingId.value) {
-      await api.settlementRates.syncRules.update(editingId.value, payload as UpdateSyncRuleRequest)
+      // 后端不允许在 update 接口修改 enabled，需使用独立的 setEnabled 接口
+      await api.settlementRates.syncRules.update(editingId.value, payloadBase as UpdateSyncRuleRequest)
+      if (originalEnabled.value !== !!form.enabled) {
+        await api.settlementRates.syncRules.setEnabled(editingId.value, !!form.enabled)
+      }
+      if (originalPriority.value !== (Number(form.priority) || 0)) {
+        await api.settlementRates.syncRules.updatePriority(editingId.value, Number(form.priority) || 0)
+      }
       ElMessage.success('更新成功')
     } else {
-      await api.settlementRates.syncRules.create(payload as CreateSyncRuleRequest)
+      const createPayload: CreateSyncRuleRequest = { enabled: !!form.enabled, priority: Number(form.priority) || 0, ...payloadBase }
+      await api.settlementRates.syncRules.create(createPayload)
       ElMessage.success('创建成功')
     }
     dialogVisible.value = false
@@ -265,6 +404,9 @@ async function onSave() {
     ElMessage.error(e?.response?.data?.message || e?.message || '保存失败')
   } finally { saving.value = false }
 }
+
+function addKv() { kvRows.value.push({ key: '', value: '' }) }
+function removeKv(idx: number) { kvRows.value.splice(idx, 1) }
 
 async function onDelete(row: SyncRule) {
   try {
@@ -299,7 +441,6 @@ function goBack() {
 .box-card { margin-bottom: 12px; }
 .card-header { display: flex; justify-content: space-between; align-items: center; }
 .header-left { display: flex; align-items: center; gap: 8px; }
-.title { font-weight: 600; }
 .filter-form { row-gap: 8px; }
 .rule-form :deep(textarea) { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
 .pagination { display: flex; justify-content: flex-end; margin-top: 12px; }

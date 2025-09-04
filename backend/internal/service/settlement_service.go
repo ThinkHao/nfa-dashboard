@@ -102,9 +102,11 @@ func (s *settlementService) UpdateSettlementTaskStatus(taskID int64, status stri
 
 	task.Status = status
 	if status == "running" {
-		task.StartTime = time.Now()
+		now := time.Now()
+		task.StartTime = &now
 	} else if status == "success" || status == "failed" {
-		task.EndTime = time.Now()
+		now := time.Now()
+		task.EndTime = &now
 	}
 
 	if errorMsg != "" {
@@ -158,13 +160,20 @@ func (s *settlementService) GetSettlementTasks(taskType, status string, startDat
 
 	var responses []model.SettlementTaskResponse
 	for _, task := range tasks {
+		var st, et time.Time
+		if task.StartTime != nil {
+			st = *task.StartTime
+		}
+		if task.EndTime != nil {
+			et = *task.EndTime
+		}
 		responses = append(responses, model.SettlementTaskResponse{
 			ID:             task.ID,
 			TaskType:       task.TaskType,
 			TaskDate:       task.TaskDate,
 			Status:         task.Status,
-			StartTime:      task.StartTime,
-			EndTime:        task.EndTime,
+			StartTime:      st,
+			EndTime:        et,
 			ProcessedCount: task.ProcessedCount,
 			ErrorMessage:   task.ErrorMessage,
 			CreateTime:     task.CreateTime,
@@ -182,13 +191,20 @@ func (s *settlementService) GetSettlementTaskByID(id int64) (*model.SettlementTa
 		return nil, err
 	}
 
+	var st, et time.Time
+	if task.StartTime != nil {
+		st = *task.StartTime
+	}
+	if task.EndTime != nil {
+		et = *task.EndTime
+	}
 	response := &model.SettlementTaskResponse{
 		ID:             task.ID,
 		TaskType:       task.TaskType,
 		TaskDate:       task.TaskDate,
 		Status:         task.Status,
-		StartTime:      task.StartTime,
-		EndTime:        task.EndTime,
+		StartTime:      st,
+		EndTime:        et,
 		ProcessedCount: task.ProcessedCount,
 		ErrorMessage:   task.ErrorMessage,
 		CreateTime:     task.CreateTime,
@@ -221,7 +237,13 @@ func (s *settlementService) executeDailySettlementInternal(date time.Time) ([]mo
 	}
 	
 	var validCombinations []SchoolRegionCP
-	query := "SELECT DISTINCT school_id, school_name, region, cp FROM nfa_school"
+	query := `
+SELECT DISTINCT school_id, school_name, region, cp
+FROM nfa_school
+WHERE school_id IS NOT NULL AND school_id <> ''
+  AND school_name IS NOT NULL AND school_name <> ''
+  AND region IS NOT NULL AND region <> ''
+  AND cp IS NOT NULL AND cp <> ''`
 	err := model.DB.Raw(query).Scan(&validCombinations).Error
 	if err != nil {
 		return nil, 0, fmt.Errorf("获取有效学校组合失败: %v", err)
@@ -231,6 +253,11 @@ func (s *settlementService) executeDailySettlementInternal(date time.Time) ([]mo
 	
 	// 为每个有效组合计算95值
 	for _, combo := range validCombinations {
+		// 跳过字段为 NULL 或空字符串的无效院校组合（双重保证）
+		if combo.SchoolID == "" || combo.Region == "" || combo.CP == "" {
+			log.Printf("跳过无效院校组合: schoolID=%s, region=%s, cp=%s", combo.SchoolID, combo.Region, combo.CP)
+			continue
+		}
 		// 计算95值，传入学校ID、地区和运营商
 		settlement, err := s.repo.CalculateDaily95WithRegionAndCP(date, combo.SchoolID, combo.Region, combo.CP)
 		if err != nil {
@@ -284,7 +311,8 @@ func (s *settlementService) ExecuteDailySettlement(taskID int64, date time.Time)
 	}
 
 	task.Status = "success"
-	task.EndTime = time.Now()
+	now := time.Now()
+	task.EndTime = &now
 	task.ProcessedCount = processedCount
 
 	err = s.repo.UpdateSettlementTask(task)
@@ -437,7 +465,8 @@ func (s *settlementService) ExecuteWeeklySettlementWithDateRange(taskID int64, s
 	}
 
 	task.Status = "success"
-	task.EndTime = time.Now()
+	now := time.Now()
+	task.EndTime = &now
 	task.ProcessedCount = totalProcessedCount
 
 	err = s.repo.UpdateSettlementTask(task)

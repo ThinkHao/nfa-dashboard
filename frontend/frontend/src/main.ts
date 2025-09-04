@@ -1,4 +1,5 @@
 import './assets/main.css'
+import './assets/theme.css'
 
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
@@ -23,5 +24,8 @@ app.config.errorHandler = (err, instance, info) => {
   console.error('全局错误:', err)
   console.error('错误信息:', info)
 }
+
+// 启用更强对比模式，提高清晰度（可按需移除或改为条件开启）
+document.documentElement.classList.add('contrast-max')
 
 app.mount('#app')

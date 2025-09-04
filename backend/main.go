@@ -23,7 +23,6 @@ func main() {
 
 	// 创建Gin引擎
 	r := gin.Default()
-
 	// 注册中间件
 	r.Use(middleware.Logger())
 	r.Use(middleware.CORS())
@@ -44,8 +43,26 @@ func main() {
 	ratesSvc := service.NewRatesService(ratesRepo)
 	ratesController := controller.NewSettlementRatesController(ratesSvc)
 
+	// 客户费率-自定义字段定义依赖与控制器
+	customerFieldsRepo := repository.NewCustomerFieldsRepository()
+	customerFieldsSvc := service.NewCustomerFieldsService(customerFieldsRepo)
+	customerFieldsController := controller.NewCustomerFieldsController(customerFieldsSvc)
+
+	// 客户费率-同步规则依赖与控制器
+	syncRulesRepo := repository.NewSyncRulesRepository()
+	syncRulesSvc := service.NewSyncRulesService(syncRulesRepo)
+	syncRulesController := controller.NewSyncRulesController(syncRulesSvc)
+
+	// 客户费率-执行同步服务与控制器
+	ratesSyncSvc := service.NewRatesSyncService(syncRulesRepo, ratesRepo, schoolRepo)
+	ratesSyncController := controller.NewRatesSyncController(ratesSyncSvc)
+
 	entitiesRepo := repository.NewEntitiesRepository()
-	entitiesSvc := service.NewEntitiesService(entitiesRepo)
+	// 业务类型依赖（供实体类型校验与单独管理）
+	btRepo := repository.NewBusinessTypeRepository()
+	btService := service.NewBusinessTypeService(btRepo)
+	btController := controller.NewBusinessTypeController(btService)
+	entitiesSvc := service.NewEntitiesService(entitiesRepo, btRepo)
 	entitiesController := controller.NewSettlementEntitiesController(entitiesSvc)
 
 	// 认证与权限依赖
@@ -87,30 +104,30 @@ func main() {
 			auth.GET("/profile", authMW.AuthRequired(), authController.Profile)
 		}
 
-		// 学校相关接口
-		api.GET("/schools", schoolController.GetAllSchools)
-		api.GET("/regions", schoolController.GetAllRegions)
-		api.GET("/cps", schoolController.GetAllCPs)
-		api.GET("/traffic", schoolController.GetTrafficData)
-		api.GET("/traffic/summary", schoolController.GetTrafficSummary)
+		        // 学校与流量相关接口（需要登录与权限）
+        api.GET("/schools", authMW.AuthRequired(), authMW.PermissionRequired("school.read"), schoolController.GetAllSchools)
+        api.GET("/regions", authMW.AuthRequired(), authMW.PermissionRequired("school.read"), schoolController.GetAllRegions)
+        api.GET("/cps", authMW.AuthRequired(), authMW.PermissionRequired("school.read"), schoolController.GetAllCPs)
+        api.GET("/traffic", authMW.AuthRequired(), authMW.PermissionRequired("traffic.read"), schoolController.GetTrafficData)
+        api.GET("/traffic/summary", authMW.AuthRequired(), authMW.PermissionRequired("traffic.read"), schoolController.GetTrafficSummary)
 
 		// 结算系统相关接口（需要登录）
 		settlement := api.Group("/settlement", authMW.AuthRequired())
 		{
-			// 结算配置相关接口
-			settlement.GET("/config", settlementController.GetSettlementConfig)
-			settlement.PUT("/config", authMW.PermissionRequired("settlement.calculate"), settlementController.UpdateSettlementConfig)
+			            // 结算配置相关接口
+            settlement.GET("/config", authMW.PermissionRequired("settlement.read"), settlementController.GetSettlementConfig)
+            settlement.PUT("/config", authMW.PermissionRequired("settlement.calculate"), settlementController.UpdateSettlementConfig)
 
-			// 结算任务相关接口
-			settlement.GET("/tasks", settlementController.GetSettlementTasks)
-			settlement.GET("/tasks/:id", settlementController.GetSettlementTaskByID)
-			settlement.POST("/tasks/daily", authMW.PermissionRequired("settlement.calculate"), settlementController.CreateDailySettlementTask)
-			settlement.POST("/tasks/weekly", authMW.PermissionRequired("settlement.calculate"), settlementController.CreateWeeklySettlementTask)
-			settlement.DELETE("/tasks/:id", authMW.PermissionRequired("settlement.calculate"), settlementController.DeleteSettlementTask)
+			            // 结算任务相关接口
+            settlement.GET("/tasks", authMW.PermissionRequired("settlement.read"), settlementController.GetSettlementTasks)
+            settlement.GET("/tasks/:id", authMW.PermissionRequired("settlement.read"), settlementController.GetSettlementTaskByID)
+            settlement.POST("/tasks/daily", authMW.PermissionRequired("settlement.calculate"), settlementController.CreateDailySettlementTask)
+            settlement.POST("/tasks/weekly", authMW.PermissionRequired("settlement.calculate"), settlementController.CreateWeeklySettlementTask)
+            settlement.DELETE("/tasks/:id", authMW.PermissionRequired("settlement.calculate"), settlementController.DeleteSettlementTask)
 
-			// 结算数据相关接口
-			settlement.GET("/data", settlementController.GetSettlements)
-			settlement.GET("/daily-details", settlementController.GetDailySettlementDetails)
+			            // 结算数据相关接口
+            settlement.GET("/data", authMW.PermissionRequired("settlement.read"), settlementController.GetSettlements)
+            settlement.GET("/daily-details", authMW.PermissionRequired("settlement.read"), settlementController.GetDailySettlementDetails)
 
 			// 费率模块（归属结算系统）
 			rates := settlement.Group("/rates")
@@ -124,7 +141,34 @@ func main() {
 				// 最终客户费率
 				rates.GET("/final", authMW.PermissionRequired("rates.final.read"), ratesController.ListFinalCustomerRates)
 				rates.POST("/final", authMW.PermissionRequired("rates.final.write"), ratesController.UpsertFinalCustomerRate)
+				rates.POST("/final/init-from-customer", authMW.PermissionRequired("rates.final.write"), ratesController.InitFinalCustomerRatesFromCustomer)
 				rates.POST("/final/refresh", authMW.PermissionRequired("rates.final.write"), ratesController.RefreshFinalCustomerRates)
+
+				// 客户费率-自定义字段定义
+				fields := rates.Group("/customer-fields")
+				{
+					fields.GET("", authMW.PermissionRequired("rates.customer_fields.read"), customerFieldsController.List)
+					fields.POST("", authMW.PermissionRequired("rates.customer_fields.write"), customerFieldsController.Create)
+					fields.PUT("/:id", authMW.PermissionRequired("rates.customer_fields.write"), customerFieldsController.Update)
+					fields.DELETE("/:id", authMW.PermissionRequired("rates.customer_fields.write"), customerFieldsController.Delete)
+				}
+
+				// 客户费率-同步规则
+				rules := rates.Group("/sync-rules")
+				{
+					rules.GET("", authMW.PermissionRequired("rates.sync_rules.read"), syncRulesController.List)
+					rules.POST("", authMW.PermissionRequired("rates.sync_rules.write"), syncRulesController.Create)
+					rules.PUT("/:id", authMW.PermissionRequired("rates.sync_rules.write"), syncRulesController.Update)
+					rules.DELETE("/:id", authMW.PermissionRequired("rates.sync_rules.write"), syncRulesController.Delete)
+					rules.PUT("/:id/priority", authMW.PermissionRequired("rates.sync_rules.write"), syncRulesController.UpdatePriority)
+					rules.PUT("/:id/enabled", authMW.PermissionRequired("rates.sync_rules.write"), syncRulesController.SetEnabled)
+				}
+
+				// 客户费率-执行同步
+				sync := rates.Group("/sync")
+				{
+					sync.POST("/execute", authMW.PermissionRequired("rates.sync.execute"), ratesSyncController.Execute)
+				}
 			}
 
 			// 业务对象（归属结算系统）
@@ -135,21 +179,30 @@ func main() {
 				entities.PUT("/:id", authMW.PermissionRequired("entities.write"), entitiesController.UpdateEntity)
 				entities.DELETE("/:id", authMW.PermissionRequired("entities.write"), entitiesController.DeleteEntity)
 			}
+
+			// 业务类型管理（归属结算系统）
+			bt := settlement.Group("/business-types")
+			{
+				bt.GET("", authMW.PermissionRequired("business_types.read"), btController.List)
+				bt.POST("", authMW.PermissionRequired("business_types.write"), btController.Create)
+				bt.PUT("/:id", authMW.PermissionRequired("business_types.write"), btController.Update)
+				bt.DELETE("/:id", authMW.PermissionRequired("business_types.write"), btController.Delete)
+			}
 		}
 
 		// 系统管理接口（需要登录）
 		system := api.Group("/system", authMW.AuthRequired())
 		{
-			// 角色管理（需要 system.role.manage）
-			roles := system.Group("/roles", authMW.PermissionRequired("system.role.manage"))
-			{
-				roles.GET("", roleController.ListRoles)
-				roles.POST("", roleController.CreateRole)
-				roles.PUT(":id", roleController.UpdateRole)
-				roles.DELETE(":id", roleController.DeleteRole)
-				roles.GET(":id/permissions", roleController.GetRolePermissions)
-				roles.PUT(":id/permissions", roleController.SetRolePermissions)
-			}
+      			// 角色管理（需要 system.role.manage）
+      			roles := system.Group("/roles", authMW.PermissionRequired("system.role.manage"))
+      			{
+      				roles.GET("", roleController.ListRoles)
+      				roles.POST("", roleController.CreateRole)
+				roles.PUT("/:id", roleController.UpdateRole)
+				roles.DELETE("/:id", roleController.DeleteRole)
+				roles.GET("/:id/permissions", roleController.GetRolePermissions)
+				roles.PUT("/:id/permissions", roleController.SetRolePermissions)
+      			}
 
 			// 权限列表（同样归属角色管理查看）
 			system.GET("/permissions", authMW.PermissionRequired("system.role.manage"), permController.ListPermissions)
@@ -161,15 +214,15 @@ func main() {
 			system.DELETE("/permissions/:id", authMW.PermissionRequired("system.permission.manage"), permController.DisablePermission)
 			system.POST("/permissions/sync", authMW.PermissionRequired("system.permission.manage"), permController.SyncPermissions)
 
-			// 用户管理（需要 system.user.manage）
-			users := system.Group("/users", authMW.PermissionRequired("system.user.manage"))
-			{
-				users.POST("", systemUserController.CreateUser)
-				users.GET("", systemUserController.ListUsers)
-				users.PUT(":id/status", systemUserController.UpdateUserStatus)
-				users.PUT(":id/roles", systemUserController.SetUserRoles)
-				users.PUT(":id/alias", systemUserController.UpdateUserAlias)
-			}
+      			// 用户管理（需要 system.user.manage）
+      			users := system.Group("/users", authMW.PermissionRequired("system.user.manage"))
+      			{
+      				users.POST("", systemUserController.CreateUser)
+      				users.GET("", systemUserController.ListUsers)
+				users.PUT("/:id/status", systemUserController.UpdateUserStatus)
+				users.PUT("/:id/roles", systemUserController.SetUserRoles)
+				users.PUT("/:id/alias", systemUserController.UpdateUserAlias)
+      			}
 
 			// 操作日志查询与导出（需要 operation_logs.read）
 			system.GET("/operation-logs", authMW.PermissionRequired("operation_logs.read"), opLogController.List)

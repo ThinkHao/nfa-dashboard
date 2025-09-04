@@ -3,6 +3,7 @@ package repository
 import (
     "nfa-dashboard/internal/model"
 
+    "gorm.io/gorm"
     "gorm.io/gorm/clause"
 )
 
@@ -11,6 +12,7 @@ type RatesRepository interface {
     // 客户业务费率
     ListCustomerRates(filter map[string]interface{}, limit, offset int) ([]model.RateCustomer, int64, error)
     UpsertCustomerRate(rate *model.RateCustomer) error
+    UpdateCustomerByID(id uint64, updates map[string]interface{}) error
 
     // 节点业务费率
     ListNodeRates(filter map[string]interface{}, limit, offset int) ([]model.RateNode, int64, error)
@@ -19,6 +21,12 @@ type RatesRepository interface {
     // 最终客户费率
     ListFinalCustomerRates(filter map[string]interface{}, limit, offset int) ([]model.RateFinalCustomer, int64, error)
     UpsertFinalCustomerRate(rate *model.RateFinalCustomer) error
+
+    // 初始化最终客户费率（从 rate_customer 同步，保护 config 记录）
+    InitFinalCustomerRatesFromCustomer() (int64, error)
+
+    // 刷新最终客户费率（重算 final_fee，仅 auto）
+    RefreshFinalCustomerRates() (int64, error)
 }
 
 type ratesRepository struct{}
@@ -45,6 +53,13 @@ func (r *ratesRepository) UpsertCustomerRate(rate *model.RateCustomer) error {
         Columns:   []clause.Column{{Name: "region"}, {Name: "cp"}, {Name: "school_name"}},
         DoUpdates: clause.AssignmentColumns([]string{"customer_fee", "network_line_fee", "general_fee", "customer_fee_owner_id", "network_line_fee_owner_id", "updated_at"}),
     }).Create(rate).Error
+}
+
+// UpdateCustomerByID 基于主键进行局部字段更新
+func (r *ratesRepository) UpdateCustomerByID(id uint64, updates map[string]interface{}) error {
+    if id == 0 { return gorm.ErrInvalidData }
+    if len(updates) == 0 { return nil }
+    return model.DB.Model(&model.RateCustomer{}).Where("id = ?", id).Updates(updates).Error
 }
 
 // ListNodeRates 列表查询节点业务费率
@@ -90,4 +105,46 @@ func (r *ratesRepository) UpsertFinalCustomerRate(rate *model.RateFinalCustomer)
         Columns:   []clause.Column{{Name: "region"}, {Name: "cp"}, {Name: "school_name"}},
         DoUpdates: clause.AssignmentColumns([]string{"final_fee", "fee_type", "customer_fee", "customer_fee_owner_id", "network_line_fee", "network_line_fee_owner_id", "node_deduction_fee", "node_deduction_fee_owner_id", "updated_at"}),
     }).Create(rate).Error
+}
+
+// InitFinalCustomerRatesFromCustomer 从 rate_customer 初始化/同步到 rate_final_customer（保护 config 不被覆盖）
+func (r *ratesRepository) InitFinalCustomerRatesFromCustomer() (int64, error) {
+    sql := `
+INSERT INTO rate_final_customer
+  (region, cp, school_name, fee_type,
+   customer_fee, customer_fee_owner_id,
+   network_line_fee, network_line_fee_owner_id,
+   created_at, updated_at)
+SELECT
+  rc.region,
+  rc.cp,
+  COALESCE(rc.school_name, 'not_a_school') AS school_name,
+  'auto' AS fee_type,
+  rc.customer_fee,
+  rc.customer_fee_owner_id,
+  rc.network_line_fee,
+  rc.network_line_fee_owner_id,
+  NOW(), NOW()
+FROM rate_customer rc
+ON DUPLICATE KEY UPDATE
+  fee_type = IF(rate_final_customer.fee_type = 'config', rate_final_customer.fee_type, 'auto'),
+  customer_fee = IF(rate_final_customer.fee_type = 'config', rate_final_customer.customer_fee, VALUES(customer_fee)),
+  customer_fee_owner_id = IF(rate_final_customer.fee_type = 'config', rate_final_customer.customer_fee_owner_id, VALUES(customer_fee_owner_id)),
+  network_line_fee = IF(rate_final_customer.fee_type = 'config', rate_final_customer.network_line_fee, VALUES(network_line_fee)),
+  network_line_fee_owner_id = IF(rate_final_customer.fee_type = 'config', rate_final_customer.network_line_fee_owner_id, VALUES(network_line_fee_owner_id)),
+  updated_at = NOW();`
+    res := model.DB.Exec(sql)
+    return res.RowsAffected, res.Error
+}
+
+// RefreshFinalCustomerRates 按公式重算 final_fee（仅 auto）
+// 公式：final_fee = COALESCE(customer_fee,0) + COALESCE(network_line_fee,0) - COALESCE(node_deduction_fee,0)
+func (r *ratesRepository) RefreshFinalCustomerRates() (int64, error) {
+    res := model.DB.Model(&model.RateFinalCustomer{}).
+        Where("fee_type = ?", "auto").
+        Updates(map[string]interface{}{
+            "final_fee": gorm.Expr("COALESCE(customer_fee,0) + COALESCE(network_line_fee,0) - COALESCE(node_deduction_fee,0)"),
+            "updated_at": gorm.Expr("NOW()"),
+        })
+    return res.RowsAffected, res.Error
 }

@@ -136,16 +136,14 @@ const navigateTo = (path: string) => {
 }
 
 .page-title {
-  font-size: 2.5rem;
+  /* rely on global .page-title styles for color, size, spacing, and shadow */
   text-align: center;
-  margin-bottom: 1rem;
-  color: var(--dark-color);
 }
 
 .page-description {
   text-align: center;
   font-size: 1.2rem;
-  color: #666;
+  color: var(--text-default);
   margin-bottom: 3rem;
 }
 
@@ -202,7 +200,8 @@ const navigateTo = (path: string) => {
 .feature-content h3 {
   font-size: 1.5rem;
   margin-bottom: 1rem;
-  color: var(--dark-color);
+  color: var(--text-strong);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.35);
 }
 
 .feature-content p {

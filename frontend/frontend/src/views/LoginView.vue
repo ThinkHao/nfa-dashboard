@@ -1,7 +1,7 @@
 <template>
   <div class="login-page">
     <el-card class="login-card" shadow="hover">
-      <h2 class="title">登录</h2>
+      <h2 class="page-title login-title">登录</h2>
       <el-form :model="form" :rules="rules" ref="formRef" label-width="80px">
         <el-form-item label="用户名" prop="username">
           <el-input v-model="form.username" placeholder="请输入用户名" autocomplete="username" />
@@ -62,8 +62,7 @@ async function onSubmit() {
 .login-card {
   width: 380px;
 }
-.title {
+.login-title {
   text-align: center;
-  margin-bottom: 16px;
 }
 </style>

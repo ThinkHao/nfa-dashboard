@@ -1,7 +1,7 @@
 <template>
   <div class="settlement-data-tab">
     <!-- 筛选条件区域 -->
-    <div class="filter-section">
+    <el-card class="filter-section" shadow="hover">
       <el-form :model="filterForm" inline>
         <el-form-item label="地区" style="min-width: 200px;">
           <el-select v-model="filterForm.region" placeholder="选择地区" clearable style="width: 180px;" @change="handleRegionChange">
@@ -51,10 +51,10 @@
           <el-button @click="resetFilter">重置</el-button>
         </el-form-item>
       </el-form>
-    </div>
+    </el-card>
 
     <!-- 数据表格区域 -->
-    <div class="table-section">
+    <el-card class="table-section" shadow="hover">
       <div class="table-header">
         <h3>结算数据列表</h3>
         <el-button type="success" @click="exportData">导出数据</el-button>
@@ -115,7 +115,7 @@
           @current-change="handleCurrentChange"
         />
       </div>
-    </div>
+    </el-card>
   </div>
 </template>
 
@@ -471,17 +471,9 @@ onMounted(() => {
 
 .filter-section {
   margin-bottom: 20px;
-  padding: 15px;
-  background-color: #f5f7fa;
-  border-radius: 4px;
 }
 
-.table-section {
-  background-color: #fff;
-  padding: 15px;
-  border-radius: 4px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
-}
+/* .table-section 使用全局 .el-card 玻璃化样式，无需局部背景与阴影 */
 
 .table-header {
   display: flex;

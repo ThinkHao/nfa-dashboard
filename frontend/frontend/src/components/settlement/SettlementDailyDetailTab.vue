@@ -1,7 +1,7 @@
 <template>
   <div class="settlement-daily-detail-tab">
     <!-- 筛选条件区域 -->
-    <div class="filter-section">
+    <el-card class="filter-section">
       <el-form :model="filterForm" inline>
         <el-form-item label="地区" style="min-width: 200px;">
           <el-select v-model="filterForm.region" placeholder="选择地区" clearable style="width: 180px;" @change="handleRegionChange">
@@ -51,14 +51,16 @@
           <el-button @click="resetFilter">重置</el-button>
         </el-form-item>
       </el-form>
-    </div>
+    </el-card>
 
     <!-- 数据表格区域 -->
-    <div class="table-section">
-      <div class="table-header">
-        <h3>日95明细列表</h3>
-        <el-button type="success" @click="exportData">导出数据</el-button>
-      </div>
+    <el-card class="table-section">
+      <template #header>
+        <div class="table-header">
+          <h3 class="card-title">日95明细列表</h3>
+          <el-button type="success" @click="exportData">导出数据</el-button>
+        </div>
+      </template>
       
       <el-table
         v-loading="loading"
@@ -95,7 +97,7 @@
           @current-change="handleCurrentChange"
         />
       </div>
-    </div>
+    </el-card>
   </div>
 </template>
 
@@ -356,9 +358,6 @@ onMounted(() => {
 
 .filter-section {
   margin-bottom: 20px;
-  padding: 15px;
-  background-color: #f9f9f9;
-  border-radius: 4px;
 }
 
 .table-section {

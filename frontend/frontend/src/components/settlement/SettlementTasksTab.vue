@@ -1,7 +1,7 @@
 <template>
   <div class="settlement-tasks-tab">
     <!-- 筛选条件区域 -->
-    <div class="filter-section">
+    <el-card class="filter-section">
       <el-form :model="filterForm" inline>
         <el-form-item label="任务类型">
           <el-select v-model="filterForm.task_type" placeholder="选择任务类型" clearable>
@@ -33,7 +33,7 @@
           <el-button @click="resetFilter">重置</el-button>
         </el-form-item>
       </el-form>
-    </div>
+    </el-card>
 
     <!-- 操作按钮区域 -->
     <div class="action-section">
@@ -42,8 +42,12 @@
     </div>
 
     <!-- 任务表格区域 -->
-    <div class="table-section">
-      <h3>结算任务列表</h3>
+    <el-card class="table-section">
+      <template #header>
+        <div class="table-header">
+          <h3 class="card-title">结算任务列表</h3>
+        </div>
+      </template>
       <el-table
         v-loading="loading"
         :data="taskData.items"
@@ -119,7 +123,7 @@
           @current-change="handleCurrentChange"
         />
       </div>
-    </div>
+    </el-card>
 
     <!-- 任务详情对话框 -->
     <el-dialog
@@ -554,22 +558,12 @@ onUnmounted(() => {
 
 .filter-section {
   margin-bottom: 20px;
-  padding: 15px;
-  background-color: #f5f7fa;
-  border-radius: 4px;
 }
 
 .action-section {
   margin-bottom: 20px;
   display: flex;
   gap: 10px;
-}
-
-.table-section {
-  background-color: #fff;
-  padding: 15px;
-  border-radius: 4px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
 }
 
 .pagination-container {

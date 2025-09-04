@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { PaginatedData, OperationLog, LoginRequest, LoginResponse, ProfileResponse, RefreshRequest, RefreshResponse, Role, SystemUser, UpdateUserStatusRequest, UpdateUserAliasRequest, SetUserRolesRequest, RoleCreateRequest, RoleUpdateRequest, SetRolePermissionsRequest, PermissionLite, CreateUserRequest, RateCustomer, UpsertRateCustomerRequest, RateNode, UpsertRateNodeRequest, RateFinalCustomer, UpsertRateFinalCustomerRequest, BusinessEntity, CreateBusinessEntityRequest, UpdateBusinessEntityRequest } from '@/types/api'
+import type { PaginatedData, OperationLog, LoginRequest, LoginResponse, ProfileResponse, RefreshRequest, RefreshResponse, Role, SystemUser, UpdateUserStatusRequest, UpdateUserAliasRequest, SetUserRolesRequest, RoleCreateRequest, RoleUpdateRequest, SetRolePermissionsRequest, PermissionLite, CreateUserRequest, RateCustomer, UpsertRateCustomerRequest, RateNode, UpsertRateNodeRequest, RateFinalCustomer, UpsertRateFinalCustomerRequest, BusinessEntity, CreateBusinessEntityRequest, UpdateBusinessEntityRequest, BusinessType, CreateBusinessTypeRequest, UpdateBusinessTypeRequest, SyncRule, CreateSyncRuleRequest, UpdateSyncRuleRequest } from '@/types/api'
 
 // 获取当前主机名和协议
 const getBaseUrl = () => {
@@ -173,22 +173,39 @@ export default {
   settlement: {
     // 获取结算配置
     getConfig() {
-      return api.get('/api/v1/settlement/config')
+      return api
+        .get('/api/v1/settlement/config')
+        .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
 
     // 更新结算配置
     updateConfig(config: any) {
-      return api.put('/api/v1/settlement/config', config)
+      const payload = {
+        id: config.id,
+        daily_time: config.daily_time,
+        weekly_day: config.weekly_day,
+        weekly_time: config.weekly_time,
+        enabled: config.enabled,
+      }
+      return api
+        .put('/api/v1/settlement/config', payload)
+        .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
 
     // 获取结算任务列表
     getTasks(params?: any) {
-      return api.get('/api/v1/settlement/tasks', { params })
+      // 统一解包 { data: { items, total } } 或直接返回数组/对象
+      return api
+        .get('/api/v1/settlement/tasks', { params })
+        .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
 
     // 获取结算任务详情
     getTaskById(id: number) {
-      return api.get(`/api/v1/settlement/tasks/${id}`)
+      // 解包 { data: task } 以便组件直接使用字段
+      return api
+        .get(`/api/v1/settlement/tasks/${id}`)
+        .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
 
     // 创建日结算任务
@@ -208,12 +225,16 @@ export default {
 
     // 获取结算数据列表
     getSettlements(params?: any) {
-      return api.get('/api/v1/settlement/data', { params })
+      return api
+        .get('/api/v1/settlement/data', { params })
+        .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
 
     // 获取日95明细数据列表
     getDailySettlementDetails(params?: any) {
-      return api.get('/api/v1/settlement/daily-details', { params })
+      return api
+        .get('/api/v1/settlement/daily-details', { params })
+        .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     }
   }
   ,
@@ -321,9 +342,41 @@ export default {
       upsert(data: UpsertRateFinalCustomerRequest): Promise<void> {
         return api.post('/api/v1/settlement/rates/final', data).then(() => undefined)
       },
-      refresh(payload: any = {}) {
+      initFromCustomer(): Promise<number> {
+        return api.post('/api/v1/settlement/rates/final/init-from-customer', {})
+          .then((d: any) => (d && typeof d === 'object' && 'affected' in d ? Number((d as any).affected) : 0))
+      },
+      refresh(payload: any = {}): Promise<number> {
         return api.post('/api/v1/settlement/rates/final/refresh', payload)
-      }
+          .then((d: any) => (d && typeof d === 'object' && 'affected' in d ? Number((d as any).affected) : 0))
+      },
+    },
+    sync: {
+      execute(): Promise<number> {
+        return api
+          .post('/api/v1/settlement/rates/sync/execute', {})
+          .then((d: any) => (d && typeof d === 'object' && 'affected' in d ? Number((d as any).affected) : 0))
+      },
+    },
+    syncRules: {
+      list(params?: any): Promise<PaginatedData<SyncRule>> {
+        return api.get('/api/v1/settlement/rates/sync-rules', { params }).then((d: any) => d as PaginatedData<SyncRule>)
+      },
+      create(data: CreateSyncRuleRequest): Promise<SyncRule> {
+        return api.post('/api/v1/settlement/rates/sync-rules', data).then((d: any) => d as SyncRule)
+      },
+      update(id: number, data: UpdateSyncRuleRequest): Promise<void> {
+        return api.put(`/api/v1/settlement/rates/sync-rules/${id}`, data).then(() => undefined)
+      },
+      remove(id: number): Promise<void> {
+        return api.delete(`/api/v1/settlement/rates/sync-rules/${id}`).then(() => undefined)
+      },
+      updatePriority(id: number, priority: number): Promise<void> {
+        return api.put(`/api/v1/settlement/rates/sync-rules/${id}/priority`, { priority }).then(() => undefined)
+      },
+      setEnabled(id: number, enabled: boolean): Promise<void> {
+        return api.put(`/api/v1/settlement/rates/sync-rules/${id}/enabled`, { enabled }).then(() => undefined)
+      },
     },
   },
 
@@ -340,6 +393,28 @@ export default {
     },
     remove(id: number): Promise<void> {
       return api.delete(`/api/v1/settlement/entities/${id}`).then(() => undefined)
+    },
+  },
+
+  // 结算 - 业务类型 API
+  settlementBusinessTypes: {
+    list(params?: any): Promise<PaginatedData<BusinessType>> {
+      return api.get('/api/v1/settlement/business-types', { params }).then((d: any) => d as PaginatedData<BusinessType>)
+    },
+    create(data: CreateBusinessTypeRequest): Promise<BusinessType> {
+      return api.post('/api/v1/settlement/business-types', data).then((d: any) => d as BusinessType)
+    },
+    update(id: number, data: UpdateBusinessTypeRequest): Promise<BusinessType> {
+      return api.put(`/api/v1/settlement/business-types/${id}`, data).then((d: any) => d as BusinessType)
+    },
+    remove(id: number): Promise<void> {
+      return api.delete(`/api/v1/settlement/business-types/${id}`).then(() => undefined)
+    },
+    // 便捷方法：获取全部启用的业务类型（用于下拉）
+    async listAllEnabled(): Promise<BusinessType[]> {
+      const res = await api.get('/api/v1/settlement/business-types', { params: { enabled: true, page_size: 1000, page: 1 } })
+      if (res && typeof res === 'object' && 'items' in res) return (res as any).items as BusinessType[]
+      return Array.isArray(res) ? (res as BusinessType[]) : []
     },
   }
 }

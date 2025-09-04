@@ -20,6 +20,12 @@ type RatesService interface {
     // 最终客户费率
     ListFinalCustomerRates(region, cp, schoolName, feeType string, page, pageSize int) ([]model.RateFinalCustomer, int64, error)
     UpsertFinalCustomerRate(rate *model.RateFinalCustomer) error
+
+    // 初始化最终客户费率（从 rate_customer 同步，保护 config 记录）
+    InitFinalCustomerRatesFromCustomer() (int64, error)
+
+    // 刷新最终客户费率，返回受影响行数
+    RefreshFinalCustomerRates() (int64, error)
 }
 
 type ratesService struct{ repo repository.RatesRepository }
@@ -68,3 +74,9 @@ func (s *ratesService) ListFinalCustomerRates(region, cp, schoolName, feeType st
 }
 
 func (s *ratesService) UpsertFinalCustomerRate(rate *model.RateFinalCustomer) error { return s.repo.UpsertFinalCustomerRate(rate) }
+
+func (s *ratesService) InitFinalCustomerRatesFromCustomer() (int64, error) {
+    return s.repo.InitFinalCustomerRatesFromCustomer()
+}
+
+func (s *ratesService) RefreshFinalCustomerRates() (int64, error) { return s.repo.RefreshFinalCustomerRates() }

@@ -1,26 +1,25 @@
 <template>
   <div class="settlement-config-tab">
-    <div class="config-card">
-      <div class="card-header">
-        <h3>结算系统配置</h3>
-        <div class="header-actions">
-          <el-switch
-            v-model="config.enabled"
-            active-text="启用自动结算"
-            inactive-text="禁用自动结算"
-            @change="updateEnabledStatus"
-          />
+    <el-card class="config-card">
+      <template #header>
+        <div class="card-header">
+          <h3 class="card-title">结算系统配置</h3>
+          <div class="header-actions">
+            <el-switch
+              v-model="config.enabled"
+              active-text="启用自动结算"
+              inactive-text="禁用自动结算"
+              @change="updateEnabledStatus"
+            />
+          </div>
         </div>
-      </div>
-
-      <el-divider />
+      </template>
 
       <div v-loading="loading">
         <el-form
           ref="configForm"
           :model="config"
           label-width="120px"
-          :disabled="!isEditing"
         >
           <el-form-item label="日结算时间">
             <el-time-picker
@@ -34,7 +33,7 @@
           </el-form-item>
 
           <el-form-item label="周结算日">
-            <el-select v-model="config.weekly_day" placeholder="选择星期">
+            <el-select v-model="config.weekly_day" placeholder="选择星期" :disabled="!isEditing">
               <el-option label="周一" :value="1" />
               <el-option label="周二" :value="2" />
               <el-option label="周三" :value="3" />
@@ -80,7 +79,7 @@
           </el-form-item>
         </el-form>
       </div>
-    </div>
+    </el-card>
   </div>
 </template>
 
@@ -94,8 +93,8 @@ import type { SettlementConfig } from '../../types/settlement'
 const loading = ref(false)
 const saving = ref(false)
 
-// 编辑状态
-const isEditing = ref(false)
+// 编辑状态（默认允许编辑）
+const isEditing = ref(true)
 
 // 配置数据
 const config = reactive<SettlementConfig>({
@@ -197,27 +196,16 @@ onMounted(() => {
   padding: 10px;
 }
 
-.config-card {
-  background-color: #fff;
-  padding: 20px;
-  border-radius: 4px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
-}
 
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
-}
-
-.card-header h3 {
-  margin: 0;
 }
 
 .time-description {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-muted);
   margin-top: 5px;
 }
 </style>

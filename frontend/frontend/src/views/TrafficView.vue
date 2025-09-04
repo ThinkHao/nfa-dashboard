@@ -852,12 +852,6 @@ function formatDate(date: Date | string, granularity: string) {
   padding: 1rem 0;
 }
 
-.page-title {
-  font-size: 1.8rem;
-  margin-bottom: 1.5rem;
-  color: var(--dark-color);
-}
-
 .query-card {
   margin-bottom: 1.5rem;
 }

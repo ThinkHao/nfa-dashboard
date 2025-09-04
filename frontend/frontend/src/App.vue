@@ -17,6 +17,7 @@ const canRatesCustomer = computed(() => auth.hasPermission('rates.customer.read'
 const canRatesNode = computed(() => auth.hasPermission('rates.node.read'))
 const canRatesFinal = computed(() => auth.hasPermission('rates.final.read'))
 const canEntities = computed(() => auth.hasPermission('entities.read'))
+const canBusinessTypes = computed(() => auth.hasPermission('business_types.read'))
 
 function onLogout() {
   auth.logout()
@@ -26,14 +27,14 @@ function onLogout() {
 <template>
   <ElConfigProvider>
     <el-container class="layout">
-      <el-aside width="220px" class="sidebar">
+      <el-aside width="220px" class="sidebar glass-sidebar">
         <div class="logo">
           <span class="brand">NFA Dashboard</span>
         </div>
         <el-menu
           :default-active="$route.path"
           router
-          background-color="#001529"
+          background-color="transparent"
           text-color="#e5e7eb"
           active-text-color="#fff"
           class="menu"
@@ -50,6 +51,7 @@ function onLogout() {
             <el-menu-item v-if="canRatesNode" index="/settlement/rates/node">节点业务费率</el-menu-item>
             <el-menu-item v-if="canRatesFinal" index="/settlement/rates/final">最终客户费率</el-menu-item>
             <el-menu-item v-if="canEntities" index="/settlement/entities">业务对象</el-menu-item>
+            <el-menu-item v-if="canBusinessTypes" index="/settlement/business-types">业务类型管理</el-menu-item>
           </el-sub-menu>
 
           <el-menu-item v-if="canOpLogs" index="/operation-logs">操作日志</el-menu-item>
@@ -66,7 +68,7 @@ function onLogout() {
       </el-aside>
 
       <el-container>
-        <el-header class="topbar">
+        <el-header class="topbar glass-header glass-surface">
           <div class="spacer"></div>
           <div class="user-area" v-if="isAuthed">
             <span class="nav-user">{{ auth.user?.alias || auth.user?.username }}</span>
@@ -103,11 +105,11 @@ function onLogout() {
 
 .layout {
   min-height: 100vh;
-  background-color: var(--light-color);
+  background-color: transparent;
 }
 
 .sidebar {
-  background: var(--dark-color);
+  background: transparent;
   color: #fff;
   display: flex;
   flex-direction: column;
@@ -139,8 +141,8 @@ function onLogout() {
   display: flex;
   align-items: center;
   padding: 0 16px;
-  background: #fff;
-  border-bottom: 1px solid var(--border-color);
+  background: transparent;
+  border-bottom: 0;
 }
 
 .spacer {
