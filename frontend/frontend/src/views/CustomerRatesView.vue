@@ -1,9 +1,10 @@
 <template>
   <div class="rates-view">
+    <h1 class="page-title">客户业务费率</h1>
     <el-card shadow="never" class="box-card">
       <template #header>
         <div class="card-header">
-          <span>客户业务费率筛选</span>
+          <span class="card-title">客户业务费率筛选</span>
           <div>
             <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
             <el-button @click="onReset">重置</el-button>
@@ -44,13 +45,34 @@
 
     <el-card shadow="never" class="box-card" style="margin-top: 16px">
       <template #header>
-        <div class="card-header"><span>费率列表</span></div>
+        <div class="card-header"><span class="card-title">费率列表</span></div>
       </template>
 
       <el-table :data="items" border stripe height="600px" v-loading="loading">
         <el-table-column prop="region" label="区域" width="120" />
         <el-table-column prop="cp" label="运营商" width="120" />
         <el-table-column prop="school_name" label="学校" min-width="160" show-overflow-tooltip />
+        <el-table-column label="模式" width="100">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.fee_mode === 'configed' ? 'warning' : 'info'">
+              {{ formatMode(row.fee_mode) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="最近同步" width="180">
+          <template #default="{ row }">
+            {{ formatTime(row.last_sync_time) }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="last_sync_rule_id" label="规则ID" width="100" />
+        <el-table-column label="扩展" min-width="120">
+          <template #default="{ row }">
+            <el-button v-if="row.extra" type="primary" link @click="openExtra(row)">
+              查看 ({{ extraCount(row.extra) }})
+            </el-button>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="customer_fee" label="客户费" width="120" />
         <el-table-column prop="network_line_fee" label="专线费" width="120" />
         <el-table-column prop="general_fee" label="通用费" width="120" />
@@ -67,6 +89,11 @@
           </template>
         </el-table-column>
         <el-table-column prop="updated_at" label="更新时间" min-width="180" />
+        <el-table-column v-if="canWrite" label="操作" fixed="right" width="100">
+          <template #default="{ row }">
+            <el-button type="primary" link @click="openDialog(row)">编辑</el-button>
+          </template>
+        </el-table-column>
       </el-table>
 
       <div class="pagination">
@@ -156,10 +183,26 @@
             />
           </el-select>
         </el-form-item>
+        <el-form-item label="扩展JSON">
+          <el-input
+            v-model="extraEditorText"
+            type="textarea"
+            :rows="6"
+            placeholder='可选，填写合法 JSON（如 {"remark":"..."}）'
+          />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible=false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="onSave">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 扩展字段查看弹窗 -->
+    <el-dialog v-model="extraDialogVisible" title="扩展字段 JSON" width="600px">
+      <pre style="max-height: 400px; overflow: auto; white-space: pre-wrap;">{{ stringify(extraDialogContent) }}</pre>
+      <template #footer>
+        <el-button @click="extraDialogVisible=false">关闭</el-button>
       </template>
     </el-dialog>
   </div>
@@ -197,6 +240,10 @@ const entityOptionsCustomer = ref<BusinessEntity[]>([])
 const entityOptionsNetwork = ref<BusinessEntity[]>([])
 // ID -> 实体 映射，用于列表展示
 const entityMap = ref<Record<number, BusinessEntity>>({})
+
+// 扩展字段弹窗
+const extraDialogVisible = ref(false)
+const extraDialogContent = ref<any>(null)
 
 function buildParams() {
   const p: any = { page: page.value, page_size: pageSize.value }
@@ -309,9 +356,25 @@ function goSyncRules() { router.push({ name: 'settlement-rates-sync-rules' }) }
 const dialogVisible = ref(false)
 const saving = ref(false)
 const form = reactive<UpsertRateCustomerRequest>({ region: '', cp: '' })
+const extraEditorText = ref<string>('')
 
-function openDialog() {
-  Object.assign(form, { region: '', cp: '', school_name: undefined, customer_fee: undefined, network_line_fee: undefined, general_fee: undefined, customer_fee_owner_id: undefined, network_line_fee_owner_id: undefined })
+function openDialog(row?: RateCustomer) {
+  if (row) {
+    Object.assign(form, {
+      region: row.region,
+      cp: row.cp,
+      school_name: row.school_name ?? undefined,
+      customer_fee: row.customer_fee ?? undefined,
+      network_line_fee: row.network_line_fee ?? undefined,
+      general_fee: row.general_fee ?? undefined,
+      customer_fee_owner_id: row.customer_fee_owner_id ?? undefined,
+      network_line_fee_owner_id: row.network_line_fee_owner_id ?? undefined,
+    })
+    extraEditorText.value = stringify(row.extra ?? {})
+  } else {
+    Object.assign(form, { region: '', cp: '', school_name: undefined, customer_fee: undefined, network_line_fee: undefined, general_fee: undefined, customer_fee_owner_id: undefined, network_line_fee_owner_id: undefined })
+    extraEditorText.value = ''
+  }
   dialogVisible.value = true
 }
 
@@ -319,7 +382,13 @@ async function onSave() {
   if (!form.region || !form.cp) { ElMessage.warning('区域与运营商为必填'); return }
   saving.value = true
   try {
-    await api.settlementRates.customer.upsert(form)
+    // 解析扩展 JSON（可选）
+    let payload: any = { ...form }
+    const txt = (extraEditorText.value || '').trim()
+    if (txt) {
+      try { payload.extra = JSON.parse(txt) } catch (e) { ElMessage.error('扩展JSON格式错误'); saving.value=false; return }
+    }
+    await api.settlementRates.customer.upsert(payload)
     ElMessage.success('保存成功')
     dialogVisible.value = false
     fetchData()
@@ -349,13 +418,48 @@ async function onExecuteSync() {
   }
 }
 
+function extraCount(extra: any): number {
+  try {
+    if (!extra) return 0
+    if (typeof extra === 'string') {
+      const obj = JSON.parse(extra)
+      return obj && typeof obj === 'object' ? Object.keys(obj).length : 0
+    }
+    if (typeof extra === 'object') return Object.keys(extra).length
+    return 0
+  } catch { return 0 }
+}
+
+function openExtra(row: RateCustomer) {
+  extraDialogContent.value = row.extra ?? {}
+  extraDialogVisible.value = true
+}
+
+function stringify(obj: any): string {
+  try {
+    if (typeof obj === 'string') return JSON.stringify(JSON.parse(obj), null, 2)
+    return JSON.stringify(obj, null, 2)
+  } catch { return String(obj) }
+}
+
+function formatTime(s?: string | null): string {
+  if (!s) return '-'
+  const d = new Date(s)
+  if (isNaN(d.getTime())) return String(s)
+  return d.toLocaleString()
+}
+
+function formatMode(m?: string): string {
+  if (!m) return '自动'
+  return m === 'configed' ? '手工' : '自动'
+}
+
 onMounted(() => { loadRegionsAndCPs(); fetchData() })
 </script>
 
 <style scoped>
-.rates-view { padding: 20px; }
 .box-card { margin-bottom: 12px; }
 .card-header { display: flex; justify-content: space-between; align-items: center; }
-.filter-form { row-gap: 8px; }
+.filter-form { row-gap: var(--form-item-gap); }
 .pagination { display: flex; justify-content: flex-end; margin-top: 12px; }
 </style>

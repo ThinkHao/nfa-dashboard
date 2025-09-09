@@ -229,6 +229,10 @@ export interface RateCustomer {
   general_fee?: number | null;
   customer_fee_owner_id?: number | null;
   network_line_fee_owner_id?: number | null;
+  fee_mode?: 'auto' | 'configed';
+  last_sync_time?: string | null;
+  last_sync_rule_id?: number | null;
+  extra?: any;
   created_at?: string;
   updated_at?: string;
 }
@@ -242,6 +246,7 @@ export interface UpsertRateCustomerRequest {
   general_fee?: number | null;
   customer_fee_owner_id?: number | null;
   network_line_fee_owner_id?: number | null;
+  extra?: any;
 }
 
 // 节点业务费率（rate_node）

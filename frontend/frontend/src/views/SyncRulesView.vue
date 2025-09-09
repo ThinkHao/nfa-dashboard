@@ -1,11 +1,12 @@
 <template>
   <div class="sync-rules-view">
+    <h1 class="page-title">同步规则管理</h1>
     <el-card shadow="never" class="box-card">
       <template #header>
         <div class="card-header">
           <div class="header-left">
             <el-button @click="goBack">返回</el-button>
-            <span class="card-title">同步规则管理</span>
+            <span class="card-title">筛选</span>
           </div>
           <div>
             <el-button v-if="canWrite" type="primary" @click="openDialog()">新增规则</el-button>
@@ -437,11 +438,11 @@ function goBack() {
 </script>
 
 <style scoped>
-.sync-rules-view { padding: 20px; }
 .box-card { margin-bottom: 12px; }
 .card-header { display: flex; justify-content: space-between; align-items: center; }
 .header-left { display: flex; align-items: center; gap: 8px; }
-.filter-form { row-gap: 8px; }
+.filter-form { row-gap: var(--form-item-gap); }
 .rule-form :deep(textarea) { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
 .pagination { display: flex; justify-content: flex-end; margin-top: 12px; }
+.help { color: var(--text-muted); font-size: 12px; }
 </style>

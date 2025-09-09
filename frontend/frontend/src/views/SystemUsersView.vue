@@ -1,9 +1,10 @@
 <template>
   <div class="sys-users-view">
+    <h1 class="page-title">用户管理</h1>
     <el-card class="box-card" shadow="never">
       <template #header>
         <div class="card-header">
-          <span>用户管理</span>
+          <span class="card-title">用户管理</span>
           <div>
             <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
             <el-button @click="onReset">重置</el-button>
@@ -27,7 +28,7 @@
     <el-card class="box-card" shadow="never" style="margin-top: 16px">
       <template #header>
         <div class="card-header">
-          <span>用户列表</span>
+          <span class="card-title">用户列表</span>
         </div>
       </template>
 
@@ -329,6 +330,6 @@ async function submitEditAlias() {
 
 <style scoped>
 .card-header { display: flex; justify-content: space-between; align-items: center; }
-.filter-form { margin-top: 12px; }
+.filter-form { row-gap: var(--form-item-gap); }
 .pagination { margin-top: 12px; display: flex; justify-content: flex-end; }
 </style>

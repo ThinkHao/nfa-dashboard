@@ -1,9 +1,10 @@
 <template>
   <div class="sys-roles-view">
+    <h1 class="page-title">角色管理</h1>
     <el-card class="box-card" shadow="never">
       <template #header>
         <div class="card-header">
-          <span>角色管理</span>
+          <span class="card-title">角色管理</span>
         </div>
       </template>
     </el-card>
@@ -11,7 +12,7 @@
     <el-card class="box-card" shadow="never" style="margin-top: 16px">
       <template #header>
         <div class="card-header">
-          <span>角色列表</span>
+          <span class="card-title">角色列表</span>
           <div>
             <el-button type="primary" @click="openCreate">新建角色</el-button>
           </div>

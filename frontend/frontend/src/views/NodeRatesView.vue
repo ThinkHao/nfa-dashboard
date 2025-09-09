@@ -1,9 +1,10 @@
 <template>
   <div class="rates-view">
+    <h1 class="page-title">节点业务费率</h1>
     <el-card shadow="never" class="box-card">
       <template #header>
         <div class="card-header">
-          <span>节点业务费率筛选</span>
+          <span class="card-title">节点业务费率筛选</span>
           <div>
             <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
             <el-button @click="onReset">重置</el-button>
@@ -27,7 +28,7 @@
 
     <el-card shadow="never" class="box-card" style="margin-top: 16px">
       <template #header>
-        <div class="card-header"><span>费率列表</span></div>
+        <div class="card-header"><span class="card-title">费率列表</span></div>
       </template>
 
       <el-table :data="items" border stripe height="600px" v-loading="loading">
@@ -176,9 +177,8 @@ onMounted(fetchData)
 </script>
 
 <style scoped>
-.rates-view { padding: 20px; }
 .box-card { margin-bottom: 12px; }
 .card-header { display: flex; justify-content: space-between; align-items: center; }
-.filter-form { row-gap: 8px; }
+.filter-form { row-gap: var(--form-item-gap); }
 .pagination { display: flex; justify-content: flex-end; margin-top: 12px; }
 </style>

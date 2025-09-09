@@ -1,26 +1,52 @@
-/* Global Glassmorphism + Blue Theme */
+/* Global Tokens */
 :root {
   --brand-primary: #3b82f6; /* Tailwind blue-500 */
   --brand-primary-dark: #2563eb; /* blue-600 */
   --brand-primary-700: #1d4ed8;
   --brand-accent: #60a5fa; /* blue-400 */
-  /* Text tokens */
-  --text-strong: #ffffff;   /* pure white for titles/head */
-  --text-default: #f1f5f9;  /* slate-100 */
-  --text-muted: #d1d5db;    /* slate-300 slightly brighter */
-  --text-placeholder: #9ca3af; /* slate-400 */
+}
+
+/* Light theme tokens (default) */
+:root:not([data-theme="dark"]) {
+  --text-strong: #1f2937;     /* slate-800 */
+  --text-default: #303133;    /* EP regular text */
+  --text-muted: #909399;      /* EP secondary */
+  --text-placeholder: #a8abb2;/* EP placeholder */
+  --text-color: #303133;      /* alias for EP text color */
+  --glass-bg: rgba(255,255,255,0.82);
+  --glass-border: rgba(0,0,0,0.08);
+  --glass-shadow: 0 6px 16px rgba(0,0,0,0.08), 0 3px 6px rgba(0,0,0,0.05);
+  --text-on-glass: var(--text-default);
+  /* Light surfaces */
+  --bg-card: #ffffff;
+  --border-color: #e4e7ed;
+  --shadow-1: 0 6px 16px rgba(0,0,0,0.08), 0 3px 6px rgba(0,0,0,0.05);
+}
+
+/* Dark theme tokens */
+[data-theme="dark"] {
+  --text-strong: #ffffff;     /* pure white for titles/head */
+  --text-default: #f1f5f9;    /* slate-100 */
+  --text-muted: #d1d5db;      /* slate-300 */
+  --text-placeholder: #9ca3af;/* slate-400 */
   --glass-bg: rgba(13, 25, 45, 0.45);
   --glass-border: rgba(255, 255, 255, 0.18);
   --glass-shadow: 0 10px 30px rgba(2, 6, 23, 0.25);
-  --text-on-glass: #e5e7eb; /* slate-200 */
+  --text-on-glass: #e5e7eb;   /* slate-200 */
 }
 
-html, body {
+[data-theme="dark"] html, [data-theme="dark"] body {
   background: radial-gradient(1200px 600px at 10% 10%, rgba(59,130,246,0.08), transparent 40%),
               radial-gradient(1000px 600px at 90% 0%, rgba(14,165,233,0.06), transparent 40%),
               linear-gradient(135deg, #0b1220 0%, #0e1b2e 50%, #0b1220 100%);
   background-attachment: fixed;
   color: var(--text-default);
+}
+
+html, body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 #app, .el-container, .el-main { color: var(--text-default); }
@@ -33,7 +59,7 @@ h1, h2, h3, h4, h5, h6 {
 a { color: var(--brand-accent); }
 
 /* Generic glass surface */
-.glass-surface {
+[data-theme="dark"] .glass-surface {
   background: var(--glass-bg);
   -webkit-backdrop-filter: saturate(160%) blur(12px);
   backdrop-filter: saturate(160%) blur(12px);
@@ -42,21 +68,21 @@ a { color: var(--brand-accent); }
   border-radius: 14px;
 }
 
-/* Header variant (slightly darker + thinner border) */
-.glass-header {
+/* Header variant */
+[data-theme="dark"] .glass-header {
   background: rgba(9, 14, 26, 0.55);
   border: 1px solid rgba(255,255,255,0.12);
 }
 
 /* Sidebar variant */
-.glass-sidebar {
+[data-theme="dark"] .glass-sidebar {
   background: rgba(8, 14, 27, 0.55);
   border-right: 1px solid rgba(255,255,255,0.12);
   border-radius: 0 14px 14px 0;
 }
 
-/* Card defaults to glass */
-.el-card {
+/* Card defaults to glass in dark only */
+[data-theme="dark"] .el-card {
   background: rgba(255,255,255,0.06) !important;
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
@@ -64,87 +90,65 @@ a { color: var(--brand-accent); }
   box-shadow: 0 8px 24px rgba(0,0,0,0.15) !important;
   color: var(--text-on-glass);
 }
-.el-card__body { background: transparent !important; }
-.el-card:hover {
+[data-theme="dark"] .el-card__body { background: transparent !important; }
+[data-theme="dark"] .el-card:hover {
   transform: translateY(-2px);
   transition: transform .18s ease, box-shadow .2s ease;
   box-shadow: 0 12px 30px rgba(0,0,0,0.22) !important;
 }
-.el-card__header {
+[data-theme="dark"] .el-card__header {
   background: transparent !important;
   border-bottom: 1px solid rgba(255,255,255,0.10) !important;
 }
 
-/* Table subtle hover */
-.el-table__body tr:hover > td {
-  background: rgba(59,130,246,0.06) !important;
+/* Light mode overrides to ensure solid surfaces */
+:root:not([data-theme="dark"]) .el-card {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border-color) !important;
+  box-shadow: var(--shadow-1) !important;
+  color: var(--text-color);
 }
+:root:not([data-theme="dark"]) .el-card__header { background: var(--bg-card) !important; border-bottom: 1px solid var(--border-color) !important; }
 
-/* Stronger readable tables */
-.el-table {
-  color: var(--text-strong) !important;
-}
-.el-table thead th {
-  color: var(--text-strong) !important;
-  font-weight: 600 !important;
-  background: rgba(8,14,27,0.55) !important;
-}
-.el-table__cell {
-  color: var(--text-strong) !important;
-  font-weight: 500;
-}
+/* Table subtle hover */
+[data-theme="dark"] .el-table__body tr:hover > td { background: rgba(59,130,246,0.06) !important; }
+
+[data-theme="dark"] .el-table { color: var(--text-strong) !important; }
+[data-theme="dark"] .el-table thead th { color: var(--text-strong) !important; font-weight: 600 !important; background: rgba(8,14,27,0.55) !important; }
+[data-theme="dark"] .el-table__cell { color: var(--text-strong) !important; font-weight: 500; }
+
+/* Light mode table defaults */
+:root:not([data-theme="dark"]) .el-table { color: var(--text-color) !important; }
+:root:not([data-theme="dark"]) .el-table thead th { color: var(--text-color) !important; background: #f5f7fa !important; }
+:root:not([data-theme="dark"]) .el-table__cell { color: var(--text-color) !important; }
 
 /* Dark/glass backgrounds for Element Plus tables */
-.el-table,
-.el-table__inner-wrapper,
-.el-table__header,
-.el-table__body,
-.el-table__header-wrapper,
-.el-table__body-wrapper,
-.el-table tr,
-.el-table th,
-.el-table td,
-.el-table .cell {
-  background-color: transparent !important;
-}
-/* body cell background to ensure contrast with white text */
-.el-table__body tr > td {
-  background: rgba(8,14,27,0.42) !important;
-}
-/* striped rows */
-.el-table--striped .el-table__body tr.el-table__row--striped > td {
-  background: rgba(8,14,27,0.36) !important;
-}
-/* borders on dark glass */
-.el-table td.el-table__cell,
-.el-table th.el-table__cell {
-  border-color: rgba(255,255,255,0.12) !important;
-}
+[data-theme="dark"] .el-table,
+[data-theme="dark"] .el-table__inner-wrapper,
+[data-theme="dark"] .el-table__header,
+[data-theme="dark"] .el-table__body,
+[data-theme="dark"] .el-table__header-wrapper,
+[data-theme="dark"] .el-table__body-wrapper,
+[data-theme="dark"] .el-table tr,
+[data-theme="dark"] .el-table th,
+[data-theme="dark"] .el-table td,
+[data-theme="dark"] .el-table .cell { background-color: transparent !important; }
+[data-theme="dark"] .el-table__body tr > td { background: rgba(8,14,27,0.42) !important; }
+[data-theme="dark"] .el-table--striped .el-table__body tr.el-table__row--striped > td { background: rgba(8,14,27,0.36) !important; }
+[data-theme="dark"] .el-table td.el-table__cell,
+[data-theme="dark"] .el-table th.el-table__cell { border-color: rgba(255,255,255,0.12) !important; }
 
-/* Inputs with soft glass */
-.el-input__wrapper,
-.el-select__wrapper,
-.el-date-editor.el-input__wrapper {
-  background: rgba(255,255,255,0.08) !important;
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255,255,255,0.15) !important;
-  transition: border-color .2s ease, box-shadow .2s ease;
-}
-.el-input__inner,
-.el-textarea__inner {
-  color: var(--text-strong) !important;
-}
-.el-input__inner::placeholder,
-.el-textarea__inner::placeholder {
-  color: var(--text-placeholder) !important;
-}
-.el-input__wrapper.is-focus,
-.el-select__wrapper.is-focused,
-.el-date-editor.is-active {
-  box-shadow: 0 0 0 3px rgba(59,130,246,0.22) !important;
-  border-color: rgba(59,130,246,0.55) !important;
-}
+/* Inputs with soft glass in dark */
+[data-theme="dark"] .el-input__wrapper,
+[data-theme="dark"] .el-select__wrapper,
+[data-theme="dark"] .el-date-editor.el-input__wrapper { background: rgba(255,255,255,0.08) !important; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.15) !important; transition: border-color .2s ease, box-shadow .2s ease; }
+[data-theme="dark"] .el-input__inner,
+[data-theme="dark"] .el-textarea__inner { color: var(--text-strong) !important; }
+[data-theme="dark"] .el-input__inner::placeholder,
+[data-theme="dark"] .el-textarea__inner::placeholder { color: var(--text-placeholder) !important; }
+[data-theme="dark"] .el-input__wrapper.is-focus,
+[data-theme="dark"] .el-select__wrapper.is-focused,
+[data-theme="dark"] .el-date-editor.is-active { box-shadow: 0 0 0 3px rgba(59,130,246,0.22) !important; border-color: rgba(59,130,246,0.55) !important; }
 
 /* Forms */
 .el-form-item__label { color: var(--text-muted) !important; }
@@ -173,21 +177,18 @@ a { color: var(--brand-accent); }
   color: var(--brand-accent) !important;
 }
 
-/* Menu transparent for glass sidebar */
-.el-menu {
-  background-color: transparent !important;
-}
-.el-sub-menu__title,
-.el-menu-item { color: var(--text-default) !important; }
-.el-menu-item.is-active {
-  background: linear-gradient(90deg, rgba(59,130,246,0.22), rgba(37,99,235,0.18));
-}
-.el-menu-item {
-  transition: background-color .18s ease, color .18s ease, padding-left .18s ease;
-}
-.el-menu-item:hover {
-  background: rgba(59,130,246,0.12);
-}
+/* Menu styles */
+[data-theme="dark"] .el-menu { background-color: transparent !important; }
+[data-theme="dark"] .el-sub-menu__title,
+[data-theme="dark"] .el-menu-item { color: var(--text-default) !important; }
+[data-theme="dark"] .el-menu-item.is-active { background: linear-gradient(90deg, rgba(59,130,246,0.22), rgba(37,99,235,0.18)); }
+[data-theme="dark"] .el-menu-item { transition: background-color .18s ease, color .18s ease, padding-left .18s ease; }
+[data-theme="dark"] .el-menu-item:hover { background: rgba(59,130,246,0.12); }
+
+/* Light menu defaults */
+:root:not([data-theme="dark"]) .el-menu { background-color: #fff !important; }
+:root:not([data-theme="dark"]) .el-sub-menu__title,
+:root:not([data-theme="dark"]) .el-menu-item { color: var(--text-color) !important; }
 
 /* Tables */
 .el-table { color: var(--text-strong) !important; }
@@ -196,15 +197,27 @@ a { color: var(--brand-accent); }
 
 /* Dialog titles and common page titles */
 .el-dialog__title { color: var(--text-strong) !important; font-weight: 700; }
-.page-title, .view-title, .card__title, .el-card__header .card-title {
+/* Title styles on glass/dark theme: keep high contrast but reduce reliance on shadow.
+   Page titles slightly heavier to improve clarity; card titles stay at 700. */
+.page-title, .view-title, .card__title {
+  color: var(--text-strong);
+  font-weight: 800;
+  font-size: clamp(22px, 2.6vw, 28px);
+  letter-spacing: 0.3px;
+  text-shadow: 0 1.2px 2.4px rgba(0,0,0,0.38), 0 0 10px rgba(0,0,0,0.22);
+  margin: 0 0 1.5rem 0;
+}
+.el-card__header .card-title {
   color: var(--text-strong);
   font-weight: 700;
-  font-size: clamp(20px, 2.2vw, 26px);
-  letter-spacing: 0.2px;
-  /* unified high-contrast shadow for readability on glass/dark backgrounds */
-  text-shadow: 0 1.5px 3px rgba(0,0,0,0.45), 0 0 12px rgba(0,0,0,0.25);
-  /* consistent spacing below titles */
-  margin: 0 0 1.5rem 0;
+  font-size: clamp(18px, 2.0vw, 24px);
+  letter-spacing: 0.25px;
+  text-shadow: 0 1.2px 2.4px rgba(0,0,0,0.34), 0 0 9px rgba(0,0,0,0.20);
+}
+
+/* Subtle text stroke for page titles on dark theme only */
+[data-theme="dark"] .page-title {
+  -webkit-text-stroke: 0.5px rgba(0, 0, 0, 0.35);
 }
 
 /* Optional: maximum contrast mode. Add class `contrast-max` on body or #app to enable */

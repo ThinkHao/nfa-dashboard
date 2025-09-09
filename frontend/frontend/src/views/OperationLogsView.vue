@@ -1,9 +1,10 @@
 <template>
   <div class="oplog-view">
+    <h1 class="page-title">操作日志</h1>
     <el-card class="box-card" shadow="never">
       <template #header>
         <div class="card-header">
-          <span>操作日志筛选</span>
+          <span class="card-title">操作日志筛选</span>
           <div>
             <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
             <el-button @click="onReset">重置</el-button>
@@ -52,7 +53,7 @@
     <el-card class="box-card" shadow="never" style="margin-top: 16px">
       <template #header>
         <div class="card-header">
-          <span>日志列表</span>
+          <span class="card-title">日志列表</span>
         </div>
       </template>
 
@@ -268,9 +269,8 @@ async function onExport() {
 </script>
 
 <style scoped>
-.oplog-view { padding: 20px; }
 .box-card { margin-bottom: 12px; }
 .card-header { display: flex; justify-content: space-between; align-items: center; }
-.filter-form { row-gap: 8px; }
+.filter-form { row-gap: var(--form-item-gap); }
 .pagination { display: flex; justify-content: flex-end; margin-top: 12px; }
 </style>

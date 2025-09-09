@@ -733,7 +733,7 @@ function formatDate(date: Date | string, granularity: string) {
     
     <!-- 查询表单 -->
     <ElCard class="query-card">
-      <ElForm :model="queryForm" label-width="80px" inline>
+      <ElForm :model="queryForm" label-width="80px" inline class="filter-form">
         <ElFormItem label="地区">
           <ElSelect v-model="queryForm.region" placeholder="选择地区" clearable @change="handleRegionChange">
             <ElOption 
@@ -879,10 +879,7 @@ function formatDate(date: Date | string, granularity: string) {
   margin: 0 10px;
 }
 
-:deep(.el-form-item) {
-  margin-bottom: 18px;
-  margin-right: 18px;
-}
+.filter-form { row-gap: var(--form-item-gap); }
 
 :deep(.el-select) {
   width: 180px !important;

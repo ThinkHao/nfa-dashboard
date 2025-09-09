@@ -1,5 +1,6 @@
 <template>
   <div class="settlement-view">
+    <h1 class="page-title">结算中心</h1>
     <el-tabs v-model="activeTab" class="settlement-tabs">
       <el-tab-pane label="结算数据" name="data">
         <settlement-data-tab />
@@ -29,10 +30,6 @@ const activeTab = ref('data')
 </script>
 
 <style scoped>
-.settlement-view {
-  padding: 20px;
-}
-
 .settlement-tabs {
   margin-bottom: 20px;
 }

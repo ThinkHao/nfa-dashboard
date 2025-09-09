@@ -1,9 +1,10 @@
 <template>
   <div class="rates-view">
+    <h1 class="page-title">最终客户费率</h1>
     <el-card shadow="never" class="box-card">
       <template #header>
         <div class="card-header">
-          <span>最终客户费率筛选</span>
+          <span class="card-title">最终客户费率筛选</span>
           <div>
             <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
             <el-button @click="onReset">重置</el-button>
@@ -23,22 +24,20 @@
         <el-form-item label="学校">
           <el-input v-model="query.school_name" clearable placeholder="学校名称" style="width: 220px" />
         </el-form-item>
-        <el-form-item label="费率类型">
-          <el-input v-model="query.fee_type" clearable placeholder="如 standard" style="width: 160px" />
-        </el-form-item>
+        <!-- 费率类型筛选暂时隐藏 -->
       </el-form>
     </el-card>
 
     <el-card shadow="never" class="box-card" style="margin-top: 16px">
       <template #header>
-        <div class="card-header"><span>费率列表</span></div>
+        <div class="card-header"><span class="card-title">费率列表</span></div>
       </template>
 
       <el-table :data="items" border stripe height="600px" v-loading="loading">
         <el-table-column prop="region" label="区域" width="120" />
         <el-table-column prop="cp" label="运营商" width="120" />
         <el-table-column prop="school_name" label="学校" min-width="160" show-overflow-tooltip />
-        <el-table-column prop="fee_type" label="费率类型" width="120" />
+        <!-- 费率类型列暂时隐藏 -->
         <el-table-column prop="final_fee" label="毛利" width="120" />
         <el-table-column prop="customer_fee" label="客户费" width="120" />
         <el-table-column label="客户费归属" min-width="160">
@@ -92,9 +91,7 @@
         <el-form-item label="学校" required>
           <el-input v-model="form.school_name" />
         </el-form-item>
-        <el-form-item label="费率类型" required>
-          <el-input v-model="form.fee_type" />
-        </el-form-item>
+        <!-- 费率类型表单项暂时隐藏 -->
         <el-form-item label="毛利">
           <el-input-number v-model="form.final_fee" :min="0" :step="0.01" :precision="2" />
         </el-form-item>
@@ -142,14 +139,14 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
 
-const query = reactive<{ region?: string; cp?: string; school_name?: string; fee_type?: string }>({})
+const query = reactive<{ region?: string; cp?: string; school_name?: string }>({})
 
 function buildParams() {
   const p: any = { page: page.value, page_size: pageSize.value }
   if (query.region) p.region = query.region
   if (query.cp) p.cp = query.cp
   if (query.school_name) p.school_name = query.school_name
-  if (query.fee_type) p.fee_type = query.fee_type
+  // fee_type 暂不作为筛选参数
   return p
 }
 
@@ -167,7 +164,7 @@ async function fetchData() {
 }
 
 function onSearch() { page.value = 1; fetchData() }
-function onReset() { Object.assign(query, { region: undefined, cp: undefined, school_name: undefined, fee_type: undefined }); page.value=1; pageSize.value=10; fetchData() }
+function onReset() { Object.assign(query, { region: undefined, cp: undefined, school_name: undefined }); page.value=1; pageSize.value=10; fetchData() }
 function onPageChange(p: number) { page.value = p; fetchData() }
 function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; fetchData() }
 
@@ -205,15 +202,16 @@ function getEntityName(id?: number | null): string {
 // Dialog
 const dialogVisible = ref(false)
 const saving = ref(false)
-const form = reactive<UpsertRateFinalCustomerRequest>({ region: '', cp: '', school_name: '', fee_type: '' })
+const DEFAULT_FEE_TYPE = 'standard'
+const form = reactive<UpsertRateFinalCustomerRequest>({ region: '', cp: '', school_name: '', fee_type: DEFAULT_FEE_TYPE })
 
 function openDialog() {
-  Object.assign(form, { region: '', cp: '', school_name: '', fee_type: '', final_fee: undefined, customer_fee: undefined, customer_fee_owner_id: undefined, network_line_fee: undefined, network_line_fee_owner_id: undefined, node_deduction_fee: undefined, node_deduction_fee_owner_id: undefined })
+  Object.assign(form, { region: '', cp: '', school_name: '', fee_type: DEFAULT_FEE_TYPE, final_fee: undefined, customer_fee: undefined, customer_fee_owner_id: undefined, network_line_fee: undefined, network_line_fee_owner_id: undefined, node_deduction_fee: undefined, node_deduction_fee_owner_id: undefined })
   dialogVisible.value = true
 }
 
 async function onSave() {
-  if (!form.region || !form.cp || !form.school_name || !form.fee_type) { ElMessage.warning('区域/运营商/学校/费率类型为必填'); return }
+  if (!form.region || !form.cp || !form.school_name) { ElMessage.warning('区域/运营商/学校为必填'); return }
   saving.value = true
   try {
     await api.settlementRates.final.upsert(form)
@@ -246,9 +244,8 @@ onMounted(() => { fetchEntitiesAll(); fetchData() })
 </script>
 
 <style scoped>
-.rates-view { padding: 20px; }
 .box-card { margin-bottom: 12px; }
 .card-header { display: flex; justify-content: space-between; align-items: center; }
-.filter-form { row-gap: 8px; }
+.filter-form { row-gap: var(--form-item-gap); }
 .pagination { display: flex; justify-content: flex-end; margin-top: 12px; }
 </style>

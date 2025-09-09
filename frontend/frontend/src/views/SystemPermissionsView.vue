@@ -1,9 +1,10 @@
 <template>
   <div class="sys-perms-view">
+    <h1 class="page-title">权限管理</h1>
     <el-card class="page-card" shadow="always">
       <template #header>
         <div class="card-header">
-          <span>权限设置<span v-if="!canManage">（只读）</span></span>
+          <span class="card-title">权限设置<span v-if="!canManage">（只读）</span></span>
           <div class="actions" v-if="canManage">
             <el-button type="primary" size="small" @click="openCreateDialog">新建权限</el-button>
             <el-button type="warning" size="small" @click="onSync">从代码同步</el-button>
@@ -27,7 +28,7 @@
     <el-card class="page-card" shadow="always" style="margin-top: 16px">
       <template #header>
         <div class="card-header">
-          <span>权限列表</span>
+          <span class="card-title">权限列表</span>
         </div>
       </template>
 
