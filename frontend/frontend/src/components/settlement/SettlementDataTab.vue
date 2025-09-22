@@ -216,35 +216,30 @@ const formatDateDisplay = (dateStr: string): string => {
   return dateStr
 }
 
+// 基于 schools 动态派生地区/运营商选项，仅限可见院校范围
+const computeRegionCpOptions = () => {
+  try {
+    const rset = new Set<string>()
+    const cset = new Set<string>()
+    ;(schools.value || []).forEach((s: any) => {
+      if (s && typeof s.region === 'string' && s.region && s.region !== 'NULL') rset.add(s.region)
+      if (s && typeof s.cp === 'string' && s.cp && s.cp !== 'NULL') cset.add(s.cp)
+    })
+    regions.value = Array.from(rset).sort()
+    cps.value = Array.from(cset).sort()
+  } catch (e) {
+    console.warn('派生地区/运营商选项失败:', e)
+    regions.value = []
+    cps.value = []
+  }
+}
+
 // 获取基础数据
 const fetchBaseData = async () => {
   try {
-    // 获取地区列表
-    const regionsResponse = await api.getRegions() as any
-    console.log('地区列表原始响应:', regionsResponse)
-    const regionList: string[] = Array.isArray(regionsResponse)
-      ? regionsResponse
-      : Array.isArray(regionsResponse?.items)
-        ? regionsResponse.items
-        : []
-    // 过滤掉 "NULL" 值
-    regions.value = regionList.filter((region: any) => region !== 'NULL')
-    console.log('地区列表设置为:', regions.value)
-
-    // 获取运营商列表
-    const cpsResponse = await api.getCPs() as any
-    console.log('运营商列表原始响应:', cpsResponse)
-    const cpList: string[] = Array.isArray(cpsResponse)
-      ? cpsResponse
-      : Array.isArray(cpsResponse?.items)
-        ? cpsResponse.items
-        : []
-    // 过滤掉 "NULL" 值
-    cps.value = cpList.filter((cp: any) => cp !== 'NULL')
-    console.log('运营商列表设置为:', cps.value)
-    
-    // 加载学校列表（不带过滤条件）
+    // 直接加载 v2 学校（已按用户权限过滤），后派生地区/运营商
     await loadSchools()
+    computeRegionCpOptions()
   } catch (error) {
     console.error('获取基础数据失败', error)
     ElMessage.error('获取基础数据失败')
@@ -273,7 +268,7 @@ const loadSchools = async (region: string = '', cp: string = ''): Promise<number
     params.limit = 1000 // 获取足够多的学校数据
     params.offset = 0
     
-    const response = await api.getSchools(params) as any
+    const response = await (api as any).v2.getSchools(params) as any
     console.log('学校列表原始响应:', response)
     const items: School[] = Array.isArray(response)
       ? response
@@ -288,6 +283,8 @@ const loadSchools = async (region: string = '', cp: string = ''): Promise<number
       : Array.isArray(items)
         ? items.length
         : 0
+    // 刷新地区/运营商选项
+    computeRegionCpOptions()
     return total
   } catch (error) {
     console.error('获取学校数据失败', error)
@@ -302,9 +299,9 @@ const handleRegionChange = (region: string): void => {
   console.log('地区选择变化:', region)
   // 当地区变化时，重新加载学校列表
   if (region) {
-    loadSchools(region, filterForm.cp)
+    loadSchools(region, filterForm.cp).then(() => computeRegionCpOptions())
   } else {
-    loadSchools('', filterForm.cp)
+    loadSchools('', filterForm.cp).then(() => computeRegionCpOptions())
   }
   // 当地区变化时自动刷新数据
   fetchData()
@@ -315,9 +312,9 @@ const handleCPChange = (cp: string): void => {
   console.log('运营商选择变化:', cp)
   // 当运营商变化时，重新加载学校列表
   if (cp) {
-    loadSchools(filterForm.region, cp)
+    loadSchools(filterForm.region, cp).then(() => computeRegionCpOptions())
   } else {
-    loadSchools(filterForm.region, '')
+    loadSchools(filterForm.region, '').then(() => computeRegionCpOptions())
   }
   // 当运营商变化时自动刷新数据
   fetchData()
@@ -389,7 +386,7 @@ const fetchData = async () => {
     console.log('最终请求参数:', params)
     
     // 发送请求并解析已解包的数据
-    const response = await api.settlement.getSettlements(params) as any
+    const response = await (api as any).v2.settlement.getSettlements(params) as any
     console.log('结算数据响应:', response)
     if (Array.isArray(response)) {
       settlementData.value = { items: response, total: response.length }

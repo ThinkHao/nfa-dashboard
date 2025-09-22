@@ -78,7 +78,7 @@ const canBusinessTypes = computed(() => auth.hasPermission('business_types.read'
 .spacer { flex: 1; }
 .user-area .nav-user { margin-right: 8px; padding: 6px 10px; background: #f5f7fa; border-radius: var(--el-border-radius-round); font-size: 0.9rem; }
 .content { max-width: 1280px; width: 100%; margin: 0 auto; padding: 10px 16px 16px; }
-.app-footer { text-align: center; padding: 16px; background-color: #0b1220; color: white; font-size: 0.875rem; }
+.app-footer { text-align: center; padding: 16px; background: var(--bg-footer); color: var(--text-default); font-size: 0.875rem; border-top: 1px solid var(--border-color); }
 .breadcrumb-bar { padding: 6px 16px 0; }
 /* settings drawer 样式已内置组件内 */
 

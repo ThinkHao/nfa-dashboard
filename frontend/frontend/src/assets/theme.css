@@ -21,6 +21,7 @@
   --bg-card: #ffffff;
   --border-color: #e4e7ed;
   --shadow-1: 0 6px 16px rgba(0,0,0,0.08), 0 3px 6px rgba(0,0,0,0.05);
+  --bg-footer: #f5f7fa;
 }
 
 /* Dark theme tokens */
@@ -33,6 +34,8 @@
   --glass-border: rgba(255, 255, 255, 0.18);
   --glass-shadow: 0 10px 30px rgba(2, 6, 23, 0.25);
   --text-on-glass: #e5e7eb;   /* slate-200 */
+  --border-color: rgba(255,255,255,0.12);
+  --bg-footer: rgba(8,14,27,0.55);
 }
 
 [data-theme="dark"] html, [data-theme="dark"] body {

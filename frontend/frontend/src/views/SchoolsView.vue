@@ -34,40 +34,31 @@ const queryForm = reactive({
 // 初始化数据
 onMounted(async () => {
   try {
-    // 加载下拉选项数据
-    await Promise.all([
-      loadRegions(),
-      loadCPs()
-    ])
-    
-    // 加载学校数据
+    // 先加载学校数据（基于 v2，按用户过滤）
     await loadSchools()
+    // 基于学校数据动态派生地区与运营商选项
+    computeRegionCpOptions()
   } catch (error) {
     console.error('初始化数据失败:', error)
     ElMessage.error('加载数据失败，请刷新页面重试')
   }
 })
 
-// 加载地区数据
-async function loadRegions() {
+// 基于当前 schools 列表动态派生地区/运营商选项（仅限可见院校）
+function computeRegionCpOptions() {
   try {
-    const res = await api.getRegions() as any
-    // 响应已被拦截器解包，可能返回数组或对象
-    const list = Array.isArray(res) ? res : (Array.isArray(res?.items) ? res.items : [])
-    regions.value = list.filter((r: string) => r !== 'NULL')
-  } catch (error) {
-    console.error('加载地区数据失败:', error)
-  }
-}
-
-// 加载运营商数据
-async function loadCPs() {
-  try {
-    const res = await api.getCPs() as any
-    const list = Array.isArray(res) ? res : (Array.isArray(res?.items) ? res.items : [])
-    cps.value = list.filter((c: string) => c !== 'NULL')
-  } catch (error) {
-    console.error('加载运营商数据失败:', error)
+    const rset = new Set<string>()
+    const cset = new Set<string>()
+    ;(schools.value || []).forEach((s: any) => {
+      if (s && typeof s.region === 'string' && s.region && s.region !== 'NULL') rset.add(s.region)
+      if (s && typeof s.cp === 'string' && s.cp && s.cp !== 'NULL') cset.add(s.cp)
+    })
+    regions.value = Array.from(rset).sort()
+    cps.value = Array.from(cset).sort()
+  } catch (e) {
+    console.warn('派生地区/运营商选项失败:', e)
+    regions.value = []
+    cps.value = []
   }
 }
 
@@ -82,7 +73,7 @@ async function loadSchools() {
       offset: (currentPage.value - 1) * pageSize.value
     }
     
-    const res = await api.getSchools(params) as any
+    const res = await (api as any).v2.getSchools(params) as any
     console.log('学校数据原始响应:', res)
     
     // 已解包：只支持数组或 { items, total }
@@ -122,11 +113,15 @@ function handleQuery() {
 // 当选择省份变化时重置学校名称
 function handleRegionChange() {
   queryForm.school_name = ''
+  // 基于地区/运营商重新加载学校并刷新选项
+  loadSchools().then(() => computeRegionCpOptions())
 }
 
 // 当选择运营商变化时重置学校名称
 function handleCPChange() {
   queryForm.school_name = ''
+  // 基于地区/运营商重新加载学校并刷新选项
+  loadSchools().then(() => computeRegionCpOptions())
 }
 
 // 重置按钮点击事件

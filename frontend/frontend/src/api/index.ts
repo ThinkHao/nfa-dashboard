@@ -271,6 +271,21 @@ export default {
         return api.put(`/api/v1/system/users/${id}/alias`, data)
       },
     },
+    binding: {
+      // 获取允许被绑定为“院校可见用户”的角色名列表
+      async getAllowedUserRoles(type?: 'sales' | 'line'): Promise<string[]> {
+        const res: any = await api.get('/api/v1/system/binding/allowed-user-roles', { params: type ? { type } : undefined })
+        if (res && Array.isArray(res.items)) return res.items as string[]
+        if (Array.isArray(res)) return res as string[]
+        return []
+      },
+    },
+    userSchools: {
+      // 绑定或解绑院校可见用户：传入 user_id 为数字即绑定；不传或为 0/NULL 视为解绑
+      setOwner(data: { school_id: string; user_id?: number | null }): Promise<void> {
+        return api.post('/api/v1/system/user-schools/owner', data).then(() => undefined)
+      },
+    },
     roles: {
       list(params?: any): Promise<PaginatedData<Role>> {
         return api.get('/api/v1/system/roles', { params }).then((d: any) => d as PaginatedData<Role>)
@@ -350,6 +365,10 @@ export default {
         return api.post('/api/v1/settlement/rates/final/refresh', payload)
           .then((d: any) => (d && typeof d === 'object' && 'affected' in d ? Number((d as any).affected) : 0))
       },
+      cleanupInvalid(): Promise<number> {
+        return api.post('/api/v1/settlement/rates/final/cleanup-invalid', {})
+          .then((d: any) => (d && typeof d === 'object' && 'affected' in d ? Number((d as any).affected) : 0))
+      },
     },
     sync: {
       execute(): Promise<number> {
@@ -415,6 +434,38 @@ export default {
       const res = await api.get('/api/v1/settlement/business-types', { params: { enabled: true, page_size: 1000, page: 1 } })
       if (res && typeof res === 'object' && 'items' in res) return (res as any).items as BusinessType[]
       return Array.isArray(res) ? (res as BusinessType[]) : []
+    },
+  }
+  ,
+  // v2 接口：启用按用户过滤（后端会在无权限时强制使用当前用户）
+  v2: {
+    // 学校列表（v2）
+    getSchools(params?: any) {
+      return api.get('/api/v2/schools', { params })
+        .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+    },
+    // 流量数据（v2）
+    getTrafficData(params?: any) {
+      return api.get('/api/v2/traffic', { params })
+        .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+    },
+    // 流量汇总（v2）
+    getTrafficSummary(params?: any) {
+      return api.get('/api/v2/traffic/summary', { params })
+        .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+    },
+    // 结算相关（v2）
+    settlement: {
+      // 获取结算数据列表（v2）
+      getSettlements(params?: any) {
+        return api.get('/api/v2/settlement/data', { params })
+          .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+      },
+      // 获取日95明细数据列表（v2）
+      getDailySettlementDetails(params?: any) {
+        return api.get('/api/v2/settlement/daily-details', { params })
+          .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+      },
     },
   }
 }

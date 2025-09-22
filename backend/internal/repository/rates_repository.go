@@ -27,6 +27,20 @@ type RatesRepository interface {
 
 	// 刷新最终客户费率（重算 final_fee，仅 auto）
 	RefreshFinalCustomerRates() (int64, error)
+
+	// 清理无效的最终客户费率（仅 auto；任一关键费率字段为空）
+	CleanupInvalidFinalCustomerRates() (int64, error)
+}
+
+// CleanupInvalidFinalCustomerRates 清理无效数据：
+// 仅针对 fee_type='auto' 且 (final_fee IS NULL OR customer_fee IS NULL OR network_line_fee IS NULL)
+// 不强制 node_deduction_fee 非空，因其可选
+func (r *ratesRepository) CleanupInvalidFinalCustomerRates() (int64, error) {
+    sql := `DELETE FROM rate_final_customer
+WHERE fee_type = 'auto'
+  AND (final_fee IS NULL OR customer_fee IS NULL OR network_line_fee IS NULL)`
+    res := model.DB.Exec(sql)
+    return res.RowsAffected, res.Error
 }
 
 type ratesRepository struct{}
@@ -46,6 +60,17 @@ func (r *ratesRepository) ListCustomerRates(filter map[string]interface{}, limit
 	}
 	if v, ok := filter["school_name"]; ok && v != "" {
 		q = q.Where("school_name = ?", v)
+	}
+	if v, ok := filter["settlement_ready"]; ok {
+		if b, ok2 := v.(bool); ok2 {
+			if b {
+				q = q.Where("school_name IS NOT NULL AND school_name <> ''").
+					Where("customer_fee IS NOT NULL").
+					Where("network_line_fee IS NOT NULL")
+			} else {
+				q = q.Where("(school_name IS NULL OR school_name = '' OR customer_fee IS NULL OR network_line_fee IS NULL)")
+			}
+		}
 	}
 	if err := q.Count(&count).Error; err != nil {
 		return nil, 0, err
@@ -167,7 +192,7 @@ func (r *ratesRepository) UpsertFinalCustomerRate(rate *model.RateFinalCustomer)
 
 // InitFinalCustomerRatesFromCustomer 从 rate_customer 初始化/同步到 rate_final_customer（保护 config 不被覆盖）
 func (r *ratesRepository) InitFinalCustomerRatesFromCustomer() (int64, error) {
-	sql := `
+    sql := `
 INSERT INTO rate_final_customer
   (region, cp, school_name, fee_type,
    customer_fee, customer_fee_owner_id,
@@ -176,7 +201,7 @@ INSERT INTO rate_final_customer
 SELECT
   rc.region,
   rc.cp,
-  COALESCE(rc.school_name, 'not_a_school') AS school_name,
+  rc.school_name,
   'auto' AS fee_type,
   rc.customer_fee,
   rc.customer_fee_owner_id,
@@ -184,6 +209,9 @@ SELECT
   rc.network_line_fee_owner_id,
   NOW(), NOW()
 FROM rate_customer rc
+WHERE rc.school_name IS NOT NULL AND rc.school_name <> ''
+  AND rc.customer_fee IS NOT NULL
+  AND rc.network_line_fee IS NOT NULL
 ON DUPLICATE KEY UPDATE
   fee_type = IF(rate_final_customer.fee_type = 'config', rate_final_customer.fee_type, 'auto'),
   customer_fee = IF(rate_final_customer.fee_type = 'config', rate_final_customer.customer_fee, VALUES(customer_fee)),
@@ -191,18 +219,42 @@ ON DUPLICATE KEY UPDATE
   network_line_fee = IF(rate_final_customer.fee_type = 'config', rate_final_customer.network_line_fee, VALUES(network_line_fee)),
   network_line_fee_owner_id = IF(rate_final_customer.fee_type = 'config', rate_final_customer.network_line_fee_owner_id, VALUES(network_line_fee_owner_id)),
   updated_at = NOW();`
-	res := model.DB.Exec(sql)
-	return res.RowsAffected, res.Error
+    res := model.DB.Exec(sql)
+    return res.RowsAffected, res.Error
 }
 
 // RefreshFinalCustomerRates 按公式重算 final_fee（仅 auto）
 // 公式：final_fee = COALESCE(customer_fee,0) + COALESCE(network_line_fee,0) - COALESCE(node_deduction_fee,0)
 func (r *ratesRepository) RefreshFinalCustomerRates() (int64, error) {
-	res := model.DB.Model(&model.RateFinalCustomer{}).
-		Where("fee_type = ?", "auto").
-		Updates(map[string]interface{}{
-			"final_fee":  gorm.Expr("COALESCE(customer_fee,0) + COALESCE(network_line_fee,0) - COALESCE(node_deduction_fee,0)"),
-			"updated_at": gorm.Expr("NOW()"),
-		})
-	return res.RowsAffected, res.Error
+    // 仅针对“参与结算”的记录刷新（与 rate_customer 条件保持一致）：
+    // 条件：rc.school_name 非空 且 rc.customer_fee 与 rc.network_line_fee 均非 NULL；并且仅刷新 fee_type='auto'
+    // 先统计匹配行数（使用 JOIN），避免因值未变化导致 RowsAffected=0 的错觉
+    var matched int64
+    countSQL := `
+SELECT COUNT(*)
+FROM rate_final_customer fc
+JOIN rate_customer rc
+  ON fc.region = rc.region AND fc.cp = rc.cp AND fc.school_name = rc.school_name
+WHERE fc.fee_type = 'auto'
+  AND rc.school_name IS NOT NULL AND rc.school_name <> ''
+  AND rc.customer_fee IS NOT NULL
+  AND rc.network_line_fee IS NOT NULL`
+    if err := model.DB.Raw(countSQL).Scan(&matched).Error; err != nil {
+        return 0, err
+    }
+    // 执行更新计算，仅更新匹配的“参与结算 + auto”记录
+    updateSQL := `
+UPDATE rate_final_customer fc
+JOIN rate_customer rc
+  ON fc.region = rc.region AND fc.cp = rc.cp AND fc.school_name = rc.school_name
+SET fc.final_fee = COALESCE(fc.customer_fee,0) + COALESCE(fc.network_line_fee,0) - COALESCE(fc.node_deduction_fee,0),
+    fc.updated_at = NOW()
+WHERE fc.fee_type = 'auto'
+  AND rc.school_name IS NOT NULL AND rc.school_name <> ''
+  AND rc.customer_fee IS NOT NULL
+  AND rc.network_line_fee IS NOT NULL`
+    if err := model.DB.Exec(updateSQL).Error; err != nil {
+        return 0, err
+    }
+    return matched, nil
 }

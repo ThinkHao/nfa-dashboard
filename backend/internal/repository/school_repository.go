@@ -39,8 +39,28 @@ func (r *schoolRepository) GetAllSchools(filter map[string]interface{}, limit, o
 
 	// 应用过滤条件，优化查询性能
 	for key, value := range filter {
-		if value != "" {
-			strValue := value.(string)
+		// 特殊处理 user_id（用于 v2 按用户过滤）
+		if key == "user_id" {
+			switch v := value.(type) {
+			case uint64:
+				if v > 0 {
+					query = query.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", v)
+				}
+			case *uint64:
+				if v != nil && *v > 0 {
+					query = query.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", *v)
+				}
+			case string:
+				// 兼容字符串形式
+				if v != "" {
+					query = query.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", v)
+				}
+			}
+			continue
+		}
+		if value == nil { continue }
+		// 仅对字符串类型按原逻辑处理
+		if strValue, ok := value.(string); ok && strValue != "" {
 			// 根据字段类型选择合适的查询方式
 			switch key {
 			case "school_id", "primary_hash_uuid", "data_hash":
@@ -197,6 +217,11 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 		query += " AND cp = ?"
 		args = append(args, filter.CP)
 	}
+	// v2：按用户过滤可见院校范围
+	if filter.UserID != nil && *filter.UserID > 0 {
+		query += " AND school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)"
+		args = append(args, *filter.UserID)
+	}
 
 	// 添加排序
 	query += " ORDER BY create_time ASC"
@@ -336,6 +361,10 @@ func (r *schoolRepository) GetTrafficSummary(filter model.TrafficFilter) (model.
 	}
 	if filter.CP != "" {
 		query = query.Where("cp = ?", filter.CP)
+	}
+	// v2：按用户过滤可见院校范围
+	if filter.UserID != nil && *filter.UserID > 0 {
+		query = query.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", *filter.UserID)
 	}
 
 	// 计算总流量

@@ -1,8 +1,10 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"nfa-dashboard/internal/model"
@@ -19,7 +21,34 @@ func NewSystemUserController(userSvc service.UserService) *SystemUserController 
 
 // GET /api/v1/system/users
 func (ctl *SystemUserController) ListUsers(c *gin.Context) {
-	username := c.Query("username")
+    // ids 优先：逗号分隔的用户ID集合，存在时忽略其余过滤与分页
+    if idsStr := strings.TrimSpace(c.Query("ids")); idsStr != "" {
+        parts := strings.Split(idsStr, ",")
+        ids := make([]uint64, 0, len(parts))
+        for _, p := range parts {
+            p = strings.TrimSpace(p)
+            if p == "" { continue }
+            if v, err := strconv.ParseUint(p, 10, 64); err == nil && v > 0 { ids = append(ids, v) }
+        }
+        users, err := ctl.userSvc.FindByIDs(ids)
+        if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()}); return }
+        type userResp struct {
+            model.User `json:",inline"`
+            Roles []model.Role `json:"roles"`
+            DisplayName string `json:"display_name,omitempty"`
+        }
+        respItems := make([]userResp, 0, len(users))
+        for _, u := range users {
+            roles, _ := ctl.userSvc.GetUserRoles(u.ID)
+            dn := ""
+            if u.Alias != nil && strings.TrimSpace(*u.Alias) != "" { dn = strings.TrimSpace(*u.Alias) } else if strings.TrimSpace(u.Username) != "" { dn = strings.TrimSpace(u.Username) } else { dn = fmt.Sprintf("用户#%d", u.ID) }
+            respItems = append(respItems, userResp{User: u, Roles: roles, DisplayName: dn})
+        }
+        c.JSON(http.StatusOK, gin.H{"items": respItems, "total": len(respItems)})
+        return
+    }
+
+    username := c.Query("username")
 	var statusPtr *int8
 	if s := c.Query("status"); s != "" {
 		if v, err := strconv.Atoi(s); err == nil {
@@ -27,19 +56,31 @@ func (ctl *SystemUserController) ListUsers(c *gin.Context) {
 			statusPtr = &vv
 		}
 	}
+	// 支持通过角色过滤，roles=逗号分隔或单个 role
+	roles := make([]string, 0)
+	if r := c.Query("roles"); r != "" {
+		for _, p := range strings.Split(r, ",") {
+			if v := strings.TrimSpace(p); v != "" { roles = append(roles, v) }
+		}
+	} else if r := c.Query("role"); r != "" {
+		if v := strings.TrimSpace(r); v != "" { roles = append(roles, v) }
+	}
 	page := parseIntDefault(c.Query("page"), 1)
 	pageSize := parseIntDefault(c.Query("page_size"), 10)
-	items, total, err := ctl.userSvc.List(username, statusPtr, page, pageSize)
+	items, total, err := ctl.userSvc.List(username, statusPtr, roles, page, pageSize)
 	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()}); return }
 	// attach roles per user to match frontend display
 	type userResp struct {
 		model.User `json:",inline"`
 		Roles []model.Role `json:"roles"`
+		DisplayName string `json:"display_name,omitempty"`
 	}
 	respItems := make([]userResp, 0, len(items))
 	for _, u := range items {
 		roles, _ := ctl.userSvc.GetUserRoles(u.ID) // ignore error to avoid breaking list
-		respItems = append(respItems, userResp{User: u, Roles: roles})
+		dn := ""
+		if u.Alias != nil && strings.TrimSpace(*u.Alias) != "" { dn = strings.TrimSpace(*u.Alias) } else if strings.TrimSpace(u.Username) != "" { dn = strings.TrimSpace(u.Username) } else { dn = fmt.Sprintf("用户#%d", u.ID) }
+		respItems = append(respItems, userResp{User: u, Roles: roles, DisplayName: dn})
 	}
 	c.JSON(http.StatusOK, gin.H{"items": respItems, "total": total})
 }

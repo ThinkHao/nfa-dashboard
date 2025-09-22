@@ -3,6 +3,7 @@ package controller
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"nfa-dashboard/internal/model"
 	"nfa-dashboard/internal/service"
@@ -25,12 +26,37 @@ func (ctl *SettlementRatesController) ListCustomerRates(c *gin.Context) {
 	region := c.Query("region")
 	cp := c.Query("cp")
 	schoolName := c.Query("school_name")
-	items, total, err := ctl.svc.ListCustomerRates(region, cp, schoolName, page, pageSize)
+	// 可选：参与结算筛选
+	var settlementReady *bool
+	if v := strings.TrimSpace(c.Query("settlement_ready")); v != "" {
+		if v == "1" || strings.EqualFold(v, "true") {
+			b := true; settlementReady = &b
+		} else if v == "0" || strings.EqualFold(v, "false") {
+			b := false; settlementReady = &b
+		}
+	}
+	items, total, err := ctl.svc.ListCustomerRates(region, cp, schoolName, settlementReady, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"items": items, "total": total})
+	type customerResp struct {
+		model.RateCustomer `json:",inline"`
+		SettlementReady bool     `json:"settlement_ready"`
+		MissingFields   []string `json:"missing_fields,omitempty"`
+	}
+	resp := make([]customerResp, 0, len(items))
+	for _, it := range items {
+		missing := make([]string, 0, 3)
+		name := ""
+		if it.SchoolName != nil { name = strings.TrimSpace(*it.SchoolName) }
+		if name == "" { missing = append(missing, "school_name") }
+		if it.CustomerFee == nil { missing = append(missing, "customer_fee") }
+		if it.NetworkLineFee == nil { missing = append(missing, "network_line_fee") }
+		ready := len(missing) == 0
+		resp = append(resp, customerResp{RateCustomer: it, SettlementReady: ready, MissingFields: missing})
+	}
+	c.JSON(http.StatusOK, gin.H{"items": resp, "total": total})
 }
 
 func (ctl *SettlementRatesController) UpsertCustomerRate(c *gin.Context) {
@@ -208,6 +234,16 @@ func (ctl *SettlementRatesController) InitFinalCustomerRatesFromCustomer(c *gin.
 // 刷新最终客户费率：仅针对 auto 计算 final_fee
 func (ctl *SettlementRatesController) RefreshFinalCustomerRates(c *gin.Context) {
 	affected, err := ctl.svc.RefreshFinalCustomerRates()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"affected": affected})
+}
+
+// 清理无效最终客户费率：删除 fee_type='auto' 且任一关键费率字段为空的记录
+func (ctl *SettlementRatesController) CleanupInvalidFinalCustomerRates(c *gin.Context) {
+	affected, err := ctl.svc.CleanupInvalidFinalCustomerRates()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 		return

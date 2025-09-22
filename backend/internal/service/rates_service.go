@@ -10,7 +10,7 @@ import (
 
 type RatesService interface {
     // 客户业务费率
-    ListCustomerRates(region, cp, schoolName string, page, pageSize int) ([]model.RateCustomer, int64, error)
+    ListCustomerRates(region, cp, schoolName string, settlementReady *bool, page, pageSize int) ([]model.RateCustomer, int64, error)
     UpsertCustomerRate(rate *model.RateCustomer) error
 
     // 节点业务费率
@@ -26,17 +26,21 @@ type RatesService interface {
 
     // 刷新最终客户费率，返回受影响行数
     RefreshFinalCustomerRates() (int64, error)
+
+    // 清理无效的最终客户费率（仅 auto；任一关键费率字段为空）
+    CleanupInvalidFinalCustomerRates() (int64, error)
 }
 
 type ratesService struct{ repo repository.RatesRepository }
 
 func NewRatesService(repo repository.RatesRepository) RatesService { return &ratesService{repo: repo} }
 
-func (s *ratesService) ListCustomerRates(region, cp, schoolName string, page, pageSize int) ([]model.RateCustomer, int64, error) {
+func (s *ratesService) ListCustomerRates(region, cp, schoolName string, settlementReady *bool, page, pageSize int) ([]model.RateCustomer, int64, error) {
     filter := map[string]interface{}{}
     if region != "" { filter["region"] = region }
     if cp != "" { filter["cp"] = cp }
     if schoolName != "" { filter["school_name"] = schoolName }
+    if settlementReady != nil { filter["settlement_ready"] = *settlementReady }
     if page <= 0 { page = 1 }
     if pageSize <= 0 { pageSize = 10 }
     limit := pageSize
@@ -80,3 +84,7 @@ func (s *ratesService) InitFinalCustomerRatesFromCustomer() (int64, error) {
 }
 
 func (s *ratesService) RefreshFinalCustomerRates() (int64, error) { return s.repo.RefreshFinalCustomerRates() }
+
+func (s *ratesService) CleanupInvalidFinalCustomerRates() (int64, error) {
+    return s.repo.CleanupInvalidFinalCustomerRates()
+}

@@ -196,20 +196,29 @@ const formatDateDisplay = (dateStr: string): string => {
   return dateStr
 }
 
-// 获取基础数据 (地区、运营商、学校)
+// 基于 schools 动态派生地区/运营商选项，仅限可见院校范围
+const computeRegionCpOptions = () => {
+  try {
+    const rset = new Set<string>()
+    const cset = new Set<string>()
+    ;(schools.value || []).forEach((s: any) => {
+      if (s && typeof s.region === 'string' && s.region && s.region !== 'NULL') rset.add(s.region)
+      if (s && typeof s.cp === 'string' && s.cp && s.cp !== 'NULL') cset.add(s.cp)
+    })
+    regions.value = Array.from(rset).sort()
+    cps.value = Array.from(cset).sort()
+  } catch (e) {
+    console.warn('派生地区/运营商选项失败:', e)
+    regions.value = []
+    cps.value = []
+  }
+}
+
+// 获取基础数据 (学校 -> 地区/运营商)
 const fetchBaseData = async () => {
   try {
-    const regionsResponse = await api.getRegions() as any
-    regions.value = Array.isArray(regionsResponse)
-      ? regionsResponse.filter((region: string) => region !== 'NULL')
-      : []
-
-    const cpsResponse = await api.getCPs() as any
-    cps.value = Array.isArray(cpsResponse)
-      ? cpsResponse.filter((cp: string) => cp !== 'NULL')
-      : []
-    
     await loadSchools()
+    computeRegionCpOptions()
   } catch (error) {
     console.error('获取基础数据失败', error)
     ElMessage.error('获取基础数据失败')
@@ -226,7 +235,7 @@ const loadSchools = async (region: string = '', cp: string = ''): Promise<void> 
     params.limit = 1000 
     params.offset = 0
     
-    const response = await api.getSchools(params) as any
+    const response = await (api as any).v2.getSchools(params) as any
     if (Array.isArray(response)) {
       schools.value = response
     } else if (response && Array.isArray(response.items)) {
@@ -234,6 +243,7 @@ const loadSchools = async (region: string = '', cp: string = ''): Promise<void> 
     } else {
       schools.value = []
     }
+    computeRegionCpOptions()
   } catch (error) {
     console.error('获取学校数据失败', error)
     ElMessage.error('获取学校数据失败')
@@ -243,13 +253,13 @@ const loadSchools = async (region: string = '', cp: string = ''): Promise<void> 
 
 // 处理地区选择变化
 const handleRegionChange = (region: string): void => {
-  loadSchools(region, filterForm.cp)
+  loadSchools(region, filterForm.cp).then(() => computeRegionCpOptions())
   fetchData()
 }
 
 // 处理运营商选择变化
 const handleCPChange = (cp: string): void => {
-  loadSchools(filterForm.region, cp)
+  loadSchools(filterForm.region, cp).then(() => computeRegionCpOptions())
   fetchData()
 }
 
@@ -286,7 +296,7 @@ const fetchData = async () => {
 
     console.log('Fetching daily settlement details with params:', params)
 
-    const response = await api.settlement.getDailySettlementDetails(params) as any
+    const response = await (api as any).v2.settlement.getDailySettlementDetails(params) as any
     let items: any[] = []
     let total = 0
     if (Array.isArray(response)) {

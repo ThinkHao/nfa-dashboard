@@ -11,7 +11,8 @@ export const useTagsViewStore = defineStore('tagsView', {
   actions: {
     addRoute(route: RouteLocationNormalized) {
       const title = (route.meta?.title as string) || (route.name?.toString() || route.path)
-      const path = route.fullPath
+      // 使用不含查询参数的路径作为唯一键，避免刷新时追加查询导致新增标签
+      const path = route.path
       if (!this.visited.find(t => t.path === path)) {
         this.visited.push({ title, path, name: route.name?.toString() })
       }

@@ -10,6 +10,7 @@
             <el-button @click="onReset">重置</el-button>
             <el-button v-if="canWrite" type="success" @click="openDialog()">新增/更新</el-button>
             <el-button v-if="canWrite" type="warning" :loading="refreshing" @click="onRefresh">初始化并刷新最终费率</el-button>
+            <el-button v-if="canWrite" type="danger" :loading="cleaning" @click="onCleanupInvalid">清理无效数据</el-button>
           </div>
         </div>
       </template>
@@ -124,7 +125,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api'
 import type { RateFinalCustomer, PaginatedData, UpsertRateFinalCustomerRequest, BusinessEntity } from '@/types/api'
 import { useAuthStore } from '@/stores/auth'
@@ -134,6 +135,7 @@ const canWrite = computed(() => auth.hasPermission('rates.final.write'))
 
 const loading = ref(false)
 const refreshing = ref(false)
+const cleaning = ref(false)
 const items = ref<RateFinalCustomer[]>([])
 const total = ref(0)
 const page = ref(1)
@@ -202,7 +204,7 @@ function getEntityName(id?: number | null): string {
 // Dialog
 const dialogVisible = ref(false)
 const saving = ref(false)
-const DEFAULT_FEE_TYPE = 'standard'
+const DEFAULT_FEE_TYPE = 'auto'
 const form = reactive<UpsertRateFinalCustomerRequest>({ region: '', cp: '', school_name: '', fee_type: DEFAULT_FEE_TYPE })
 
 function openDialog() {
@@ -237,6 +239,25 @@ async function onRefresh() {
     ElMessage.error(msg)
   } finally {
     refreshing.value = false
+  }
+}
+
+async function onCleanupInvalid() {
+  try {
+    await ElMessageBox.confirm('将删除 fee_type=auto 且任意关键费率字段为空的最终费率记录，是否继续？', '确认清理', { type: 'warning', confirmButtonText: '清理', cancelButtonText: '取消' })
+  } catch {
+    return
+  }
+  cleaning.value = true
+  try {
+    const affected = await api.settlementRates.final.cleanupInvalid()
+    ElMessage.success(`已清理 ${affected} 条无效记录`)
+    fetchData()
+  } catch (e: any) {
+    const msg = e?.response?.data?.message || e?.message || '清理失败'
+    ElMessage.error(msg)
+  } finally {
+    cleaning.value = false
   }
 }
 

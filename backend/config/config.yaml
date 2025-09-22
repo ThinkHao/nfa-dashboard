@@ -18,3 +18,11 @@ auth:
   secret: "dev-secret-change-me"
   access_token_ttl_minutes: 60
   refresh_token_ttl_minutes: 43200
+
+binding:
+  # 新：客户费归属（销售）下拉的用户角色过滤
+  allowed_sales_roles:
+    - 销售
+  # 新：线路费归属（如需改为按用户选择时）下拉的用户角色过滤
+  allowed_line_roles:
+    - 线路供应商

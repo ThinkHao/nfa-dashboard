@@ -58,16 +58,14 @@ function onCloseAll() {
   router.push('/')
 }
 function onRefresh() {
-  const p = menuPath.value || store.activePath
+  const targetPath = menuPath.value || route.path
   hideMenu()
-  if (!p) return
-  // 简易刷新：追加时间戳查询参数以触发组件更新
-  try {
-    const hasQuery = p.includes('?')
-    const url = `${p}${hasQuery ? '&' : '?'}_r=${Date.now()}`
-    router.replace(url)
-  } catch {
+  if (!targetPath) return
+  // 刷新当前路由：保留其原有查询参数；刷新右键点选的其它标签：仅追加 _r
+  if (targetPath === route.path) {
     router.replace({ path: route.path, query: { ...route.query, _r: Date.now() } })
+  } else {
+    router.replace({ path: targetPath, query: { _r: Date.now() } })
   }
 }
 

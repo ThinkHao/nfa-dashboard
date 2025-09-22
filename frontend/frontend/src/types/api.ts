@@ -235,6 +235,9 @@ export interface RateCustomer {
   extra?: any;
   created_at?: string;
   updated_at?: string;
+  // backend-added classification fields
+  settlement_ready?: boolean;
+  missing_fields?: string[];
 }
 
 export interface UpsertRateCustomerRequest {

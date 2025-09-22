@@ -45,7 +45,16 @@
 
     <el-card shadow="never" class="box-card" style="margin-top: 16px">
       <template #header>
-        <div class="card-header"><span class="card-title">费率列表</span></div>
+        <div class="card-header">
+          <span class="card-title">费率列表</span>
+          <div>
+            <el-radio-group v-model="settlementTab" size="small" @change="onSettlementTabChange">
+              <el-radio-button label="all">全部</el-radio-button>
+              <el-radio-button label="ready">参与</el-radio-button>
+              <el-radio-button label="not_ready">不参与</el-radio-button>
+            </el-radio-group>
+          </div>
+        </div>
       </template>
 
       <el-table :data="items" border stripe height="600px" v-loading="loading">
@@ -57,6 +66,14 @@
             <el-tag size="small" :type="row.fee_mode === 'configed' ? 'warning' : 'info'">
               {{ formatMode(row.fee_mode) }}
             </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="参与结算" width="120">
+          <template #default="{ row }">
+            <el-tooltip v-if="!row.settlement_ready" placement="top" :content="formatMissingFields(row.missing_fields)">
+              <el-tag size="small" type="danger">否</el-tag>
+            </el-tooltip>
+            <el-tag v-else size="small" type="success">是</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="最近同步" width="180">
@@ -74,15 +91,15 @@
           </template>
         </el-table-column>
         <el-table-column prop="customer_fee" label="客户费" width="120" />
-        <el-table-column prop="network_line_fee" label="专线费" width="120" />
-        <el-table-column prop="general_fee" label="通用费" width="120" />
+        <el-table-column prop="network_line_fee" label="线路费" width="120" />
+        <el-table-column prop="general_fee" label="节点通用费" width="120" />
         <el-table-column label="客户费归属" width="200">
           <template #default="{ row }">
             <span v-if="row.customer_fee_owner_id">{{ displayOwner(row.customer_fee_owner_id) }}</span>
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column label="专线费归属" width="200">
+        <el-table-column label="线路费归属" width="200">
           <template #default="{ row }">
             <span v-if="row.network_line_fee_owner_id">{{ displayOwner(row.network_line_fee_owner_id) }}</span>
             <span v-else>-</span>
@@ -139,50 +156,53 @@
         <el-form-item label="客户费">
           <el-input-number v-model="form.customer_fee" :min="0" :step="0.01" :precision="2" />
         </el-form-item>
-        <el-form-item label="专线费">
+        <el-form-item label="线路费">
           <el-input-number v-model="form.network_line_fee" :min="0" :step="0.01" :precision="2" />
         </el-form-item>
-        <el-form-item label="通用费">
+        <el-form-item label="节点通用费">
           <el-input-number v-model="form.general_fee" :min="0" :step="0.01" :precision="2" />
         </el-form-item>
-        <el-form-item label="客户费归属对象">
+        <el-form-item label="客户费归属（销售）">
           <el-select
             v-model="form.customer_fee_owner_id"
             filterable
             remote
             clearable
-            :remote-method="remoteSearchEntitiesForCustomer"
-            :loading="entitiesLoading"
-            placeholder="搜索业务对象名称"
+            :remote-method="remoteSearchSystemUsers"
+            :loading="ownerUserLoading"
+            placeholder="搜索销售用户（系统用户，受角色配置过滤）"
             style="width: 300px"
+            @visible-change="(v) => v && remoteSearchSystemUsers('')"
           >
             <el-option
-              v-for="e in entityOptionsCustomer"
-              :key="e.id"
-              :label="`${e.entity_name} (${e.entity_type})`"
-              :value="e.id"
+              v-for="u in ownerUserOptions"
+              :key="u.id"
+              :label="u.label"
+              :value="u.id"
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="专线费归属对象">
+        <el-form-item label="线路费归属（线路用户）">
           <el-select
             v-model="form.network_line_fee_owner_id"
             filterable
             remote
             clearable
-            :remote-method="remoteSearchEntitiesForNetwork"
-            :loading="entitiesLoading"
-            placeholder="搜索业务对象名称"
+            :remote-method="remoteSearchSystemUsersLine"
+            :loading="ownerUserLineLoading"
+            placeholder="搜索线路相关用户（按配置的线路角色过滤）"
             style="width: 300px"
+            @visible-change="(v) => v && remoteSearchSystemUsersLine('')"
           >
             <el-option
-              v-for="e in entityOptionsNetwork"
-              :key="e.id"
-              :label="`${e.entity_name} (${e.entity_type})`"
-              :value="e.id"
+              v-for="u in ownerUserLineOptions"
+              :key="u.id"
+              :label="u.label"
+              :value="u.id"
             />
           </el-select>
         </el-form-item>
+        
         <el-form-item label="扩展JSON">
           <el-input
             v-model="extraEditorText"
@@ -209,7 +229,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api'
@@ -229,17 +249,31 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
 
-const query = reactive<{ region?: string; cp?: string; school_name?: string }>({})
+const query = reactive<{ region?: string; cp?: string; school_name?: string; settlement_ready?: string | '' }>({})
+// 表头分类标签：全部/参与/不参与
+const settlementTab = ref<'all' | 'ready' | 'not_ready'>('all')
 // 下拉与远程搜索状态
 const regionOptions = ref<string[]>([])
 const cpOptions = ref<string[]>([])
 const schoolOptions = ref<string[]>([])
 const schoolsLoading = ref(false)
 const entitiesLoading = ref(false)
+// 客户费归属（销售）由系统用户提供，不再使用实体列表
 const entityOptionsCustomer = ref<BusinessEntity[]>([])
-const entityOptionsNetwork = ref<BusinessEntity[]>([])
-// ID -> 实体 映射，用于列表展示
+// ID -> 实体 映射，用于兼容旧数据的列表展示（历史可能存了业务对象ID）
 const entityMap = ref<Record<number, BusinessEntity>>({})
+// ID -> 用户映射，用于显示“客户费/线路费归属”为系统用户时的别名
+const userMap = ref<Record<number, { id: number; alias?: string; display_name?: string; username: string }>>({})
+
+// 系统用户（销售）下拉：用于“客户费归属（销售）”与绑定
+const ownerUserOptions = ref<{ id: number; label: string }[]>([])
+const ownerUserLoading = ref(false)
+// 从后端获取：允许绑定的角色（如 ['sales']），可配置
+const allowedBindRoles = ref<string[]>([])
+// 系统用户（线路）下拉：用于“线路费归属（线路用户）”
+const ownerUserLineOptions = ref<{ id: number; label: string }[]>([])
+const ownerUserLineLoading = ref(false)
+const allowedLineRoles = ref<string[]>([])
 
 // 扩展字段弹窗
 const extraDialogVisible = ref(false)
@@ -250,6 +284,9 @@ function buildParams() {
   if (query.region) p.region = query.region
   if (query.cp) p.cp = query.cp
   if (query.school_name) p.school_name = query.school_name
+  if (query.settlement_ready === 'true' || query.settlement_ready === 'false') {
+    p.settlement_ready = query.settlement_ready
+  }
   return p
 }
 
@@ -260,7 +297,7 @@ async function fetchData() {
     items.value = res.items || []
     total.value = res.total || 0
     // 批量加载归属对象信息，构建映射
-    loadEntitiesForItems()
+    await Promise.all([loadEntitiesForItems(), loadUsersForItems()])
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '加载失败')
   } finally {
@@ -286,11 +323,88 @@ async function loadEntitiesForItems() {
   } catch {}
 }
 
+// 根据当前 items 收集 owner_id，批量按 ids 获取系统用户并缓存映射（优先用于显示别名）
+async function loadUsersForItems() {
+  const ids = new Set<number>()
+  for (const r of items.value) {
+    if (r?.customer_fee_owner_id != null) {
+      const n = Number(r.customer_fee_owner_id)
+      if (!Number.isNaN(n) && n > 0) ids.add(n)
+    }
+    if (r?.network_line_fee_owner_id != null) {
+      const n = Number(r.network_line_fee_owner_id)
+      if (!Number.isNaN(n) && n > 0) ids.add(n)
+    }
+  }
+  if (ids.size === 0) { userMap.value = {}; return }
+  try {
+    const res: any = await api.system.users.list({ ids: Array.from(ids).join(',') })
+    const list: any[] = Array.isArray(res?.items) ? res.items : []
+    const m: Record<number, { id: number; alias?: string; display_name?: string; username: string }> = {}
+    for (const u of list) { if (u && typeof u.id === 'number') m[u.id] = { id: u.id, alias: u.alias, display_name: u.display_name, username: u.username } }
+    userMap.value = m
+  } catch { userMap.value = {} }
+}
+
 function displayOwner(id?: number | null): string {
   if (!id) return '-'
-  const e = entityMap.value[id as number]
+  const key = Number(id)
+  const u = userMap.value[key]
+  if (u) {
+    const alias = (u.alias && String(u.alias).trim()) ? String(u.alias).trim() : ''
+    const dn = (u.display_name && String(u.display_name).trim()) ? String(u.display_name).trim() : ''
+    const un = (u.username && String(u.username).trim()) ? String(u.username).trim() : ''
+    return alias || dn || un || `用户#${key}`
+  }
+  const e = entityMap.value[key]
   if (e) return `${e.entity_name}`
-  return String(id)
+  return String(key)
+}
+
+// 生成系统用户在下拉中的显示标签：alias > display_name > username > 用户#ID
+function buildUserLabel(u: any): string {
+  if (!u) return ''
+  const alias = (u.alias && String(u.alias).trim()) ? String(u.alias).trim() : ''
+  const dn = (u.display_name && String(u.display_name).trim()) ? String(u.display_name).trim() : ''
+  const un = (u.username && String(u.username).trim()) ? String(u.username).trim() : ''
+  const id = Number(u.id)
+  return alias || dn || un || (Number.isFinite(id) ? `用户#${id}` : '')
+}
+
+// 预加载给定或表单中选中的用户ID为下拉选项，确保显示用户名而非原始ID
+async function preloadSelectedUsersIntoOptions(idsOverride?: number[]) {
+  const ids: number[] = Array.isArray(idsOverride) ? idsOverride.filter(n => typeof n === 'number' && n > 0) : []
+  if (!idsOverride) {
+    const addIf = (v: any) => { const n = Number(v); if (!Number.isNaN(n) && n > 0) ids.push(n) }
+    addIf((form.customer_fee_owner_id as any))
+    addIf((form.network_line_fee_owner_id as any))
+  }
+  if (ids.length === 0) return
+  try {
+    const res: any = await api.system.users.list({ ids: ids.join(',') })
+    const list: any[] = Array.isArray(res?.items) ? res.items : []
+    for (const u of list) {
+      const opt = { id: u.id, label: buildUserLabel(u) }
+      const sIdx = ownerUserOptions.value.findIndex(x => x.id === u.id)
+      if (sIdx >= 0) ownerUserOptions.value[sIdx] = opt
+      else ownerUserOptions.value.push(opt)
+      const lIdx = ownerUserLineOptions.value.findIndex(x => x.id === u.id)
+      if (lIdx >= 0) ownerUserLineOptions.value[lIdx] = opt
+      else ownerUserLineOptions.value.push(opt)
+    }
+    // 如果选中的ID不在系统用户返回结果中（历史上可能是业务对象ID），清空以避免显示纯数字
+    const returnedIds = new Set<number>(list.map((u: any) => Number(u.id)))
+    const salesSel = Number((form.customer_fee_owner_id as any) || 0)
+    if (salesSel > 0 && !returnedIds.has(salesSel)) {
+      form.customer_fee_owner_id = undefined as any
+      try { ElMessage?.warning?.('检测到历史数据不是系统用户，请重新选择“客户费归属（销售）”。') } catch {}
+    }
+    const lineSel = Number((form.network_line_fee_owner_id as any) || 0)
+    if (lineSel > 0 && !returnedIds.has(lineSel)) {
+      form.network_line_fee_owner_id = undefined as any
+      try { ElMessage?.warning?.('检测到历史数据不是系统用户，请重新选择“线路费归属（线路用户）”。') } catch {}
+    }
+  } catch {}
 }
 
 async function loadRegionsAndCPs() {
@@ -336,21 +450,21 @@ async function remoteSearchEntitiesForCustomer(q: string) {
   finally { entitiesLoading.value = false }
 }
 
-async function remoteSearchEntitiesForNetwork(q: string) {
-  entitiesLoading.value = true
-  try {
-    const res = await api.settlementEntities.list({ page: 1, page_size: 20, entity_name: q || undefined })
-    entityOptionsNetwork.value = Array.isArray((res as any)?.items) ? (res as any).items as BusinessEntity[] : []
-  } catch {}
-  finally { entitiesLoading.value = false }
-}
-
 function onSearch() { page.value = 1; fetchData() }
-function onReset() { Object.assign(query, { region: undefined, cp: undefined, school_name: undefined }); page.value=1; pageSize.value=10; fetchData() }
+function onReset() { Object.assign(query, { region: undefined, cp: undefined, school_name: undefined, settlement_ready: '' as any }); settlementTab.value='all'; page.value=1; pageSize.value=10; fetchData() }
 function onPageChange(p: number) { page.value = p; fetchData() }
 function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; fetchData() }
 
 function goSyncRules() { router.push({ name: 'settlement-rates-sync-rules' }) }
+
+// 切换“参与结算”分类（表头标签）
+function onSettlementTabChange(val: 'all'|'ready'|'not_ready') {
+  if (val === 'ready') query.settlement_ready = 'true' as any
+  else if (val === 'not_ready') query.settlement_ready = 'false' as any
+  else query.settlement_ready = '' as any
+  page.value = 1
+  fetchData()
+}
 
 // Dialog
 const dialogVisible = ref(false)
@@ -358,8 +472,12 @@ const saving = ref(false)
 const form = reactive<UpsertRateCustomerRequest>({ region: '', cp: '' })
 const extraEditorText = ref<string>('')
 
-function openDialog(row?: RateCustomer) {
+async function openDialog(row?: RateCustomer) {
   if (row) {
+    // 先提取将要设置的 owner_id
+    const salesId = (row.customer_fee_owner_id != null ? Number(row.customer_fee_owner_id) : undefined) as any
+    const lineId = (row.network_line_fee_owner_id != null ? Number(row.network_line_fee_owner_id) : undefined) as any
+    // 其他字段先设置；owner_id 先置空，待预加载完 options 后再赋值
     Object.assign(form, {
       region: row.region,
       cp: row.cp,
@@ -367,15 +485,24 @@ function openDialog(row?: RateCustomer) {
       customer_fee: row.customer_fee ?? undefined,
       network_line_fee: row.network_line_fee ?? undefined,
       general_fee: row.general_fee ?? undefined,
-      customer_fee_owner_id: row.customer_fee_owner_id ?? undefined,
-      network_line_fee_owner_id: row.network_line_fee_owner_id ?? undefined,
+      customer_fee_owner_id: undefined as any,
+      network_line_fee_owner_id: undefined as any,
     })
     extraEditorText.value = stringify(row.extra ?? {})
+    // 先加载 options 再赋值，确保下拉能显示 label
+    try { await preloadSelectedUsersIntoOptions([Number(salesId||0), Number(lineId||0)].filter(n => n>0)) } catch {}
+    form.customer_fee_owner_id = salesId
+    form.network_line_fee_owner_id = lineId
   } else {
     Object.assign(form, { region: '', cp: '', school_name: undefined, customer_fee: undefined, network_line_fee: undefined, general_fee: undefined, customer_fee_owner_id: undefined, network_line_fee_owner_id: undefined })
     extraEditorText.value = ''
   }
+  // 显示弹窗
   dialogVisible.value = true
+  // 异步加载下拉数据（包含合并已选用户项的逻辑）
+  try { remoteSearchEntitiesForCustomer('') } catch {}
+  try { remoteSearchSystemUsers('') } catch {}
+  try { remoteSearchSystemUsersLine('') } catch {}
 }
 
 async function onSave() {
@@ -389,6 +516,26 @@ async function onSave() {
       try { payload.extra = JSON.parse(txt) } catch (e) { ElMessage.error('扩展JSON格式错误'); saving.value=false; return }
     }
     await api.settlementRates.customer.upsert(payload)
+
+    // 保存后，根据“客户费归属（销售）”下拉的选择，设置用户-院校绑定
+    const selectedUserId: number | null | undefined = form.customer_fee_owner_id as any
+    if (form.school_name) {
+      try {
+        // 通过 v2 学校接口解析唯一 school_id（按 region+cp+school_name）
+        const res: any = await (api as any).v2.getSchools({ region: form.region, cp: form.cp, school_name: form.school_name, limit: 50, offset: 0 })
+        const items: any[] = Array.isArray(res?.items) ? res.items : (Array.isArray(res) ? res : [])
+        const matched = items.filter((s: any) => s && s.school_name === form.school_name && s.region === form.region && s.cp === form.cp)
+        if (matched.length === 1 && matched[0]?.school_id) {
+          const schoolId = matched[0].school_id as string
+          await api.system.userSchools.setOwner({ school_id: schoolId, user_id: selectedUserId ?? null })
+        } else {
+          console.warn('未能唯一定位 school_id，跳过绑定。匹配数量:', matched.length)
+        }
+      } catch (e) {
+        console.warn('绑定用户-院校失败（已忽略）：', e)
+      }
+    }
+
     ElMessage.success('保存成功')
     dialogVisible.value = false
     fetchData()
@@ -454,7 +601,96 @@ function formatMode(m?: string): string {
   return m === 'configed' ? '手工' : '自动'
 }
 
-onMounted(() => { loadRegionsAndCPs(); fetchData() })
+// 缺失字段提示
+function formatMissingFields(m?: string[]): string {
+  if (!m || m.length === 0) return ''
+  const map: Record<string, string> = {
+    school_name: '学校',
+    customer_fee: '客户费',
+    network_line_fee: '线路费',
+  }
+  return '缺失字段：' + m.map(k => map[k] || k).join('、')
+}
+
+// 远程搜索系统用户（单选）
+async function remoteSearchSystemUsers(q: string) {
+  ownerUserLoading.value = true
+  try {
+    // 确保已加载允许的角色列表
+    if (!allowedBindRoles.value || allowedBindRoles.value.length === 0) {
+      try { allowedBindRoles.value = await api.system.binding.getAllowedUserRoles('sales') } catch { allowedBindRoles.value = [] }
+    }
+    const rolesParam = (allowedBindRoles.value && allowedBindRoles.value.length > 0) ? allowedBindRoles.value.join(',') : undefined
+    const res: any = await api.system.users.list({ page: 1, page_size: 20, username: q || undefined, roles: rolesParam })
+    const list: any[] = Array.isArray(res?.items) ? res.items : []
+    const newOptions = list.map((u: any) => ({ id: u.id, label: buildUserLabel(u) }))
+    // 确保当前选中用户在选项中
+    const selectedId = Number((form.customer_fee_owner_id as any) || 0)
+    if (selectedId > 0 && !newOptions.some(o => o.id === selectedId)) {
+      const existing = ownerUserOptions.value.find(o => o.id === selectedId)
+      if (existing) newOptions.unshift(existing)
+    }
+    ownerUserOptions.value = newOptions
+  } catch {
+    ownerUserOptions.value = []
+  } finally {
+    ownerUserLoading.value = false
+  }
+}
+
+// 远程搜索系统用户（线路）
+async function remoteSearchSystemUsersLine(q: string) {
+  ownerUserLineLoading.value = true
+  try {
+    // 确保已加载允许的线路角色列表
+    if (!allowedLineRoles.value || allowedLineRoles.value.length === 0) {
+      try { allowedLineRoles.value = await api.system.binding.getAllowedUserRoles('line') } catch { allowedLineRoles.value = [] }
+    }
+    const rolesParam = (allowedLineRoles.value && allowedLineRoles.value.length > 0) ? allowedLineRoles.value.join(',') : undefined
+    const res: any = await api.system.users.list({ page: 1, page_size: 20, username: q || undefined, roles: rolesParam })
+    const list: any[] = Array.isArray(res?.items) ? res.items : []
+    const newOptions = list.map((u: any) => ({ id: u.id, label: buildUserLabel(u) }))
+    // 确保当前选中用户在选项中
+    const selectedId = Number((form.network_line_fee_owner_id as any) || 0)
+    if (selectedId > 0 && !newOptions.some(o => o.id === selectedId)) {
+      const existing = ownerUserLineOptions.value.find(o => o.id === selectedId)
+      if (existing) newOptions.unshift(existing)
+    }
+    ownerUserLineOptions.value = newOptions
+  } catch {
+    ownerUserLineOptions.value = []
+  } finally {
+    ownerUserLineLoading.value = false
+  }
+}
+
+onMounted(async () => {
+  loadRegionsAndCPs();
+  fetchData();
+  // 预加载允许绑定的角色（销售），供后续用户搜索使用
+  try {
+    allowedBindRoles.value = await api.system.binding.getAllowedUserRoles('sales')
+  } catch { allowedBindRoles.value = [] }
+  // 预加载线路用户角色
+  try {
+    allowedLineRoles.value = await api.system.binding.getAllowedUserRoles('line')
+  } catch { allowedLineRoles.value = [] }
+})
+
+// 监听两个归属字段：若为数字但对应选项缺失，则预加载该用户到选项，避免显示为纯数字
+watch(() => form.customer_fee_owner_id as any, async (val) => {
+  const n = Number(val)
+  if (!Number.isNaN(n) && n > 0 && !ownerUserOptions.value.some(o => o.id === n)) {
+    try { await preloadSelectedUsersIntoOptions([n]) } catch {}
+  }
+})
+
+watch(() => form.network_line_fee_owner_id as any, async (val) => {
+  const n = Number(val)
+  if (!Number.isNaN(n) && n > 0 && !ownerUserLineOptions.value.some(o => o.id === n)) {
+    try { await preloadSelectedUsersIntoOptions([n]) } catch {}
+  }
+})
 </script>
 
 <style scoped>

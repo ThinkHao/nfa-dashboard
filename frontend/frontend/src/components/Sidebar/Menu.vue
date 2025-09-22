@@ -34,7 +34,7 @@ const menus = computed(() => {
   const groups: Record<string, { title: string; children: Item[] }> = {}
   const ensure = (key: string, title: string) => (groups[key] ||= { title, children: [] })
 
-  const settlement = ensure('settlement', '结算系统')
+  const settlement = ensure('settlement', '结算系统配置')
   const system = ensure('system', '系统管理')
   const topLevel: Item[] = []
 

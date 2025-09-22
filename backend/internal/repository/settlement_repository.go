@@ -148,6 +148,11 @@ func (r *settlementRepository) GetSettlementTasks(filter map[string]interface{},
 		}
 	}
 
+    // v2：按用户过滤可见院校范围
+    if filter["user_id"] != nil && filter["user_id"].(int64) > 0 {
+        query = query.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", filter["user_id"].(int64))
+    }
+
 	// 获取总数
 	err := query.Count(&count).Error
 	if err != nil {
@@ -408,7 +413,7 @@ func (r *settlementRepository) GetSettlements(filter model.SettlementFilter) ([]
 	// 如果不是按月查询，使用原来的日结算查询逻辑
 	var settlements []model.SchoolSettlement
 	query := model.DB.Model(&model.SchoolSettlement{})
-
+	
 	// 应用过滤条件
 	if !filter.StartDate.IsZero() {
 		// 将时间转换为当天的开始时间，使用本地时区
@@ -449,6 +454,11 @@ func (r *settlementRepository) GetSettlements(filter model.SettlementFilter) ([]
 		query = query.Where("cp = ?", filter.CP)
 		log.Printf("应用运营商过滤: %s", filter.CP)
 	}
+
+    // v2：按用户过滤可见院校范围
+    if filter.UserID != nil && *filter.UserID > 0 {
+        query = query.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", *filter.UserID)
+    }
 
 	// 获取总数
 	err := query.Count(&count).Error
@@ -520,6 +530,11 @@ func (r *settlementRepository) GetDailySettlementDetails(filter model.Settlement
 		query = query.Where("cp = ?", filter.CP)
 	}
 
+    // v2：按用户过滤可见院校范围
+    if filter.UserID != nil && *filter.UserID > 0 {
+        query = query.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", *filter.UserID)
+    }
+
 	// 获取总数
 	err := query.Count(&count).Error
 	if err != nil {
@@ -579,7 +594,12 @@ func (r *settlementRepository) getAggregatedSettlements(filter model.SettlementF
 	if filter.CP != "" {
 		query = query.Where("cp = ?", filter.CP)
 	}
-	
+
+    // v2：按用户过滤可见院校范围
+    if filter.UserID != nil && *filter.UserID > 0 {
+        query = query.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", *filter.UserID)
+    }
+
 	// 使用原生SQL来聚合数据
 	// 我们需要将结算数据按学校、地区、运营商进行分组
 	// 然后计算每组的总和除以天数作为聚合结算值
@@ -631,7 +651,13 @@ func (r *settlementRepository) getAggregatedSettlements(filter model.SettlementF
 		sql += " AND cp = ?"
 		args = append(args, filter.CP)
 	}
-	
+
+    // v2：按用户过滤可见院校范围
+    if filter.UserID != nil && *filter.UserID > 0 {
+        sql += " AND school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)"
+        args = append(args, *filter.UserID)
+    }
+
 	// 添加分组和排序
 	sql += " GROUP BY school_id, school_name, region, cp"
 	sql += " ORDER BY settlement_date DESC"

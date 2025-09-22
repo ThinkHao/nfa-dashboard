@@ -16,6 +16,118 @@ type SchoolController struct {
 	schoolService service.SchoolService
 }
 
+// GetTrafficDataV2 获取流量数据（v2：按 user_id 过滤，普通用户强制为自身）
+func (c *SchoolController) GetTrafficDataV2(ctx *gin.Context) {
+    var filter model.TrafficFilter
+    // 解析时间参数（与 v1 保持一致）
+    startTimeStr := ctx.Query("start_time")
+    endTimeStr := ctx.Query("end_time")
+    if startTimeStr != "" {
+        var startTime time.Time
+        var err error
+        startTime, err = time.Parse(time.RFC3339, startTimeStr)
+        if err != nil {
+            startTime, err = time.Parse("2006-01-02T15:04:05Z", startTimeStr)
+            if err != nil { startTime, _ = time.Parse("2006-01-02 15:04:05", startTimeStr) }
+        }
+        if !startTime.IsZero() { filter.StartTime = startTime }
+    }
+    if endTimeStr != "" {
+        var endTime time.Time
+        var err error
+        endTime, err = time.Parse(time.RFC3339, endTimeStr)
+        if err != nil {
+            endTime, err = time.Parse("2006-01-02T15:04:05Z", endTimeStr)
+            if err != nil { endTime, _ = time.Parse("2006-01-02 15:04:05", endTimeStr) }
+        }
+        if !endTime.IsZero() { filter.EndTime = endTime }
+    }
+    // 其他过滤
+    filter.SchoolName = ctx.Query("school_name")
+    filter.Region = ctx.Query("region")
+    filter.CP = ctx.Query("cp")
+    filter.Interval = ctx.DefaultQuery("interval", "hour")
+    if v := ctx.DefaultQuery("limit", "100"); v != "" { if n, err := strconv.Atoi(v); err == nil { filter.Limit = n } }
+    if v := ctx.DefaultQuery("offset", "0"); v != "" { if n, err := strconv.Atoi(v); err == nil { filter.Offset = n } }
+    if g := ctx.Query("granularity"); g != "" { filter.Granularity = g }
+
+    // v2：处理 user_id
+    var reqUserID *uint64
+    if v := ctx.Query("user_id"); v != "" { if uv, err := strconv.ParseUint(v, 10, 64); err == nil && uv > 0 { reqUserID = &uv } }
+    if !hasAnyPermission(ctx, "system.user.manage") { if uid, ok := currentUserID(ctx); ok { reqUserID = &uid } }
+    filter.UserID = reqUserID
+
+    // 调用服务
+    trafficData, err := c.schoolService.GetTrafficData(filter)
+    if err != nil {
+        // 与 v1 行为一致：返回 200 + 空数组
+        ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取流量数据成功，但没有符合条件的数据", "data": []interface{}{}, "warning": err.Error()})
+        return
+    }
+    if len(trafficData) == 0 {
+        ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取流量数据成功，但没有符合条件的数据", "data": []interface{}{}})
+        return
+    }
+    ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取流量数据成功", "data": trafficData})
+}
+
+// GetTrafficSummaryV2 获取流量汇总数据（v2：按 user_id 过滤，普通用户强制为自身）
+func (c *SchoolController) GetTrafficSummaryV2(ctx *gin.Context) {
+    var filter model.TrafficFilter
+    // 解析时间
+    if s := ctx.Query("start_time"); s != "" { if t, err := time.Parse("2006-01-02 15:04:05", s); err == nil { filter.StartTime = t } }
+    if s := ctx.Query("end_time"); s != "" { if t, err := time.Parse("2006-01-02 15:04:05", s); err == nil { filter.EndTime = t } }
+    // 其他过滤
+    filter.SchoolName = ctx.Query("school_name")
+    filter.Region = ctx.Query("region")
+    filter.CP = ctx.Query("cp")
+    // v2：user_id
+    var reqUserID *uint64
+    if v := ctx.Query("user_id"); v != "" { if uv, err := strconv.ParseUint(v, 10, 64); err == nil && uv > 0 { reqUserID = &uv } }
+    if !hasAnyPermission(ctx, "system.user.manage") { if uid, ok := currentUserID(ctx); ok { reqUserID = &uid } }
+    filter.UserID = reqUserID
+
+    summary, err := c.schoolService.GetTrafficSummary(filter)
+    if err != nil { ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取流量汇总数据失败", "error": err.Error()}); return }
+    ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取流量汇总数据成功", "data": summary})
+}
+
+// GetAllSchoolsV2 获取所有学校（v2：可按 user_id 过滤，普通用户强制为自身）
+func (c *SchoolController) GetAllSchoolsV2(ctx *gin.Context) {
+    // 查询参数
+    schoolName := ctx.Query("school_name")
+    region := ctx.Query("region")
+    cp := ctx.Query("cp")
+    // user_id 可选（仅特权用户可自定义），普通用户将被覆盖
+    var reqUserID *uint64
+    if v := ctx.Query("user_id"); v != "" {
+        if uv, err := strconv.ParseUint(v, 10, 64); err == nil && uv > 0 {
+            reqUserID = &uv
+        }
+    }
+
+    // 分页
+    limitStr := ctx.DefaultQuery("limit", "10")
+    offsetStr := ctx.DefaultQuery("offset", "0")
+    limit, _ := strconv.Atoi(limitStr)
+    offset, _ := strconv.Atoi(offsetStr)
+
+    // 权限判断：无管理权限则强制使用自身 user_id
+    // 选用较高权限作为“特权”：system.user.manage
+    if !hasAnyPermission(ctx, "system.user.manage") {
+        if uid, ok := currentUserID(ctx); ok {
+            reqUserID = &uid
+        }
+    }
+
+    schools, total, err := c.schoolService.GetAllSchoolsWithUser(schoolName, region, cp, reqUserID, limit, offset)
+    if err != nil {
+        ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取学校列表失败", "error": err.Error()})
+        return
+    }
+    ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取学校列表成功", "data": gin.H{"total": total, "items": schools, "limit": limit, "offset": offset}})
+}
+
 // NewSchoolController 创建学校控制器实例
 func NewSchoolController(schoolService service.SchoolService) *SchoolController {
 	return &SchoolController{

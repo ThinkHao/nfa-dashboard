@@ -8,12 +8,13 @@ import (
 )
 
 type UserService interface {
-	List(username string, status *int8, page, pageSize int) ([]model.User, int64, error)
+	List(username string, status *int8, roles []string, page, pageSize int) ([]model.User, int64, error)
 	SetRoles(userID uint64, roleIDs []uint64) error
 	UpdateStatus(userID uint64, status int8) error
 	Create(username string, alias *string, password string, email, phone *string, status *int8, roleIDs []uint64) (*model.User, error)
 	GetUserRoles(userID uint64) ([]model.Role, error)
 	UpdateAlias(userID uint64, alias *string) error
+	FindByIDs(ids []uint64) ([]model.User, error)
 }
 
 func (s *userService) UpdateAlias(userID uint64, alias *string) error {
@@ -39,6 +40,10 @@ func (s *userService) GetUserRoles(userID uint64) ([]model.Role, error) {
     return s.userRepo.GetUserRoles(userID)
 }
 
+func (s *userService) FindByIDs(ids []uint64) ([]model.User, error) {
+    return s.userRepo.FindByIDs(ids)
+}
+
 type userService struct{ 
 	userRepo repository.UserRepository
 	roleRepo repository.RoleRepository
@@ -48,8 +53,8 @@ func NewUserService(userRepo repository.UserRepository, roleRepo repository.Role
 	return &userService{userRepo: userRepo, roleRepo: roleRepo}
 }
 
-func (s *userService) List(username string, status *int8, page, pageSize int) ([]model.User, int64, error) {
-	return s.userRepo.List(username, status, page, pageSize)
+func (s *userService) List(username string, status *int8, roles []string, page, pageSize int) ([]model.User, int64, error) {
+	return s.userRepo.List(username, status, roles, page, pageSize)
 }
 func (s *userService) SetRoles(userID uint64, roleIDs []uint64) error { 
 	// validate user exists

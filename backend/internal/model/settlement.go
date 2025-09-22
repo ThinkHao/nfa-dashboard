@@ -33,6 +33,7 @@ type SettlementFilter struct {
 	CP         string    `form:"cp"`
 	Limit      int       `form:"limit,default=100"`
 	Offset     int       `form:"offset,default=0"`
+	UserID     *uint64   `form:"user_id" json:"user_id"` // v2：按用户可见院校范围过滤（nil/0 表示不启用）
 }
 
 // SettlementConfig 结算配置

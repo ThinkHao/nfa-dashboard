@@ -15,7 +15,7 @@ const router = createRouter({
         { path: '', name: 'home', component: HomeView, meta: { title: '首页', order: 0, icon: '🏠' } },
         { path: 'traffic', name: 'traffic', component: () => import('../views/TrafficView.vue'), meta: { title: '流量监控', permissions: ['traffic.read'], order: 10, icon: '📈' } },
         { path: 'schools', name: 'schools', component: () => import('../views/SchoolsView.vue'), meta: { title: '学校管理', permissions: ['school.manage'], order: 20, icon: '🏫' } },
-        { path: 'settlement', name: 'settlement', component: () => import('../views/SettlementView.vue'), meta: { title: '结算系统', permissions: ['settlement.read', 'settlement.calculate'], order: 30, icon: '💰' } },
+        { path: 'settlement', name: 'settlement', component: () => import('../views/SettlementView.vue'), meta: { title: '结算系统配置', permissions: ['settlement.read', 'settlement.calculate'], order: 30, icon: '💰' } },
         { path: 'settlement/rates/customer', name: 'settlement-rates-customer', component: () => import('../views/CustomerRatesView.vue'), meta: { title: '客户业务费率', permissions: ['rates.customer.read'], cache: true, order: 31, icon: '👤' } },
         { path: 'settlement/rates/node', name: 'settlement-rates-node', component: () => import('../views/NodeRatesView.vue'), meta: { title: '节点业务费率', permissions: ['rates.node.read'], cache: true, order: 32, icon: '🕸️' } },
         { path: 'settlement/rates/final', name: 'settlement-rates-final', component: () => import('../views/FinalCustomerRatesView.vue'), meta: { title: '最终客户费率', permissions: ['rates.final.read'], cache: true, order: 33, icon: '✅' } },
