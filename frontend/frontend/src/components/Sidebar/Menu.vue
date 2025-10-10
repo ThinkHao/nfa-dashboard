@@ -13,58 +13,75 @@ function hasMenuAccess(r: any): boolean {
   return auth.hasAnyPermission(required)
 }
 
-// 根据 path 前缀对页面进行分组，支持 meta.hideInMenu 与 meta.order
 const menus = computed(() => {
   const raws = router.getRoutes()
     .filter(r => !!r.meta?.title && !r.meta?.public && r.path !== '/403' && r.path !== '/login')
     .filter(hasMenuAccess)
 
-  type Item = { title: string; path: string; order: number; hideInMenu: boolean; icon?: string }
+  type Item = { title: string; path: string; order: number; hideInMenu: boolean; icon?: string; group?: string }
   const items: Item[] = raws.map(r => ({
     title: r.meta?.title as string,
     path: r.path,
     order: (r.meta as any)?.order ?? 0,
     hideInMenu: !!(r.meta as any)?.hideInMenu,
     icon: (r.meta as any)?.icon as string | undefined,
+    group: (r.meta as any)?.group as string | undefined,
   })).filter(i => !i.hideInMenu)
 
   // 排序
   items.sort((a, b) => a.order - b.order)
 
-  const groups: Record<string, { title: string; children: Item[] }> = {}
-  const ensure = (key: string, title: string) => (groups[key] ||= { title, children: [] })
-
-  const settlement = ensure('settlement', '结算系统配置')
-  const system = ensure('system', '系统管理')
-  const topLevel: Item[] = []
-
-  for (const r of items) {
-    // 首页在模板中单独渲染，这里跳过以避免重复
-    if (r.path === '/') { continue }
-    const seg = r.path.split('/')[1]
-    if (seg === 'settlement') {
-      settlement.children.push(r)
-    } else if (seg === 'system') {
-      system.children.push(r)
-    } else {
-      topLevel.push(r)
-    }
+  const groupDefinitions: Record<string, { title: string; order: number }> = {
+    'settlement-dashboard': { title: '结算系统', order: 28 },
+    'settlement-config': { title: '结算系统配置', order: 29 },
+    system: { title: '系统管理', order: 80 },
   }
 
-  // 各组内部再按 order 排序
-  settlement.children.sort((a, b) => a.order - b.order)
-  system.children.sort((a, b) => a.order - b.order)
+  const groups: Record<string, { title: string; order: number; children: Item[] }> = {}
+  const topLevel: Item[] = []
+
+  for (const item of items) {
+    if (item.path === '/') continue
+
+    const fallbackGroup = (() => {
+      const seg = item.path.split('/')[1]
+      if (seg === 'system') return 'system'
+      return undefined
+    })()
+
+    const groupKey = item.group || fallbackGroup
+    if (!groupKey) {
+      topLevel.push(item)
+      continue
+    }
+
+    const def = groupDefinitions[groupKey]
+    const group = groups[groupKey] || {
+      title: def?.title ?? item.title,
+      order: def?.order ?? item.order,
+      children: [],
+    }
+    group.children.push(item)
+    groups[groupKey] = group
+  }
+
+  for (const group of Object.values(groups)) {
+    group.children.sort((a, b) => a.order - b.order)
+  }
+
   topLevel.sort((a, b) => a.order - b.order)
 
-  // 过滤空的分组
-  const groupList = [settlement, system].filter(g => g.children.length)
+  const groupList = Object.values(groups)
+    .filter(g => g.children.length)
+    .sort((a, b) => a.order - b.order)
+
   return { topLevel, groupList }
 })
 </script>
 
 <template>
   <el-menu
-    :default-active="$route.path"
+    :default-active="route.path"
     router
     background-color="transparent"
     text-color="#e5e7eb"

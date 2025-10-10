@@ -31,6 +31,7 @@ type RateCustomer struct {
 	GeneralFee            *float64       `gorm:"column:general_fee" json:"general_fee,omitempty"`
 	CustomerFeeOwnerID    *uint64        `gorm:"column:customer_fee_owner_id" json:"customer_fee_owner_id,omitempty"`
 	NetworkLineFeeOwnerID *uint64        `gorm:"column:network_line_fee_owner_id" json:"network_line_fee_owner_id,omitempty"`
+	GeneralFeeOwnerID     *uint64        `gorm:"column:general_fee_owner_id" json:"general_fee_owner_id,omitempty"`
 	FeeMode               string         `gorm:"column:fee_mode;size:16;not null;default:auto" json:"fee_mode"`
 	Extra                 datatypes.JSON `gorm:"column:extra" json:"extra,omitempty"`
 	LastSyncTime          *time.Time     `gorm:"column:last_sync_time" json:"last_sync_time,omitempty"`

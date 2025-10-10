@@ -60,58 +60,59 @@ func (ctl *SettlementRatesController) ListCustomerRates(c *gin.Context) {
 }
 
 func (ctl *SettlementRatesController) UpsertCustomerRate(c *gin.Context) {
-	type reqT struct {
-		Region                string          `json:"region" binding:"required"`
-		CP                    string          `json:"cp" binding:"required"`
-		SchoolName            *string         `json:"school_name"`
-		CustomerFee           *float64        `json:"customer_fee"`
-		NetworkLineFee        *float64        `json:"network_line_fee"`
-		GeneralFee            *float64        `json:"general_fee"`
-		CustomerFeeOwnerID    *uint64         `json:"customer_fee_owner_id"`
-		NetworkLineFeeOwnerID *uint64         `json:"network_line_fee_owner_id"`
-		Extra                 json.RawMessage `json:"extra"`
-	}
-	var req reqT
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid request"})
-		return
-	}
-	rate := &model.RateCustomer{
-		Region:                req.Region,
-		CP:                    req.CP,
-		SchoolName:            req.SchoolName,
-		CustomerFee:           req.CustomerFee,
-		NetworkLineFee:        req.NetworkLineFee,
-		GeneralFee:            req.GeneralFee,
-		CustomerFeeOwnerID:    req.CustomerFeeOwnerID,
-		NetworkLineFeeOwnerID: req.NetworkLineFeeOwnerID,
-	}
-	if len(req.Extra) > 0 {
-		rate.Extra = datatypes.JSON(req.Extra)
-	}
-	// 若请求包含任一价格字段，视为人工配置，行级模式设为 configed
-	if req.CustomerFee != nil || req.NetworkLineFee != nil || req.GeneralFee != nil {
-		rate.FeeMode = "configed"
-	}
-	if err := ctl.svc.UpsertCustomerRate(rate); err != nil {
-		if service.IsBadRequest(err) {
-			c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
-		return
-	}
-	c.Status(http.StatusNoContent)
+    type reqT struct {
+        Region                string          `json:"region" binding:"required"`
+        CP                    string          `json:"cp" binding:"required"`
+        SchoolName            *string         `json:"school_name"`
+        CustomerFee           *float64        `json:"customer_fee"`
+        NetworkLineFee        *float64        `json:"network_line_fee"`
+        GeneralFee            *float64        `json:"general_fee"`
+        CustomerFeeOwnerID    *uint64         `json:"customer_fee_owner_id"`
+        NetworkLineFeeOwnerID *uint64         `json:"network_line_fee_owner_id"`
+        GeneralFeeOwnerID     *uint64         `json:"general_fee_owner_id"`
+        Extra                 json.RawMessage `json:"extra"`
+    }
+    var req reqT
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"message": "invalid request"})
+        return
+    }
+    rate := &model.RateCustomer{
+        Region:                req.Region,
+        CP:                    req.CP,
+        SchoolName:            req.SchoolName,
+        CustomerFee:           req.CustomerFee,
+        NetworkLineFee:        req.NetworkLineFee,
+        GeneralFee:            req.GeneralFee,
+        CustomerFeeOwnerID:    req.CustomerFeeOwnerID,
+        NetworkLineFeeOwnerID: req.NetworkLineFeeOwnerID,
+        GeneralFeeOwnerID:     req.GeneralFeeOwnerID,
+    }
+    if len(req.Extra) > 0 {
+        rate.Extra = datatypes.JSON(req.Extra)
+    }
+    if req.CustomerFee != nil || req.NetworkLineFee != nil || req.GeneralFee != nil {
+        rate.FeeMode = "configed"
+    }
+    if err := ctl.svc.UpsertCustomerRate(rate); err != nil {
+        if service.IsBadRequest(err) {
+            c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+            return
+        }
+        c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+        return
+    }
+    c.Status(http.StatusNoContent)
 }
 
 // Node business rates
 func (ctl *SettlementRatesController) ListNodeRates(c *gin.Context) {
-	page := parseIntDefault(c.Query("page"), 1)
-	pageSize := parseIntDefault(c.Query("page_size"), 10)
-	region := c.Query("region")
-	cp := c.Query("cp")
-	settlementType := c.Query("settlement_type")
-	items, total, err := ctl.svc.ListNodeRates(region, cp, settlementType, page, pageSize)
+    page := parseIntDefault(c.Query("page"), 1)
+    pageSize := parseIntDefault(c.Query("page_size"), 10)
+    region := c.Query("region")
+    cp := c.Query("cp")
+    settlementType := c.Query("settlement_type")
+    items, total, err := ctl.svc.ListNodeRates(region, cp, settlementType, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 		return

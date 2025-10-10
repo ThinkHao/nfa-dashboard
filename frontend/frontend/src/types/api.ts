@@ -229,6 +229,7 @@ export interface RateCustomer {
   general_fee?: number | null;
   customer_fee_owner_id?: number | null;
   network_line_fee_owner_id?: number | null;
+  general_fee_owner_id?: number | null;
   fee_mode?: 'auto' | 'configed';
   last_sync_time?: string | null;
   last_sync_rule_id?: number | null;
@@ -249,6 +250,7 @@ export interface UpsertRateCustomerRequest {
   general_fee?: number | null;
   customer_fee_owner_id?: number | null;
   network_line_fee_owner_id?: number | null;
+  general_fee_owner_id?: number | null;
   extra?: any;
 }
 
@@ -314,6 +316,44 @@ export interface UpsertRateFinalCustomerRequest {
   network_line_fee_owner_id?: number | null;
   node_deduction_fee?: number | null;
   node_deduction_fee_owner_id?: number | null;
+}
+
+// ------------------------------
+// Settlement Formulas
+// ------------------------------
+
+export type SettlementFormulaTokenType = 'field' | 'operator' | 'number';
+
+export interface SettlementFormulaToken {
+  id: string;
+  type: SettlementFormulaTokenType;
+  value: string;
+  label: string;
+}
+
+export interface SettlementFormulaItem {
+  id: number;
+  name: string;
+  description?: string | null;
+  tokens: string | SettlementFormulaToken[];
+  enabled: boolean;
+  updated_by?: string | null;
+  create_time?: string;
+  update_time?: string;
+}
+
+export interface CreateSettlementFormulaRequest {
+  name: string;
+  description?: string;
+  tokens: SettlementFormulaToken[];
+  enabled?: boolean;
+}
+
+export interface UpdateSettlementFormulaRequest {
+  name: string;
+  description?: string;
+  tokens?: SettlementFormulaToken[];
+  enabled?: boolean;
 }
 
 // ------------------------------

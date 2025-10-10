@@ -16,13 +16,15 @@ import (
 type SystemBindingController struct{}
 
 func NewSystemBindingController() *SystemBindingController { return &SystemBindingController{} }
-
 // GET /api/v1/system/binding/allowed-user-roles
 func (ctl *SystemBindingController) GetAllowedUserRoles(c *gin.Context) {
 	// type: sales | line | ""(compat->sales)
 	t := strings.TrimSpace(strings.ToLower(c.Query("type")))
 	var roles []string
 	switch t {
+	case "node":
+		roles = config.GetAllowedNodeRoles()
+		if len(roles) == 0 { roles = config.GetAllowedLineRoles() }
 	case "line":
 		roles = config.GetAllowedLineRoles()
 		if len(roles) == 0 { roles = config.GetOwnerRoles("network_line_fee") }

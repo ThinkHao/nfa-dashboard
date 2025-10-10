@@ -53,6 +53,50 @@ export interface SettlementListResponse {
   total: number;
 }
 
+// 结算结果条目
+export interface SettlementResultItem {
+  region: string;
+  cp: string;
+  school_id: string;
+  school_name: string;
+  billing_days: number;
+  average_95_flow: number;
+  total_95_flow: number;
+  missing_days: number;
+  formula_id: number;
+  formula_name: string;
+  formula_tokens: string;
+  customer_fee: number;
+  network_line_fee: number;
+  node_deduction_fee: number;
+  final_fee: number;
+  amount: number;
+  currency: string;
+  start_date: string;
+  end_date: string;
+  updated_at: string;
+  missing_fields: string[];
+  calculation_detail: string;
+}
+
+export interface SettlementResultResponse {
+  items: SettlementResultItem[];
+  total: number;
+}
+
+export interface SettlementResultFilter {
+  region?: string;
+  cp?: string;
+  school_id?: string;
+  school_name?: string;
+  start_date: string;
+  end_date: string;
+  limit?: number;
+  offset?: number;
+  formula_id?: number;
+  unit_base?: number; // 1000=SI(GB), 1024=IEC(GiB)
+}
+
 // 结算数据筛选条件
 export interface SettlementFilter {
   school_id?: string;

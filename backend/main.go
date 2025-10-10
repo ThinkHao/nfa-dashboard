@@ -33,10 +33,20 @@ func main() {
 	schoolService := service.NewSchoolService(schoolRepo)
 	schoolController := controller.NewSchoolController(schoolService)
 
-	// 创建结算系统依赖
+	// 结算系统依赖
 	settlementRepo := repository.NewSettlementRepository()
 	settlementService := service.NewSettlementService(settlementRepo)
-	settlementController := controller.NewSettlementController(settlementService)
+
+	// 结算公式依赖（持久化）
+	formulaRepo := repository.NewSettlementFormulaRepository()
+	formulaService := service.NewSettlementFormulaService(formulaRepo)
+	formulaController := controller.NewSettlementFormulaController(formulaService)
+
+	// 结算结果依赖
+	settlementResultRepo := repository.NewSettlementResultRepository()
+	settlementResultService := service.NewSettlementResultService(settlementResultRepo, formulaRepo)
+
+	settlementController := controller.NewSettlementController(settlementService, settlementResultService)
 
 	// 结算子模块：费率与业务对象依赖与控制器
 	ratesRepo := repository.NewRatesRepository()
@@ -151,6 +161,17 @@ func main() {
 			// 结算数据相关接口
 			settlement.GET("/data", authMW.PermissionRequired("settlement.read"), settlementController.GetSettlements)
 			settlement.GET("/daily-details", authMW.PermissionRequired("settlement.read"), settlementController.GetDailySettlementDetails)
+			settlement.GET("/results", authMW.PermissionRequired("settlement.results.read"), settlementController.GetSettlementResults)
+
+			// 结算公式 CRUD
+			formulas := settlement.Group("/formulas")
+			{
+				formulas.GET("", authMW.PermissionRequired("settlement.formula.read"), formulaController.List)
+				formulas.GET("/:id", authMW.PermissionRequired("settlement.formula.read"), formulaController.Get)
+				formulas.POST("", authMW.PermissionRequired("settlement.formula.write"), formulaController.Create)
+				formulas.PUT("/:id", authMW.PermissionRequired("settlement.formula.write"), formulaController.Update)
+				formulas.DELETE("/:id", authMW.PermissionRequired("settlement.formula.write"), formulaController.Delete)
+			}
 
 			// 费率模块（归属结算系统）
 			rates := settlement.Group("/rates")

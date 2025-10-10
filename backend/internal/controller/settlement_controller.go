@@ -15,85 +15,14 @@ import (
 
 // SettlementController 结算控制器
 type SettlementController struct {
-	settlementService service.SettlementService
+	settlementService       service.SettlementService
+	settlementResultService service.SettlementResultService
 }
 
-// GetDailySettlementDetailsV2 获取日95明细数据列表（v2：按 user_id 过滤，普通用户强制为自身）
-func (c *SettlementController) GetDailySettlementDetailsV2(ctx *gin.Context) {
-    var filter model.SettlementFilter
-
-    // 查询参数
-    startDateStr := ctx.Query("start_date")
-    endDateStr := ctx.Query("end_date")
-    filter.SchoolID = ctx.Query("school_id")
-    filter.Region = ctx.Query("region")
-    filter.CP = ctx.Query("cp")
-    limitStr := ctx.DefaultQuery("limit", "10")
-    offsetStr := ctx.DefaultQuery("offset", "0")
-
-    // 解析日期
-    if startDateStr != "" { if t, err := time.Parse("2006-01-02", startDateStr); err == nil { filter.StartDate = t } }
-    if endDateStr != "" { if t, err := time.Parse("2006-01-02", endDateStr); err == nil { filter.EndDate = t } }
-
-    // 分页
-    if n, err := strconv.Atoi(limitStr); err == nil { filter.Limit = n } else { filter.Limit = 10 }
-    if n, err := strconv.Atoi(offsetStr); err == nil { filter.Offset = n } else { filter.Offset = 0 }
-
-    // v2：user_id 解析与权限覆盖
-    var reqUserID *uint64
-    if v := ctx.Query("user_id"); v != "" { if uv, err := strconv.ParseUint(v, 10, 64); err == nil && uv > 0 { reqUserID = &uv } }
-    if !hasAnyPermission(ctx, "system.user.manage") { if uid, ok := currentUserID(ctx); ok { reqUserID = &uid } }
-    filter.UserID = reqUserID
-
-    // 调用服务
-    details, total, err := c.settlementService.GetDailySettlementDetails(filter)
-    if err != nil {
-        ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取日95明细数据列表失败", "error": err.Error()})
-        return
-    }
-    ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取日95明细数据列表成功", "data": gin.H{"total": total, "items": details}})
-}
-
-// GetSettlementsV2 获取结算数据列表（v2：按 user_id 过滤，普通用户强制为自身）
-func (c *SettlementController) GetSettlementsV2(ctx *gin.Context) {
-    var filter model.SettlementFilter
-
-    // 获取查询参数
-    startDateStr := ctx.Query("start_date")
-    endDateStr := ctx.Query("end_date")
-    filter.SchoolID = ctx.Query("school_id")
-    filter.SchoolName = ctx.Query("school_name")
-    filter.Region = ctx.Query("region")
-    filter.CP = ctx.Query("cp")
-    limitStr := ctx.DefaultQuery("limit", "10")
-    offsetStr := ctx.DefaultQuery("offset", "0")
-
-    // 解析日期
-    if startDateStr != "" { if t, err := time.Parse("2006-01-02", startDateStr); err == nil { filter.StartDate = t } }
-    if endDateStr != "" { if t, err := time.Parse("2006-01-02", endDateStr); err == nil { filter.EndDate = t } }
-
-    // 分页
-    if n, err := strconv.Atoi(limitStr); err == nil { filter.Limit = n } else { filter.Limit = 10 }
-    if n, err := strconv.Atoi(offsetStr); err == nil { filter.Offset = n } else { filter.Offset = 0 }
-
-    // v2：user_id 解析与权限覆盖
-    var reqUserID *uint64
-    if v := ctx.Query("user_id"); v != "" { if uv, err := strconv.ParseUint(v, 10, 64); err == nil && uv > 0 { reqUserID = &uv } }
-    if !hasAnyPermission(ctx, "system.user.manage") { if uid, ok := currentUserID(ctx); ok { reqUserID = &uid } }
-    filter.UserID = reqUserID
-
-    settlements, total, err := c.settlementService.GetSettlements(filter)
-    if err != nil {
-        ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取结算数据列表失败", "error": err.Error()})
-        return
-    }
-    ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取结算数据列表成功", "data": gin.H{"total": total, "items": settlements}})
-}
-
-// NewSettlementController 创建结算控制器实例
-func NewSettlementController(settlementService service.SettlementService) *SettlementController {
+func NewSettlementController(settlementService service.SettlementService, settlementResultService service.SettlementResultService) *SettlementController {
 	return &SettlementController{
-		settlementService: settlementService,
+		settlementService:       settlementService,
+		settlementResultService: settlementResultService,
 	}
 }
 
@@ -116,6 +45,195 @@ func (c *SettlementController) GetSettlementConfig(ctx *gin.Context) {
 	})
 }
 
+// GetDailySettlementDetailsV2 获取日95明细数据列表（v2：按 user_id 过滤，普通用户强制为自身）
+func (c *SettlementController) GetDailySettlementDetailsV2(ctx *gin.Context) {
+	var filter model.SettlementFilter
+
+	startDateStr := ctx.Query("start_date")
+	endDateStr := ctx.Query("end_date")
+	filter.SchoolID = ctx.Query("school_id")
+	filter.Region = ctx.Query("region")
+	filter.CP = ctx.Query("cp")
+	limitStr := ctx.DefaultQuery("limit", "10")
+	offsetStr := ctx.DefaultQuery("offset", "0")
+
+	if startDateStr != "" {
+		if t, err := time.Parse("2006-01-02", startDateStr); err == nil {
+			filter.StartDate = t
+		}
+	}
+	if endDateStr != "" {
+		if t, err := time.Parse("2006-01-02", endDateStr); err == nil {
+			filter.EndDate = t
+		}
+	}
+
+	if n, err := strconv.Atoi(limitStr); err == nil {
+		filter.Limit = n
+	} else {
+		filter.Limit = 10
+	}
+	if n, err := strconv.Atoi(offsetStr); err == nil {
+		filter.Offset = n
+	} else {
+		filter.Offset = 0
+	}
+
+	var reqUserID *uint64
+	if v := ctx.Query("user_id"); v != "" {
+		if uv, err := strconv.ParseUint(v, 10, 64); err == nil && uv > 0 {
+			reqUserID = &uv
+		}
+	}
+	if !hasAnyPermission(ctx, "system.user.manage") {
+		if uid, ok := currentUserID(ctx); ok {
+			reqUserID = &uid
+		}
+	}
+	filter.UserID = reqUserID
+
+	details, total, err := c.settlementService.GetDailySettlementDetails(filter)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取日95明细数据列表失败", "error": err.Error()})
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取日95明细数据列表成功", "data": gin.H{"total": total, "items": details}})
+}
+
+// GetSettlementsV2 获取结算数据列表（v2：按 user_id 过滤，普通用户强制为自身）
+func (c *SettlementController) GetSettlementsV2(ctx *gin.Context) {
+	var filter model.SettlementFilter
+
+	startDateStr := ctx.Query("start_date")
+	endDateStr := ctx.Query("end_date")
+	filter.SchoolID = ctx.Query("school_id")
+	filter.SchoolName = ctx.Query("school_name")
+	filter.Region = ctx.Query("region")
+	filter.CP = ctx.Query("cp")
+	limitStr := ctx.DefaultQuery("limit", "10")
+	offsetStr := ctx.DefaultQuery("offset", "0")
+
+	if startDateStr != "" {
+		if t, err := time.Parse("2006-01-02", startDateStr); err == nil {
+			filter.StartDate = t
+		}
+	}
+	if endDateStr != "" {
+		if t, err := time.Parse("2006-01-02", endDateStr); err == nil {
+			filter.EndDate = t
+		}
+	}
+
+	if n, err := strconv.Atoi(limitStr); err == nil {
+		filter.Limit = n
+	} else {
+		filter.Limit = 10
+	}
+	if n, err := strconv.Atoi(offsetStr); err == nil {
+		filter.Offset = n
+	} else {
+		filter.Offset = 0
+	}
+
+	var reqUserID *uint64
+	if v := ctx.Query("user_id"); v != "" {
+		if uv, err := strconv.ParseUint(v, 10, 64); err == nil && uv > 0 {
+			reqUserID = &uv
+		}
+	}
+	if !hasAnyPermission(ctx, "system.user.manage") {
+		if uid, ok := currentUserID(ctx); ok {
+			reqUserID = &uid
+		}
+	}
+	filter.UserID = reqUserID
+	settlements, total, err := c.settlementService.GetSettlements(filter)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取结算数据列表失败", "error": err.Error()})
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取结算数据列表成功", "data": gin.H{"total": total, "items": settlements}})
+}
+
+// GetSettlementResults 获取结算结果（应用公式后的汇总）
+func (c *SettlementController) GetSettlementResults(ctx *gin.Context) {
+    var filter model.SettlementResultFilter
+    filter.Region = ctx.Query("region")
+    filter.CP = ctx.Query("cp")
+    filter.SchoolName = ctx.Query("school_name")
+    filter.SchoolID = ctx.Query("school_id")
+    // 解析日期
+    startDateStr := ctx.Query("start_date")
+    endDateStr := ctx.Query("end_date")
+    if startDateStr == "" || endDateStr == "" {
+        ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "start_date 与 end_date 必填"})
+        return
+    }
+    var err error
+    if filter.StartDate, err = time.Parse("2006-01-02", startDateStr); err != nil {
+        ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "开始日期格式错误，应为YYYY-MM-DD", "error": err.Error()})
+        return
+    }
+    if filter.EndDate, err = time.Parse("2006-01-02", endDateStr); err != nil {
+        ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "结束日期格式错误，应为YYYY-MM-DD", "error": err.Error()})
+        return
+    }
+    // 解析公式ID
+    if v := ctx.Query("formula_id"); v != "" {
+        if id, parseErr := strconv.ParseUint(v, 10, 64); parseErr == nil {
+            filter.FormulaID = id
+        } else {
+            ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "公式ID格式错误", "error": parseErr.Error()})
+            return
+        }
+    }
+    if v := ctx.DefaultQuery("limit", "50"); v != "" {
+        if n, parseErr := strconv.Atoi(v); parseErr == nil {
+            filter.Limit = n
+        }
+    }
+    if v := ctx.DefaultQuery("offset", "0"); v != "" {
+        if n, parseErr := strconv.Atoi(v); parseErr == nil {
+            filter.Offset = n
+        }
+    }
+    if v := ctx.Query("unit_base"); v != "" {
+        if n, parseErr := strconv.Atoi(v); parseErr == nil && (n == 1000 || n == 1024) {
+            filter.UnitBase = n
+        }
+    }
+    if filter.UnitBase == 0 { // 默认 IEC
+        filter.UnitBase = 1024
+    }
+    if filter.Limit <= 0 {
+        filter.Limit = 50
+    }
+    if filter.Offset < 0 {
+        filter.Offset = 0
+    }
+
+	var reqUserID *uint64
+	if v := ctx.Query("user_id"); v != "" {
+		if uv, parseErr := strconv.ParseUint(v, 10, 64); parseErr == nil && uv > 0 {
+			reqUserID = &uv
+		}
+	}
+	if !hasAnyPermission(ctx, "system.user.manage") {
+		if uid, ok := currentUserID(ctx); ok {
+			reqUserID = &uid
+		}
+	}
+	filter.UserID = reqUserID
+
+	results, total, err := c.settlementResultService.CalculateResults(filter)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取结算结果失败", "error": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取结算结果成功", "data": gin.H{"total": total, "items": results}})
+}
+
 // UpdateSettlementConfig 更新结算配置
 func (c *SettlementController) UpdateSettlementConfig(ctx *gin.Context) {
 	var config model.SettlementConfig
@@ -128,7 +246,6 @@ func (c *SettlementController) UpdateSettlementConfig(ctx *gin.Context) {
 		return
 	}
 
-	// 验证时间格式
 	if len(config.DailyTime) != 5 || len(config.WeeklyTime) != 5 {
 		ctx.JSON(http.StatusBadRequest, gin.H{
 			"code":    400,
@@ -137,7 +254,6 @@ func (c *SettlementController) UpdateSettlementConfig(ctx *gin.Context) {
 		return
 	}
 
-	// 验证周几的值
 	if config.WeeklyDay < 1 || config.WeeklyDay > 7 {
 		ctx.JSON(http.StatusBadRequest, gin.H{
 			"code":    400,
@@ -146,8 +262,7 @@ func (c *SettlementController) UpdateSettlementConfig(ctx *gin.Context) {
 		return
 	}
 
-	err := c.settlementService.UpdateSettlementConfig(&config)
-	if err != nil {
+	if err := c.settlementService.UpdateSettlementConfig(&config); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{
 			"code":    500,
 			"message": "更新结算配置失败",
@@ -302,7 +417,7 @@ func (c *SettlementController) GetSettlements(ctx *gin.Context) {
 	// 获取查询参数
 	startDateStr := ctx.Query("start_date")
 	endDateStr := ctx.Query("end_date")
-	filter.SchoolID = ctx.Query("school_id")     // 添加学校ID参数
+	filter.SchoolID = ctx.Query("school_id") // 添加学校ID参数
 	filter.SchoolName = ctx.Query("school_name")
 	filter.Region = ctx.Query("region")
 	filter.CP = ctx.Query("cp")
@@ -370,56 +485,60 @@ func (c *SettlementController) GetSettlements(ctx *gin.Context) {
 
 // GetDailySettlementDetails 获取日95明细数据列表
 func (c *SettlementController) GetDailySettlementDetails(ctx *gin.Context) {
-    var filter model.SettlementFilter // 可以复用 SettlementFilter，或者为其创建一个新的类型
+	var filter model.SettlementFilter // 可以复用 SettlementFilter，或者为其创建一个新的类型
 
-    // 获取查询参数
-    startDateStr := ctx.Query("start_date")
-    endDateStr := ctx.Query("end_date")
-    filter.SchoolID = ctx.Query("school_id")
-    filter.Region = ctx.Query("region")
-    filter.CP = ctx.Query("cp")
+	// 获取查询参数
+	startDateStr := ctx.Query("start_date")
+	endDateStr := ctx.Query("end_date")
+	filter.SchoolID = ctx.Query("school_id")
+	filter.Region = ctx.Query("region")
+	filter.CP = ctx.Query("cp")
 
-    limitStr := ctx.DefaultQuery("limit", "10")
-    offsetStr := ctx.DefaultQuery("offset", "0")
+	limitStr := ctx.DefaultQuery("limit", "10")
+	offsetStr := ctx.DefaultQuery("offset", "0")
 
-    // 解析日期
-    var err error
-    if startDateStr != "" {
-        filter.StartDate, err = time.Parse("2006-01-02", startDateStr)
-        if err != nil {
-            ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "开始日期格式错误，应为YYYY-MM-DD", "error": err.Error()})
-            return
-        }
-    }
-    if endDateStr != "" {
-        filter.EndDate, err = time.Parse("2006-01-02", endDateStr)
-        if err != nil {
-            ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "结束日期格式错误，应为YYYY-MM-DD", "error": err.Error()})
-            return
-        }
-    }
+	// 解析日期
+	var err error
+	if startDateStr != "" {
+		filter.StartDate, err = time.Parse("2006-01-02", startDateStr)
+		if err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "开始日期格式错误，应为YYYY-MM-DD", "error": err.Error()})
+			return
+		}
+	}
+	if endDateStr != "" {
+		filter.EndDate, err = time.Parse("2006-01-02", endDateStr)
+		if err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "结束日期格式错误，应为YYYY-MM-DD", "error": err.Error()})
+			return
+		}
+	}
 
-    // 解析分页参数
-    filter.Limit, err = strconv.Atoi(limitStr)
-    if err != nil { filter.Limit = 10 }
-    filter.Offset, err = strconv.Atoi(offsetStr)
-    if err != nil { filter.Offset = 0 }
+	// 解析分页参数
+	filter.Limit, err = strconv.Atoi(limitStr)
+	if err != nil {
+		filter.Limit = 10
+	}
+	filter.Offset, err = strconv.Atoi(offsetStr)
+	if err != nil {
+		filter.Offset = 0
+	}
 
-    // 获取日95明细数据列表
-    dailyDetails, total, err := c.settlementService.GetDailySettlementDetails(filter)
-    if err != nil {
-        ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取日95明细数据列表失败", "error": err.Error()})
-        return
-    }
-    ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取日95明细数据列表成功", "data": gin.H{"total": total, "items": dailyDetails}})
+	// 获取日95明细数据列表
+	dailyDetails, total, err := c.settlementService.GetDailySettlementDetails(filter)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取日95明细数据列表失败", "error": err.Error()})
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取日95明细数据列表成功", "data": gin.H{"total": total, "items": dailyDetails}})
 }
 
 // CreateDailySettlementTask 创建日结算任务
 func (c *SettlementController) CreateDailySettlementTask(ctx *gin.Context) {
-    // 获取日期参数
-    dateStr := ctx.DefaultQuery("date", "")
-    var settlementDate time.Time
-    var err error
+	// 获取日期参数
+	dateStr := ctx.DefaultQuery("date", "")
+	var settlementDate time.Time
+	var err error
 
 	if dateStr == "" {
 		// 默认计算前一天的数据
@@ -477,16 +596,16 @@ func (c *SettlementController) CreateWeeklySettlementTask(ctx *gin.Context) {
 		StartDate string `json:"start_date"`
 		EndDate   string `json:"end_date"`
 	}
-	
+
 	var params TaskParams
 	if err := ctx.ShouldBindJSON(&params); err != nil {
 		// 如果解析JSON失败，尝试从查询参数获取
 		params.StartDate = ctx.DefaultQuery("start_date", "")
 		params.EndDate = ctx.DefaultQuery("end_date", "")
 	}
-	
+
 	log.Printf("接收到周结算任务参数: start_date=%s, end_date=%s", params.StartDate, params.EndDate)
-	
+
 	var startDate, endDate time.Time
 	var err error
 
@@ -510,7 +629,7 @@ func (c *SettlementController) CreateWeeklySettlementTask(ctx *gin.Context) {
 			return
 		}
 	}
-	
+
 	// 处理结束日期
 	if params.EndDate == "" {
 		// 默认为开始日期后的6天（周日）
@@ -526,7 +645,7 @@ func (c *SettlementController) CreateWeeklySettlementTask(ctx *gin.Context) {
 			return
 		}
 	}
-	
+
 	// 检查日期范围是否有效
 	if endDate.Before(startDate) {
 		ctx.JSON(http.StatusBadRequest, gin.H{
@@ -538,7 +657,7 @@ func (c *SettlementController) CreateWeeklySettlementTask(ctx *gin.Context) {
 
 	// 将日期范围信息存储在任务的错误信息字段中（临时存储，不影响实际使用）
 	dateRangeInfo := fmt.Sprintf("%s,%s", startDate.Format("2006-01-02"), endDate.Format("2006-01-02"))
-	
+
 	// 创建结算任务，使用开始日期作为任务日期
 	task, err := c.settlementService.CreateSettlementTask("weekly", startDate)
 	if err != nil {
@@ -549,7 +668,7 @@ func (c *SettlementController) CreateWeeklySettlementTask(ctx *gin.Context) {
 		})
 		return
 	}
-	
+
 	// 更新任务信息，将日期范围信息保存到任务中
 	c.settlementService.UpdateSettlementTaskStatus(task.ID, "pending", dateRangeInfo)
 

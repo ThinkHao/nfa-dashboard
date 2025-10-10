@@ -30,6 +30,9 @@ type RatesRepository interface {
 
 	// 清理无效的最终客户费率（仅 auto；任一关键费率字段为空）
 	CleanupInvalidFinalCustomerRates() (int64, error)
+
+	// 根据 region+cp+school_name 获取单条最终客户费率
+	GetFinalCustomerRate(region, cp, schoolName string) (*model.RateFinalCustomer, error)
 }
 
 // CleanupInvalidFinalCustomerRates 清理无效数据：
@@ -79,44 +82,45 @@ func (r *ratesRepository) ListCustomerRates(filter map[string]interface{}, limit
 		return []model.RateCustomer{}, 0, nil
 	}
 	if err := q.Order("updated_at DESC").Limit(limit).Offset(offset).Find(&items).Error; err != nil {
-		return nil, 0, err
-	}
-	return items, count, nil
+        return nil, 0, err
+    }
+    return items, count, nil
 }
 
 // UpsertCustomerRate 基于唯一键(region,cp,school_name)进行插入或更新
 func (r *ratesRepository) UpsertCustomerRate(rate *model.RateCustomer) error {
-	updates := map[string]interface{}{
-		"customer_fee":              rate.CustomerFee,
-		"network_line_fee":          rate.NetworkLineFee,
-		"general_fee":               rate.GeneralFee,
-		"customer_fee_owner_id":     rate.CustomerFeeOwnerID,
-		"network_line_fee_owner_id": rate.NetworkLineFeeOwnerID,
-		"extra":                     rate.Extra,
-		"updated_at":                gorm.Expr("NOW()"),
-	}
-	if rate.FeeMode != "" {
-		updates["fee_mode"] = rate.FeeMode
-	}
-	// 确保新插入时 fee_mode 不为空（使用数据库默认值 auto 的语义）
-	if rate.FeeMode == "" {
-		rate.FeeMode = "auto"
-	}
-	return model.DB.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "region"}, {Name: "cp"}, {Name: "school_name"}},
-		DoUpdates: clause.Assignments(updates),
-	}).Create(rate).Error
+    updates := map[string]interface{}{
+        "customer_fee":              rate.CustomerFee,
+        "network_line_fee":          rate.NetworkLineFee,
+        "general_fee":               rate.GeneralFee,
+        "general_fee_owner_id":      rate.GeneralFeeOwnerID,
+        "customer_fee_owner_id":     rate.CustomerFeeOwnerID,
+        "network_line_fee_owner_id": rate.NetworkLineFeeOwnerID,
+        "extra":                     rate.Extra,
+        "updated_at":                gorm.Expr("NOW()"),
+    }
+    if rate.FeeMode != "" {
+        updates["fee_mode"] = rate.FeeMode
+    }
+    // 确保新插入时 fee_mode 有默认值（auto）
+    if rate.FeeMode == "" {
+        rate.FeeMode = "auto"
+    }
+    return model.DB.Clauses(clause.OnConflict{
+        Columns:   []clause.Column{{Name: "region"}, {Name: "cp"}, {Name: "school_name"}},
+        DoUpdates: clause.Assignments(updates),
+    }).Create(rate).Error
 }
 
 // UpdateCustomerByID 基于主键进行局部字段更新
 func (r *ratesRepository) UpdateCustomerByID(id uint64, updates map[string]interface{}) error {
-	if id == 0 {
-		return gorm.ErrInvalidData
-	}
-	if len(updates) == 0 {
-		return nil
-	}
-	return model.DB.Model(&model.RateCustomer{}).Where("id = ?", id).Updates(updates).Error
+    if id == 0 {
+        return gorm.ErrInvalidData
+    }
+    if len(updates) == 0 {
+        return nil
+    }
+    return model.DB.Model(&model.RateCustomer{}).Where("id = ?", id).Updates(updates).Error
 }
 
 // ListNodeRates 列表查询节点业务费率
@@ -190,6 +194,21 @@ func (r *ratesRepository) UpsertFinalCustomerRate(rate *model.RateFinalCustomer)
 	}).Create(rate).Error
 }
 
+// GetFinalCustomerRate 根据 region+cp+school_name 获取单条最终客户费率
+func (r *ratesRepository) GetFinalCustomerRate(region, cp, schoolName string) (*model.RateFinalCustomer, error) {
+	if region == "" || cp == "" || schoolName == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	var item model.RateFinalCustomer
+	if err := model.DB.Where("region = ? AND cp = ? AND school_name = ?", region, cp, schoolName).Limit(1).Find(&item).Error; err != nil {
+		return nil, err
+	}
+	if item.ID == 0 {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return &item, nil
+}
+
 // InitFinalCustomerRatesFromCustomer 从 rate_customer 初始化/同步到 rate_final_customer（保护 config 不被覆盖）
 func (r *ratesRepository) InitFinalCustomerRatesFromCustomer() (int64, error) {
     sql := `
@@ -197,6 +216,7 @@ INSERT INTO rate_final_customer
   (region, cp, school_name, fee_type,
    customer_fee, customer_fee_owner_id,
    network_line_fee, network_line_fee_owner_id,
+   node_deduction_fee, node_deduction_fee_owner_id,
    created_at, updated_at)
 SELECT
   rc.region,
@@ -207,6 +227,8 @@ SELECT
   rc.customer_fee_owner_id,
   rc.network_line_fee,
   rc.network_line_fee_owner_id,
+  rc.general_fee AS node_deduction_fee,
+  rc.general_fee_owner_id AS node_deduction_fee_owner_id,
   NOW(), NOW()
 FROM rate_customer rc
 WHERE rc.school_name IS NOT NULL AND rc.school_name <> ''
@@ -218,6 +240,8 @@ ON DUPLICATE KEY UPDATE
   customer_fee_owner_id = IF(rate_final_customer.fee_type = 'config', rate_final_customer.customer_fee_owner_id, VALUES(customer_fee_owner_id)),
   network_line_fee = IF(rate_final_customer.fee_type = 'config', rate_final_customer.network_line_fee, VALUES(network_line_fee)),
   network_line_fee_owner_id = IF(rate_final_customer.fee_type = 'config', rate_final_customer.network_line_fee_owner_id, VALUES(network_line_fee_owner_id)),
+  node_deduction_fee = IF(rate_final_customer.fee_type = 'config', rate_final_customer.node_deduction_fee, VALUES(node_deduction_fee)),
+  node_deduction_fee_owner_id = IF(rate_final_customer.fee_type = 'config', rate_final_customer.node_deduction_fee_owner_id, VALUES(node_deduction_fee_owner_id)),
   updated_at = NOW();`
     res := model.DB.Exec(sql)
     return res.RowsAffected, res.Error
@@ -235,7 +259,7 @@ SELECT COUNT(*)
 FROM rate_final_customer fc
 JOIN rate_customer rc
   ON fc.region = rc.region AND fc.cp = rc.cp AND fc.school_name = rc.school_name
-WHERE fc.fee_type = 'auto'
+WHERE (fc.fee_type = 'auto' OR fc.fee_type IS NULL OR fc.fee_type = '')
   AND rc.school_name IS NOT NULL AND rc.school_name <> ''
   AND rc.customer_fee IS NOT NULL
   AND rc.network_line_fee IS NOT NULL`
@@ -247,9 +271,16 @@ WHERE fc.fee_type = 'auto'
 UPDATE rate_final_customer fc
 JOIN rate_customer rc
   ON fc.region = rc.region AND fc.cp = rc.cp AND fc.school_name = rc.school_name
-SET fc.final_fee = COALESCE(fc.customer_fee,0) + COALESCE(fc.network_line_fee,0) - COALESCE(fc.node_deduction_fee,0),
+SET 
+    fc.customer_fee = rc.customer_fee,
+    fc.customer_fee_owner_id = rc.customer_fee_owner_id,
+    fc.network_line_fee = rc.network_line_fee,
+    fc.network_line_fee_owner_id = rc.network_line_fee_owner_id,
+    fc.node_deduction_fee = rc.general_fee,
+    fc.node_deduction_fee_owner_id = rc.general_fee_owner_id,
+    fc.final_fee = COALESCE(rc.customer_fee,0) + COALESCE(rc.network_line_fee,0) - COALESCE(rc.general_fee,0),
     fc.updated_at = NOW()
-WHERE fc.fee_type = 'auto'
+WHERE (fc.fee_type = 'auto' OR fc.fee_type IS NULL OR fc.fee_type = '')
   AND rc.school_name IS NOT NULL AND rc.school_name <> ''
   AND rc.customer_fee IS NOT NULL
   AND rc.network_line_fee IS NOT NULL`

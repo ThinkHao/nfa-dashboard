@@ -44,7 +44,7 @@
         <el-table-column label="客户费归属" min-width="160">
           <template #default="{ row }">
             <el-tooltip placement="top" :content="`ID: ${row.customer_fee_owner_id ?? '-'}`">
-              <span>{{ getEntityName(row.customer_fee_owner_id) }}</span>
+              <span>{{ displayOwner(row.customer_fee_owner_id) }}</span>
             </el-tooltip>
           </template>
         </el-table-column>
@@ -52,7 +52,7 @@
         <el-table-column label="专线费归属" min-width="160">
           <template #default="{ row }">
             <el-tooltip placement="top" :content="`ID: ${row.network_line_fee_owner_id ?? '-'}`">
-              <span>{{ getEntityName(row.network_line_fee_owner_id) }}</span>
+              <span>{{ displayOwner(row.network_line_fee_owner_id) }}</span>
             </el-tooltip>
           </template>
         </el-table-column>
@@ -60,7 +60,7 @@
         <el-table-column label="扣减归属" min-width="160">
           <template #default="{ row }">
             <el-tooltip placement="top" :content="`ID: ${row.node_deduction_fee_owner_id ?? '-'}`">
-              <span>{{ getEntityName(row.node_deduction_fee_owner_id) }}</span>
+              <span>{{ displayOwner(row.node_deduction_fee_owner_id) }}</span>
             </el-tooltip>
           </template>
         </el-table-column>
@@ -158,6 +158,8 @@ async function fetchData() {
     const res: PaginatedData<RateFinalCustomer> = await api.settlementRates.final.list(buildParams())
     items.value = res.items || []
     total.value = res.total || 0
+    // 加载系统用户映射，优先用于显示 owner 名称
+    await loadUsersForItems()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '加载失败')
   } finally {
@@ -199,6 +201,50 @@ async function fetchEntitiesAll() {
 function getEntityName(id?: number | null): string {
   if (id == null) return '-'
   return entityMap.value[id] || `#${id}`
+}
+
+// 系统用户映射（id -> 用户基本信息），用于优先显示“系统用户别名/名称”
+const userMap = ref<Record<number, { id: number; alias?: string; display_name?: string; username: string }>>({})
+
+// 批量按 items 中出现的 owner_id 拉取系统用户，填充 userMap
+async function loadUsersForItems() {
+  const ids = new Set<number>()
+  for (const r of items.value) {
+    if (r?.customer_fee_owner_id != null) {
+      const n = Number(r.customer_fee_owner_id); if (!Number.isNaN(n) && n > 0) ids.add(n)
+    }
+    if (r?.network_line_fee_owner_id != null) {
+      const n = Number(r.network_line_fee_owner_id); if (!Number.isNaN(n) && n > 0) ids.add(n)
+    }
+    if (r?.node_deduction_fee_owner_id != null) {
+      const n = Number(r.node_deduction_fee_owner_id); if (!Number.isNaN(n) && n > 0) ids.add(n)
+    }
+  }
+  if (ids.size === 0) { userMap.value = {}; return }
+  try {
+    const res: any = await api.system.users.list({ ids: Array.from(ids).join(',') })
+    const list: any[] = Array.isArray(res?.items) ? res.items : []
+    const m: Record<number, { id: number; alias?: string; display_name?: string; username: string }> = {}
+    for (const u of list) {
+      if (u && typeof u.id === 'number') m[u.id] = { id: u.id, alias: u.alias, display_name: u.display_name, username: u.username }
+    }
+    userMap.value = m
+  } catch { userMap.value = {} }
+}
+
+// 统一的 owner 显示：优先系统用户别名/名称，其次业务对象名，最后 #ID
+function displayOwner(id?: number | null): string {
+  if (!id) return '-'
+  const key = Number(id)
+  const u = userMap.value[key]
+  if (u) {
+    const alias = (u.alias && String(u.alias).trim()) ? String(u.alias).trim() : ''
+    const dn = (u.display_name && String(u.display_name).trim()) ? String(u.display_name).trim() : ''
+    const un = (u.username && String(u.username).trim()) ? String(u.username).trim() : ''
+    return alias || dn || un || `用户#${key}`
+  }
+  const name = entityMap.value[key]
+  return name || `#${key}`
 }
 
 // Dialog

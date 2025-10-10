@@ -1,5 +1,41 @@
 import axios from 'axios'
-import type { PaginatedData, OperationLog, LoginRequest, LoginResponse, ProfileResponse, RefreshRequest, RefreshResponse, Role, SystemUser, UpdateUserStatusRequest, UpdateUserAliasRequest, SetUserRolesRequest, RoleCreateRequest, RoleUpdateRequest, SetRolePermissionsRequest, PermissionLite, CreateUserRequest, RateCustomer, UpsertRateCustomerRequest, RateNode, UpsertRateNodeRequest, RateFinalCustomer, UpsertRateFinalCustomerRequest, BusinessEntity, CreateBusinessEntityRequest, UpdateBusinessEntityRequest, BusinessType, CreateBusinessTypeRequest, UpdateBusinessTypeRequest, SyncRule, CreateSyncRuleRequest, UpdateSyncRuleRequest } from '@/types/api'
+import type {
+  PaginatedData,
+  OperationLog,
+  LoginRequest,
+  LoginResponse,
+  ProfileResponse,
+  RefreshRequest,
+  RefreshResponse,
+  Role,
+  SystemUser,
+  UpdateUserStatusRequest,
+  UpdateUserAliasRequest,
+  SetUserRolesRequest,
+  RoleCreateRequest,
+  RoleUpdateRequest,
+  SetRolePermissionsRequest,
+  PermissionLite,
+  CreateUserRequest,
+  RateCustomer,
+  UpsertRateCustomerRequest,
+  RateNode,
+  UpsertRateNodeRequest,
+  RateFinalCustomer,
+  UpsertRateFinalCustomerRequest,
+  BusinessEntity,
+  CreateBusinessEntityRequest,
+  UpdateBusinessEntityRequest,
+  BusinessType,
+  CreateBusinessTypeRequest,
+  UpdateBusinessTypeRequest,
+  SyncRule,
+  CreateSyncRuleRequest,
+  UpdateSyncRuleRequest,
+  SettlementFormulaItem,
+  CreateSettlementFormulaRequest,
+  UpdateSettlementFormulaRequest,
+} from '@/types/api'
 
 // 获取当前主机名和协议
 const getBaseUrl = () => {
@@ -230,12 +266,60 @@ export default {
         .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
 
+    // 获取结算结果列表
+    getResults(params?: any) {
+      return api
+        .get('/api/v1/settlement/results', { params })
+        .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+    },
+
     // 获取日95明细数据列表
     getDailySettlementDetails(params?: any) {
       return api
         .get('/api/v1/settlement/daily-details', { params })
         .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
-    }
+    },
+
+    // 结算公式管理
+    formulas: {
+      list(params?: { limit?: number; offset?: number }): Promise<PaginatedData<SettlementFormulaItem>> {
+        return api
+          .get('/api/v1/settlement/formulas', { params })
+          .then((d: any) => {
+            const data = d && typeof d === 'object' && 'data' in d ? (d as any).data : d
+            if (data && typeof data === 'object' && 'items' in data) {
+              const items = Array.isArray((data as any).items) ? (data as any).items : []
+              const total = Number((data as any).total ?? items.length)
+              return { items: items as SettlementFormulaItem[], total }
+            }
+            if (Array.isArray(data)) {
+              return { items: data as SettlementFormulaItem[], total: (data as SettlementFormulaItem[]).length }
+            }
+            return { items: [], total: 0 }
+          })
+      },
+      get(id: number): Promise<SettlementFormulaItem | null> {
+        return api
+          .get(`/api/v1/settlement/formulas/${id}`)
+          .then((d: any) => (d && typeof d === 'object' && 'data' in d ? ((d as any).data as SettlementFormulaItem) : (d as SettlementFormulaItem)))
+          .catch(() => null)
+      },
+      create(payload: CreateSettlementFormulaRequest): Promise<SettlementFormulaItem> {
+        return api
+          .post('/api/v1/settlement/formulas', payload)
+          .then((d: any) => (d && typeof d === 'object' && 'data' in d ? ((d as any).data as SettlementFormulaItem) : (d as SettlementFormulaItem)))
+      },
+      update(id: number, payload: UpdateSettlementFormulaRequest): Promise<void> {
+        return api
+          .put(`/api/v1/settlement/formulas/${id}`, payload)
+          .then(() => undefined)
+      },
+      remove(id: number): Promise<void> {
+        return api
+          .delete(`/api/v1/settlement/formulas/${id}`)
+          .then(() => undefined)
+      },
+    },
   }
   ,
   // 操作日志 API
@@ -273,7 +357,7 @@ export default {
     },
     binding: {
       // 获取允许被绑定为“院校可见用户”的角色名列表
-      async getAllowedUserRoles(type?: 'sales' | 'line'): Promise<string[]> {
+      async getAllowedUserRoles(type?: 'sales' | 'line' | 'node'): Promise<string[]> {
         const res: any = await api.get('/api/v1/system/binding/allowed-user-roles', { params: type ? { type } : undefined })
         if (res && Array.isArray(res.items)) return res.items as string[]
         if (Array.isArray(res)) return res as string[]
