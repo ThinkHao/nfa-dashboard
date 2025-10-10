@@ -28,6 +28,11 @@ func main() {
 	r.Use(middleware.CORS())
 	r.Use(middleware.Audit())
 
+	// 健康检查
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok"})
+	})
+
 	// 创建依赖
 	schoolRepo := repository.NewSchoolRepository()
 	schoolService := service.NewSchoolService(schoolRepo)
