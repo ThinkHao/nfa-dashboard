@@ -88,8 +88,102 @@ jobs:
           path: nfa-dashboard-${{ steps.get_version.outputs.VERSION }}-linux-${{ matrix.arch }}.tar.gz
           retention-days: 1
 
-  create-release:
+  docker-images:
+    if: ${{ false }}
     needs: build-linux
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 设置 QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: 设置 Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 获取版本号与仓库
+        id: meta
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          else
+            VERSION=dev-$(date +'%Y%m%d%H%M')
+          fi
+          OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "OWNER_LC=$OWNER_LC" >> $GITHUB_OUTPUT
+
+      - name: 构建并推送 Backend 镜像 (multi-arch)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ghcr.io/${{ steps.meta.outputs.OWNER_LC }}/nfa-dashboard-backend:${{ steps.meta.outputs.VERSION }}
+            ghcr.io/${{ steps.meta.outputs.OWNER_LC }}/nfa-dashboard-backend:latest
+
+      - name: 构建并推送 Frontend 镜像 (multi-arch)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend/frontend
+          file: ./frontend/frontend/Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ghcr.io/${{ steps.meta.outputs.OWNER_LC }}/nfa-dashboard-frontend:${{ steps.meta.outputs.VERSION }}
+            ghcr.io/${{ steps.meta.outputs.OWNER_LC }}/nfa-dashboard-frontend:latest
+
+  docker-offline-images:
+    needs: build-linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 获取版本号
+        id: meta
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          else
+            VERSION=dev-$(date +'%Y%m%d%H%M')
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: 构建 Backend 镜像 (amd64)
+        run: |
+          docker build -t nfa-dashboard-backend:${{ steps.meta.outputs.VERSION }} ./backend
+
+      - name: 构建 Frontend 镜像 (amd64)
+        run: |
+          docker build -t nfa-dashboard-frontend:${{ steps.meta.outputs.VERSION }} ./frontend/frontend
+
+      - name: 导出离线镜像
+        run: |
+          mkdir -p artifacts
+          docker save -o artifacts/nfa-dashboard-backend-image-linux-amd64.tar nfa-dashboard-backend:${{ steps.meta.outputs.VERSION }}
+          docker save -o artifacts/nfa-dashboard-frontend-image-linux-amd64.tar nfa-dashboard-frontend:${{ steps.meta.outputs.VERSION }}
+
+      - name: 上传离线镜像产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: offline-images-amd64
+          path: artifacts/*
+          retention-days: 7
+
+  create-release:
+    needs: [build-linux, docker-offline-images]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -100,6 +194,23 @@ jobs:
         id: get_version
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
       
+      - name: 准备 compose 发布包
+        run: |
+          OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          VERSION=${{ steps.get_version.outputs.VERSION }}
+          BUNDLE=nfa-dashboard-bundle-${VERSION}
+          mkdir -p ${BUNDLE}/compose ${BUNDLE}/compose/nginx ${BUNDLE}/sql/dist
+          cp -r compose/docker-compose.yml ${BUNDLE}/compose/
+          cp -r compose/docker-compose.prod.yml ${BUNDLE}/compose/
+          cp -r compose/docker-compose.offline.yml ${BUNDLE}/compose/
+          cp -r compose/.env.example ${BUNDLE}/compose/
+          cp -r compose/nginx/nginx.conf ${BUNDLE}/compose/nginx/nginx.conf
+          cp -r compose/README-RUNBOOK.md ${BUNDLE}/
+          cp -r sql/dist/install_full.sql ${BUNDLE}/sql/dist/
+          printf "ghcr.io/%s/nfa-dashboard-backend:%s\n" "$OWNER_LC" "$VERSION" > "${BUNDLE}/IMAGES.txt"
+          printf "ghcr.io/%s/nfa-dashboard-frontend:%s\n" "$OWNER_LC" "$VERSION" >> "${BUNDLE}/IMAGES.txt"
+          zip -r ${BUNDLE}.zip ${BUNDLE}
+
       - name: 下载所有构建产物
         uses: actions/download-artifact@v4
       
@@ -112,3 +223,6 @@ jobs:
           files: |
             nfa-dashboard-${{ steps.get_version.outputs.VERSION }}-linux-amd64/nfa-dashboard-${{ steps.get_version.outputs.VERSION }}-linux-amd64.tar.gz
             nfa-dashboard-${{ steps.get_version.outputs.VERSION }}-linux-arm64/nfa-dashboard-${{ steps.get_version.outputs.VERSION }}-linux-arm64.tar.gz
+            nfa-dashboard-bundle-${{ steps.get_version.outputs.VERSION }}.zip
+            offline-images-amd64/nfa-dashboard-backend-image-linux-amd64.tar
+            offline-images-amd64/nfa-dashboard-frontend-image-linux-amd64.tar
