@@ -37,16 +37,18 @@ import type {
   UpdateSettlementFormulaRequest,
 } from '@/types/api'
 
-// 获取当前主机名和协议
+// 获取当前 API 基地址（不带路径，形如 https://host:port）
 const getBaseUrl = () => {
-  // 在浏览器环境中使用window.location
+  try {
+    const envBase = (import.meta as any)?.env?.VITE_API_BASE as string | undefined;
+    if (envBase && typeof envBase === 'string' && envBase.trim()) {
+      return envBase.replace(/\/$/, '');
+    }
+  } catch {}
   if (typeof window !== 'undefined') {
-    const { protocol, hostname } = window.location;
-    // 使用与当前页面相同的主机名，但端口使用8081
-    return `${protocol}//${hostname}:8081`;
+    return `${window.location.origin}`;
   }
-  // 默认值，用于SSR或回退
-  return 'http://localhost:8081';
+  return 'http://localhost:8091';
 };
 
 // 创建axios实例
