@@ -31,5 +31,3 @@ coverage
 
 test-results/
 playwright-report/
-
-backend/config/config.yaml
