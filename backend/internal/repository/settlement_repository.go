@@ -65,8 +65,42 @@ func (r *settlementRepository) GetSettlementConfig() (*model.SettlementConfig, e
 
 // UpdateSettlementConfig 更新结算配置
 func (r *settlementRepository) UpdateSettlementConfig(config *model.SettlementConfig) error {
-	result := model.DB.Save(config)
-	return result.Error
+    // 确保有有效的ID（前端可能未传递ID）
+    if config.ID == 0 {
+        var existing model.SettlementConfig
+        if err := model.DB.First(&existing).Error; err != nil {
+            if err == gorm.ErrRecordNotFound {
+                // 如果不存在记录，则创建一条新配置
+                toCreate := model.SettlementConfig{
+                    DailyTime:  config.DailyTime,
+                    WeeklyDay:  config.WeeklyDay,
+                    WeeklyTime: config.WeeklyTime,
+                    Enabled:    config.Enabled,
+                }
+                if !config.LastExecuteTime.IsZero() {
+                    toCreate.LastExecuteTime = config.LastExecuteTime
+                }
+                return model.DB.Create(&toCreate).Error
+            }
+            return err
+        }
+        config.ID = existing.ID
+    }
+
+    // 只更新业务字段；若 LastExecuteTime 为零值则跳过更新该列，避免写入非法时间
+    updates := map[string]interface{}{
+        "daily_time":  config.DailyTime,
+        "weekly_day":  config.WeeklyDay,
+        "weekly_time": config.WeeklyTime,
+        "enabled":     config.Enabled,
+    }
+
+    if !config.LastExecuteTime.IsZero() {
+        updates["last_execute_time"] = config.LastExecuteTime
+    }
+
+    result := model.DB.Model(&model.SettlementConfig{}).Where("id = ?", config.ID).Updates(updates)
+    return result.Error
 }
 
 // CreateSettlementTask 创建结算任务
@@ -96,10 +130,28 @@ func (r *settlementRepository) GetSettlementTasks(filter map[string]interface{},
 
 	// 应用过滤条件
 	for key, value := range filter {
-		if value != nil && value != "" {
+		if value == nil || value == "" {
+			continue
+		}
+		// 如果 key 中包含操作符或占位符，直接作为条件使用
+		// 支持示例："task_date >= ?", "task_date <= ?", "task_type LIKE ?", "id IN (?)" 等
+		lowered := strings.ToLower(strings.TrimSpace(key))
+		if strings.Contains(key, "?") ||
+			strings.ContainsAny(lowered, "<> ") ||
+			strings.Contains(lowered, " like ") ||
+			strings.Contains(lowered, " in ") ||
+			strings.Contains(lowered, " between ") {
+			query = query.Where(key, value)
+		} else {
+			// 默认为等值匹配
 			query = query.Where(fmt.Sprintf("%s = ?", key), value)
 		}
 	}
+
+    // v2：按用户过滤可见院校范围
+    if filter["user_id"] != nil && filter["user_id"].(int64) > 0 {
+        query = query.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", filter["user_id"].(int64))
+    }
 
 	// 获取总数
 	err := query.Count(&count).Error
@@ -361,7 +413,7 @@ func (r *settlementRepository) GetSettlements(filter model.SettlementFilter) ([]
 	// 如果不是按月查询，使用原来的日结算查询逻辑
 	var settlements []model.SchoolSettlement
 	query := model.DB.Model(&model.SchoolSettlement{})
-
+	
 	// 应用过滤条件
 	if !filter.StartDate.IsZero() {
 		// 将时间转换为当天的开始时间，使用本地时区
@@ -402,6 +454,11 @@ func (r *settlementRepository) GetSettlements(filter model.SettlementFilter) ([]
 		query = query.Where("cp = ?", filter.CP)
 		log.Printf("应用运营商过滤: %s", filter.CP)
 	}
+
+    // v2：按用户过滤可见院校范围
+    if filter.UserID != nil && *filter.UserID > 0 {
+        query = query.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", *filter.UserID)
+    }
 
 	// 获取总数
 	err := query.Count(&count).Error
@@ -473,6 +530,11 @@ func (r *settlementRepository) GetDailySettlementDetails(filter model.Settlement
 		query = query.Where("cp = ?", filter.CP)
 	}
 
+    // v2：按用户过滤可见院校范围
+    if filter.UserID != nil && *filter.UserID > 0 {
+        query = query.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", *filter.UserID)
+    }
+
 	// 获取总数
 	err := query.Count(&count).Error
 	if err != nil {
@@ -532,7 +594,12 @@ func (r *settlementRepository) getAggregatedSettlements(filter model.SettlementF
 	if filter.CP != "" {
 		query = query.Where("cp = ?", filter.CP)
 	}
-	
+
+    // v2：按用户过滤可见院校范围
+    if filter.UserID != nil && *filter.UserID > 0 {
+        query = query.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", *filter.UserID)
+    }
+
 	// 使用原生SQL来聚合数据
 	// 我们需要将结算数据按学校、地区、运营商进行分组
 	// 然后计算每组的总和除以天数作为聚合结算值
@@ -584,7 +651,13 @@ func (r *settlementRepository) getAggregatedSettlements(filter model.SettlementF
 		sql += " AND cp = ?"
 		args = append(args, filter.CP)
 	}
-	
+
+    // v2：按用户过滤可见院校范围
+    if filter.UserID != nil && *filter.UserID > 0 {
+        sql += " AND school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)"
+        args = append(args, *filter.UserID)
+    }
+
 	// 添加分组和排序
 	sql += " GROUP BY school_id, school_name, region, cp"
 	sql += " ORDER BY settlement_date DESC"

@@ -1,0 +1,40 @@
+version: "3.8"
+
+services:
+  backend:
+    image: nfa-dashboard-backend:${IMAGE_TAG:-latest}
+    container_name: nfa-backend
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_USER=${DB_USER}
+      - DB_PASS=${DB_PASS}
+      - DB_NAME=${DB_NAME}
+      - APP_PORT=${APP_PORT:-8081}
+    ports:
+      - "${APP_PORT:-8081}:8081"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    networks:
+      - nfa_net
+
+  frontend:
+    image: nfa-dashboard-frontend:${IMAGE_TAG:-latest}
+    container_name: nfa-frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - nfa_net
+
+networks:
+  nfa_net:
+    driver: bridge

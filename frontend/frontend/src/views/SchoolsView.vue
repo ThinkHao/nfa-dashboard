@@ -34,41 +34,31 @@ const queryForm = reactive({
 // 初始化数据
 onMounted(async () => {
   try {
-    // 加载下拉选项数据
-    await Promise.all([
-      loadRegions(),
-      loadCPs()
-    ])
-    
-    // 加载学校数据
+    // 先加载学校数据（基于 v2，按用户过滤）
     await loadSchools()
+    // 基于学校数据动态派生地区与运营商选项
+    computeRegionCpOptions()
   } catch (error) {
     console.error('初始化数据失败:', error)
     ElMessage.error('加载数据失败，请刷新页面重试')
   }
 })
 
-// 加载地区数据
-async function loadRegions() {
+// 基于当前 schools 列表动态派生地区/运营商选项（仅限可见院校）
+function computeRegionCpOptions() {
   try {
-    const res = await api.getRegions()
-    if (res.code === 200) {
-      regions.value = res.data
-    }
-  } catch (error) {
-    console.error('加载地区数据失败:', error)
-  }
-}
-
-// 加载运营商数据
-async function loadCPs() {
-  try {
-    const res = await api.getCPs()
-    if (res.code === 200) {
-      cps.value = res.data
-    }
-  } catch (error) {
-    console.error('加载运营商数据失败:', error)
+    const rset = new Set<string>()
+    const cset = new Set<string>()
+    ;(schools.value || []).forEach((s: any) => {
+      if (s && typeof s.region === 'string' && s.region && s.region !== 'NULL') rset.add(s.region)
+      if (s && typeof s.cp === 'string' && s.cp && s.cp !== 'NULL') cset.add(s.cp)
+    })
+    regions.value = Array.from(rset).sort()
+    cps.value = Array.from(cset).sort()
+  } catch (e) {
+    console.warn('派生地区/运营商选项失败:', e)
+    regions.value = []
+    cps.value = []
   }
 }
 
@@ -83,36 +73,18 @@ async function loadSchools() {
       offset: (currentPage.value - 1) * pageSize.value
     }
     
-    const res = await api.getSchools(params)
+    const res = await (api as any).v2.getSchools(params) as any
     console.log('学校数据原始响应:', res)
     
-    if (res.code === 200 && res.data) {
-      // 正确的数据结构：data.items
-      if (Array.isArray(res.data.items)) {
-        schools.value = res.data.items
-        total.value = res.data.total || 0
-        console.log('加载学校数据成功:', schools.value.length, '所学校')
-      } 
-      // 兼容旧的数据结构：data.schools
-      else if (Array.isArray(res.data.schools)) {
-        schools.value = res.data.schools
-        total.value = res.data.total || 0
-        console.log('加载学校数据成功(旧结构):', schools.value.length, '所学校')
-      }
-      // 如果数据本身就是数组
-      else if (Array.isArray(res.data)) {
-        schools.value = res.data
-        total.value = res.data.length
-        console.log('加载学校数据成功(直接数组):', schools.value.length, '所学校')
-      }
-      // 如果没有有效数据
-      else {
-        console.warn('未找到有效的学校数据结构')
-        schools.value = []
-        total.value = 0
-      }
+    // 已解包：只支持数组或 { items, total }
+    if (Array.isArray(res)) {
+      schools.value = res
+      total.value = res.length
+    } else if (res && Array.isArray(res.items)) {
+      schools.value = res.items
+      total.value = typeof res.total === 'number' ? res.total : res.items.length
     } else {
-      console.warn('学校数据请求失败:', res)
+      console.warn('未找到有效的学校数据结构')
       schools.value = []
       total.value = 0
     }
@@ -141,11 +113,15 @@ function handleQuery() {
 // 当选择省份变化时重置学校名称
 function handleRegionChange() {
   queryForm.school_name = ''
+  // 基于地区/运营商重新加载学校并刷新选项
+  loadSchools().then(() => computeRegionCpOptions())
 }
 
 // 当选择运营商变化时重置学校名称
 function handleCPChange() {
   queryForm.school_name = ''
+  // 基于地区/运营商重新加载学校并刷新选项
+  loadSchools().then(() => computeRegionCpOptions())
 }
 
 // 重置按钮点击事件
@@ -177,7 +153,7 @@ function formatDate(dateStr) {
     
     <!-- 查询表单 -->
     <ElCard class="query-card">
-      <ElForm :model="queryForm" label-width="80px" inline>
+      <ElForm :model="queryForm" label-width="80px" inline class="filter-form">
         <ElFormItem label="地区">
           <ElSelect v-model="queryForm.region" placeholder="选择地区" clearable @change="handleRegionChange">
             <ElOption 
@@ -255,12 +231,6 @@ function formatDate(dateStr) {
   padding: 1rem 0;
 }
 
-.page-title {
-  font-size: 1.8rem;
-  margin-bottom: 1.5rem;
-  color: var(--dark-color);
-}
-
 .query-card {
   margin-bottom: 1.5rem;
 }
@@ -275,10 +245,7 @@ function formatDate(dateStr) {
   justify-content: flex-end;
 }
 
-:deep(.el-form-item) {
-  margin-bottom: 18px;
-  margin-right: 18px;
-}
+.filter-form { row-gap: var(--form-item-gap); }
 
 :deep(.el-select) {
   width: 180px !important;

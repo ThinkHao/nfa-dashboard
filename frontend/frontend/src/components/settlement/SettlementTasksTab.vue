@@ -1,7 +1,7 @@
 <template>
   <div class="settlement-tasks-tab">
     <!-- 筛选条件区域 -->
-    <div class="filter-section">
+    <el-card class="filter-section">
       <el-form :model="filterForm" inline>
         <el-form-item label="任务类型">
           <el-select v-model="filterForm.task_type" placeholder="选择任务类型" clearable>
@@ -33,7 +33,7 @@
           <el-button @click="resetFilter">重置</el-button>
         </el-form-item>
       </el-form>
-    </div>
+    </el-card>
 
     <!-- 操作按钮区域 -->
     <div class="action-section">
@@ -42,8 +42,12 @@
     </div>
 
     <!-- 任务表格区域 -->
-    <div class="table-section">
-      <h3>结算任务列表</h3>
+    <el-card class="table-section">
+      <template #header>
+        <div class="table-header">
+          <h3 class="card-title">结算任务列表</h3>
+        </div>
+      </template>
       <el-table
         v-loading="loading"
         :data="taskData.items"
@@ -119,7 +123,7 @@
           @current-change="handleCurrentChange"
         />
       </div>
-    </div>
+    </el-card>
 
     <!-- 任务详情对话框 -->
     <el-dialog
@@ -285,8 +289,15 @@ const fetchTasks = async () => {
   filterForm.page_size = pageSize.value
 
   try {
-    const response = await api.settlement.getTasks(filterForm)
-    taskData.value = response.data || { items: [], total: 0 }
+    const response = await api.settlement.getTasks(filterForm) as any
+    // 统一仅处理数组或 { items, total }
+    if (Array.isArray(response)) {
+      taskData.value = { items: response, total: response.length }
+    } else if (response && Array.isArray(response.items)) {
+      taskData.value = { items: response.items, total: Number(response.total) || response.items.length }
+    } else {
+      taskData.value = { items: [], total: 0 }
+    }
     
     // 检查是否有进行中的任务，如果有则启动自动刷新
     if (hasRunningTasks.value && !refreshTimer.value) {
@@ -330,7 +341,7 @@ const handleSizeChange = (size: number) => {
 const viewTaskDetail = async (task: SettlementTask) => {
   try {
     const response = await api.settlement.getTaskById(task.id)
-    currentTask.value = response.data
+    currentTask.value = response as any
     taskDetailVisible.value = true
   } catch (error) {
     console.error('获取任务详情失败', error)
@@ -547,22 +558,12 @@ onUnmounted(() => {
 
 .filter-section {
   margin-bottom: 20px;
-  padding: 15px;
-  background-color: #f5f7fa;
-  border-radius: 4px;
 }
 
 .action-section {
   margin-bottom: 20px;
   display: flex;
   gap: 10px;
-}
-
-.table-section {
-  background-color: #fff;
-  padding: 15px;
-  border-radius: 4px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
 }
 
 .pagination-container {

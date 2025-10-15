@@ -261,14 +261,10 @@ onMounted(async () => {
     queryForm.start_time = oneHourAgo.toISOString()
     queryForm.end_time = now.toISOString()
     
-    // 加载下拉选项数据
-    await Promise.all([
-      loadRegions(),
-      loadCPs()
-    ])
-    
-    // 加载学校数据（不依赖于地区和内容方）
+    // 加载学校数据（基于 v2，仅返回当前用户可见范围）
     await loadSchools()
+    // 基于学校数据动态派生地区与运营商选项
+    computeRegionCpOptions()
     
     // 加载流量数据，确保默认查询条件下数据正确
     queryForm.school_name = ''
@@ -286,27 +282,21 @@ watch(currentPage, () => {
   loadTrafficData()
 })
 
-// 加载地区数据
-async function loadRegions() {
+// 基于当前 schools 列表动态派生地区/运营商选项（仅限可见院校）
+function computeRegionCpOptions() {
   try {
-    const res = await api.getRegions()
-    if (res.code === 200) {
-      regions.value = res.data
-    }
-  } catch (error) {
-    console.error('加载地区数据失败:', error)
-  }
-}
-
-// 加载运营商数据
-async function loadCPs() {
-  try {
-    const res = await api.getCPs()
-    if (res.code === 200) {
-      cps.value = res.data
-    }
-  } catch (error) {
-    console.error('加载运营商数据失败:', error)
+    const rset = new Set<string>()
+    const cset = new Set<string>()
+    ;(schools.value || []).forEach((s: any) => {
+      if (s && typeof s.region === 'string' && s.region && s.region !== 'NULL') rset.add(s.region)
+      if (s && typeof s.cp === 'string' && s.cp && s.cp !== 'NULL') cset.add(s.cp)
+    })
+    regions.value = Array.from(rset).sort()
+    cps.value = Array.from(cset).sort()
+  } catch (e) {
+    console.warn('派生地区/运营商选项失败:', e)
+    regions.value = []
+    cps.value = []
   }
 }
 
@@ -317,7 +307,7 @@ async function loadSchools(region = '', cp = '') {
     schools.value = []
     
     // 构建请求参数
-    const params = { limit: 500 } // 增加限制以获取更多学校
+    const params: Record<string, any> = { limit: 500 } // 增加限制以获取更多学校
     if (region) {
       params.region = region
     }
@@ -326,61 +316,39 @@ async function loadSchools(region = '', cp = '') {
     }
     
     console.log('请求学校数据参数:', params)
-    const res = await api.getSchools(params)
+    const res = await (api as any).v2.getSchools(params) as any
     console.log('学校数据原始响应:', res)
     
-    let schoolsList = []
-    
-    if (res.code === 200 && res.data) {
-      // 正确的数据结构：data.items
-      if (Array.isArray(res.data.items)) {
-        schoolsList = res.data.items
-        console.log('加载学校数据成功:', schoolsList.length, '所学校')
-      } 
-      // 兼容旧的数据结构：data.schools
-      else if (Array.isArray(res.data.schools)) {
-        schoolsList = res.data.schools
-        console.log('加载学校数据成功(旧结构):', schoolsList.length, '所学校')
-      }
-      // 如果数据本身就是数组
-      else if (Array.isArray(res.data)) {
-        schoolsList = res.data
-        console.log('加载学校数据成功(直接数组):', schoolsList.length, '所学校')
-      }
-      // 如果没有有效数据
-      else {
-        console.warn('未找到有效的学校数据结构')
-        schoolsList = []
-      }
-      
-      // 处理学校数据，确保唯一性
-      const uniqueSchools = {}
-      schoolsList.forEach(school => {
-        // 确保 school.cp 存在，如果不存在则设置为空字符串
-        if (!school.cp) school.cp = ''
-        
-        // 使用学校名称+地区+内容方作为唯一标识
-        const key = `${school.school_name}_${school.region}_${school.cp}`
-        
-        // 只保留每个唯一标识的第一个学校
-        if (!uniqueSchools[key]) {
-          uniqueSchools[key] = school
-        }
-      })
-      
-      // 转换回数组
-      schools.value = Object.values(uniqueSchools)
-      console.log('去重后的学校数据:', schools.value.length, '所学校')
-      
-      // 打印每个学校的详细信息便于调试
-      schools.value.forEach((school, index) => {
-        console.log(`学校${index + 1}:`, school.school_name, '运营商:', school.cp, '地区:', school.region)
-      })
+    let schoolsList: any[] = []
+    if (Array.isArray(res)) {
+      schoolsList = res
+      console.log('加载学校数据成功(直接数组):', schoolsList.length, '所学校')
+    } else if (res && Array.isArray(res.items)) {
+      schoolsList = res.items
+      console.log('加载学校数据成功(items):', schoolsList.length, '所学校')
     } else {
-      console.warn('学校数据请求失败:', res)
-      schools.value = []
+      console.warn('未找到有效的学校数据结构')
+      schoolsList = []
     }
+
+    // 处理学校数据，确保唯一性
+    const uniqueSchools: Record<string, any> = {}
+    schoolsList.forEach((school: any) => {
+      if (!school.cp) school.cp = ''
+      const key = `${school.school_name}_${school.region}_${school.cp}`
+      if (!uniqueSchools[key]) {
+        uniqueSchools[key] = school
+      }
+    })
+    schools.value = Object.values(uniqueSchools)
+    console.log('去重后的学校数据:', schools.value.length, '所学校')
+    schools.value.forEach((school: any, index: number) => {
+      console.log(`学校${index + 1}:`, school.school_name, '运营商:', school.cp, '地区:', school.region)
+    })
     
+    // 根据最新学校数据刷新地区/运营商选项
+    computeRegionCpOptions()
+
     // 如果没有数据，不再使用测试数据，而是显示错误提示
     if (schools.value.length === 0) {
       console.warn('未获取到学校数据')
@@ -408,31 +376,16 @@ async function loadTrafficData() {
     const diffHours = diffMinutes / 60
     const diffDays = diffHours / 24
     
-    // 始终使用原始5分钟粒度，不进行自动调整
-    let granularity = ''
-    
-    // 根据时间范围调整限制数量
-    let limit = 0
-    if (diffDays > 25) {
-      // 超过25天，使用更大的限制
-      limit = 8000
-      console.log(`长时间范围查询(${diffDays.toFixed(1)}天)，设置限制为${limit}条`)
-    } else if (diffDays > 14) {
-      // 14-25天
-      limit = 5000
-      console.log(`中长时间范围查询(${diffDays.toFixed(1)}天)，设置限制为${limit}条`)
-    } else if (diffDays > 7) {
-      // 7-14天
-      limit = 4000
-      console.log(`中时间范围查询(${diffDays.toFixed(1)}天)，设置限制为${limit}条`)
-    } else {
-      // 计算原始预期数据点数量
-      limit = Math.ceil(diffMinutes / 5) + 100 // 每5分钟一个点，加上缓冲
-      console.log(`短时间范围查询(${diffDays.toFixed(1)}天)，预期数据点数量: ${limit}`)
-    }
+    // 始终使用原始5分钟粒度
+    const granularity = '5m'
+
+    // 按5分钟粒度精确计算所需点数，并留出缓冲，避免服务端降采样或返回不足
+    const expectedPoints = Math.ceil(diffMinutes / 5)
+    const limit = expectedPoints + 100
+    console.log(`按5分钟粒度查询，预期点数: ${expectedPoints}，limit: ${limit}`)
     
     // 构建查询参数
-    const params = {
+    const params: Record<string, any> = {
       start_time: queryForm.start_time,
       end_time: queryForm.end_time,
       limit: limit, // 使用计算出的限制
@@ -467,10 +420,23 @@ async function loadTrafficData() {
     console.log('详细查询参数:', params, '限制数量:', limit)
     
     // 使用真实的API调用
-    const res = await api.getTrafficData(params)
-    if (res.code === 200) {
-      // 处理后端返回的数据，处理可能的字段名变化
-      const processedData = res.data.map(item => {
+    const res = await (api as any).v2.getTrafficData(params) as any
+    let rawList: any[] = []
+    if (Array.isArray(res)) {
+      rawList = res
+    } else if (res && Array.isArray(res.items)) {
+      rawList = res.items
+    } else {
+      rawList = []
+    }
+
+    if (!Array.isArray(rawList)) {
+      console.warn('未获取到有效的流量数据列表')
+      rawList = []
+    }
+
+    // 处理后端返回的数据，处理可能的字段名变化
+    const processedData = rawList.map(item => {
         // 兼容新的time_str字段和旧的create_time字段
         if (item.time_str && !item.create_time) {
           item.create_time = item.time_str
@@ -486,7 +452,7 @@ async function loadTrafficData() {
       })
       
       // 调试信息
-      console.log('原始数据:', JSON.stringify(res.data[0] || {}))
+      console.log('原始数据:', JSON.stringify(rawList[0] || {}))
       console.log('处理后数据:', JSON.stringify(processedData[0] || {}))
       
       // 手动过滤数据，确保只显示指定时间范围内的数据
@@ -533,22 +499,17 @@ async function loadTrafficData() {
       trafficData.value = finalData
       total.value = finalData.length
       
-      console.log(`加载流量数据成功: 原始${res.data.length}条, 处理后${processedData.length}条, 过滤后${filteredData.length}条`)
+      console.log(`加载流量数据成功: 原始${rawList.length}条, 处理后${processedData.length}条, 过滤后${filteredData.length}条`)
       
       // 调试信息，查看数据结构
-      if (res.data.length > 0) {
-        console.log('数据样例:', res.data[0])
+      if (rawList.length > 0) {
+        console.log('数据样例:', rawList[0])
       }
       
       // 如果数据为空，显示提示
       if (filteredData.length === 0) {
         ElMessage.warning(`所选时间范围内没有数据，请尝试其他时间范围`)
       }
-    } else {
-      console.warn('流量数据请求失败:', res)
-      trafficData.value = []
-      total.value = 0
-    }
   } catch (error) {
     console.error('加载流量数据失败:', error)
     ElMessage.error('加载流量数据失败')
@@ -569,14 +530,16 @@ function handleQuery() {
 // 当选择省份变化时重新加载学校列表
 function handleRegionChange(region) {
   queryForm.school_name = ''
-  loadSchools(region, queryForm.cp)
+  // 先按地区/运营商重新加载学校，然后刷新选项集合
+  loadSchools(region, queryForm.cp).then(() => computeRegionCpOptions())
   console.log('基于地区筛选学校:', region, queryForm.cp)
 }
 
 // 当选择运营商变化时重新加载学校列表
 function handleCPChange(cp) {
   queryForm.school_name = ''
-  loadSchools(queryForm.region, cp)
+  // 先按地区/运营商重新加载学校，然后刷新选项集合
+  loadSchools(queryForm.region, cp).then(() => computeRegionCpOptions())
   console.log('基于运营商筛选学校:', queryForm.region, cp)
 }
 
@@ -713,20 +676,18 @@ function formatBitRate(bitsPerSecond, withUnit = true) {
 }
 
 // 格式化日期
-function formatDate(date, granularity) {
+function formatDate(date: Date | string, granularity: string) {
   if (!date) return ''
   
   try {
-    // 如果传入的是字符串，尝试转换为日期对象
-    if (typeof date === 'string') {
-      date = new Date(date)
-    }
+    // 规范为 Date 对象
+    const d: Date = typeof date === 'string' ? new Date(date) : date
     
-    const year = date.getFullYear()
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const day = String(date.getDate()).padStart(2, '0')
-    const hour = String(date.getHours()).padStart(2, '0')
-    const minute = String(date.getMinutes()).padStart(2, '0')
+    const year = d.getFullYear()
+    const month = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    const hour = String(d.getHours()).padStart(2, '0')
+    const minute = String(d.getMinutes()).padStart(2, '0')
     
     // 根据粒度格式化日期
     switch (granularity) {
@@ -736,20 +697,22 @@ function formatDate(date, granularity) {
       case 'day':
         // 天粒度
         return `${month}-${day}`
-      case 'week':
+      case 'week': {
         // 周粒度
         const firstDayOfYear = new Date(year, 0, 1)
-        const pastDaysOfYear = (date - firstDayOfYear) / 86400000
+        const pastDaysOfYear = (d.getTime() - firstDayOfYear.getTime()) / 86400000
         const weekNumber = Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7)
         return `${year}-W${weekNumber}`
+      }
       case 'month':
         // 月粒度
         return `${year}-${month}`
-      case '15m':
+      case '15m': {
         // 15分钟粒度
         // 将分钟调整为15分钟的倍数
-        const roundedMinute = Math.floor(date.getMinutes() / 15) * 15
+        const roundedMinute = Math.floor(d.getMinutes() / 15) * 15
         return `${hour}:${String(roundedMinute).padStart(2, '0')}`
+      }
       default:
         // 原始5分钟粒度
         return `${hour}:${minute}`
@@ -767,7 +730,7 @@ function formatDate(date, granularity) {
     
     <!-- 查询表单 -->
     <ElCard class="query-card">
-      <ElForm :model="queryForm" label-width="80px" inline>
+      <ElForm :model="queryForm" label-width="80px" inline class="filter-form">
         <ElFormItem label="地区">
           <ElSelect v-model="queryForm.region" placeholder="选择地区" clearable @change="handleRegionChange">
             <ElOption 
@@ -886,12 +849,6 @@ function formatDate(date, granularity) {
   padding: 1rem 0;
 }
 
-.page-title {
-  font-size: 1.8rem;
-  margin-bottom: 1.5rem;
-  color: var(--dark-color);
-}
-
 .query-card {
   margin-bottom: 1.5rem;
 }
@@ -919,10 +876,7 @@ function formatDate(date, granularity) {
   margin: 0 10px;
 }
 
-:deep(.el-form-item) {
-  margin-bottom: 18px;
-  margin-right: 18px;
-}
+.filter-form { row-gap: var(--form-item-gap); }
 
 :deep(.el-select) {
   width: 180px !important;

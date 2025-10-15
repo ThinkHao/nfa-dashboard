@@ -1,7 +1,7 @@
 <template>
   <div class="settlement-daily-detail-tab">
     <!-- 筛选条件区域 -->
-    <div class="filter-section">
+    <el-card class="filter-section">
       <el-form :model="filterForm" inline>
         <el-form-item label="地区" style="min-width: 200px;">
           <el-select v-model="filterForm.region" placeholder="选择地区" clearable style="width: 180px;" @change="handleRegionChange">
@@ -51,14 +51,16 @@
           <el-button @click="resetFilter">重置</el-button>
         </el-form-item>
       </el-form>
-    </div>
+    </el-card>
 
     <!-- 数据表格区域 -->
-    <div class="table-section">
-      <div class="table-header">
-        <h3>日95明细列表</h3>
-        <el-button type="success" @click="exportData">导出数据</el-button>
-      </div>
+    <el-card class="table-section">
+      <template #header>
+        <div class="table-header">
+          <h3 class="card-title">日95明细列表</h3>
+          <el-button type="success" @click="exportData">导出数据</el-button>
+        </div>
+      </template>
       
       <el-table
         v-loading="loading"
@@ -95,7 +97,7 @@
           @current-change="handleCurrentChange"
         />
       </div>
-    </div>
+    </el-card>
   </div>
 </template>
 
@@ -103,7 +105,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import api from '../../api' // 假设 api/index.ts 中会添加新的接口
 import { ElMessage } from 'element-plus'
-import type { ApiResponse, School, PaginationParams } from '../../types/api'
+import type { School } from '../../types/api'
 
 // 定义日95明细数据项接口
 interface DailySettlementDetail {
@@ -194,24 +196,29 @@ const formatDateDisplay = (dateStr: string): string => {
   return dateStr
 }
 
-// 获取基础数据 (地区、运营商、学校)
+// 基于 schools 动态派生地区/运营商选项，仅限可见院校范围
+const computeRegionCpOptions = () => {
+  try {
+    const rset = new Set<string>()
+    const cset = new Set<string>()
+    ;(schools.value || []).forEach((s: any) => {
+      if (s && typeof s.region === 'string' && s.region && s.region !== 'NULL') rset.add(s.region)
+      if (s && typeof s.cp === 'string' && s.cp && s.cp !== 'NULL') cset.add(s.cp)
+    })
+    regions.value = Array.from(rset).sort()
+    cps.value = Array.from(cset).sort()
+  } catch (e) {
+    console.warn('派生地区/运营商选项失败:', e)
+    regions.value = []
+    cps.value = []
+  }
+}
+
+// 获取基础数据 (学校 -> 地区/运营商)
 const fetchBaseData = async () => {
   try {
-    const regionsResponse = await api.getRegions() as ApiResponse<string[]>
-    if (regionsResponse && (regionsResponse.code === 0 || regionsResponse.code === 200) && regionsResponse.data) {
-      regions.value = regionsResponse.data.filter(region => region !== "NULL")
-    } else {
-      regions.value = []
-    }
-
-    const cpsResponse = await api.getCPs() as ApiResponse<string[]>
-    if (cpsResponse && (cpsResponse.code === 0 || cpsResponse.code === 200) && cpsResponse.data) {
-      cps.value = cpsResponse.data.filter(cp => cp !== "NULL")
-    } else {
-      cps.value = []
-    }
-    
     await loadSchools()
+    computeRegionCpOptions()
   } catch (error) {
     console.error('获取基础数据失败', error)
     ElMessage.error('获取基础数据失败')
@@ -228,12 +235,15 @@ const loadSchools = async (region: string = '', cp: string = ''): Promise<void> 
     params.limit = 1000 
     params.offset = 0
     
-    const response = await api.getSchools(params) as ApiResponse<{ items: School[]; total: number }>
-    if (response && (response.code === 0 || response.code === 200) && response.data) {
-      schools.value = response.data.items || []
+    const response = await (api as any).v2.getSchools(params) as any
+    if (Array.isArray(response)) {
+      schools.value = response
+    } else if (response && Array.isArray(response.items)) {
+      schools.value = response.items
     } else {
       schools.value = []
     }
+    computeRegionCpOptions()
   } catch (error) {
     console.error('获取学校数据失败', error)
     ElMessage.error('获取学校数据失败')
@@ -243,13 +253,13 @@ const loadSchools = async (region: string = '', cp: string = ''): Promise<void> 
 
 // 处理地区选择变化
 const handleRegionChange = (region: string): void => {
-  loadSchools(region, filterForm.cp)
+  loadSchools(region, filterForm.cp).then(() => computeRegionCpOptions())
   fetchData()
 }
 
 // 处理运营商选择变化
 const handleCPChange = (cp: string): void => {
-  loadSchools(filterForm.region, cp)
+  loadSchools(filterForm.region, cp).then(() => computeRegionCpOptions())
   fetchData()
 }
 
@@ -286,19 +296,19 @@ const fetchData = async () => {
 
     console.log('Fetching daily settlement details with params:', params)
 
-    const response = await api.settlement.getDailySettlementDetails(params) as ApiResponse<DailySettlementDetailListResponse>
-
-    if (response.data) {
-      dailyDetailData.value = {
-        items: response.data.items || [],
-        total: response.data.total || 0
-      }
-      if (response.data.items.length === 0 && (filterForm.start_date && filterForm.end_date)) {
-        ElMessage.warning(`没有找到 ${filterForm.start_date} 至 ${filterForm.end_date} 的日95明细数据`)
-      }
-    } else {
-      dailyDetailData.value = { items: [], total: 0 }
-      ElMessage.error('获取日95明细数据失败: ' + (response.message || '未知错误'))
+    const response = await (api as any).v2.settlement.getDailySettlementDetails(params) as any
+    let items: any[] = []
+    let total = 0
+    if (Array.isArray(response)) {
+      items = response
+      total = response.length
+    } else if (response && Array.isArray(response.items)) {
+      items = response.items
+      total = typeof response.total === 'number' ? response.total : response.items.length
+    }
+    dailyDetailData.value = { items, total }
+    if (dailyDetailData.value.items.length === 0 && (filterForm.start_date && filterForm.end_date)) {
+      ElMessage.warning(`没有找到 ${filterForm.start_date} 至 ${filterForm.end_date} 的日95明细数据`)
     }
   } catch (error) {
     console.error('获取日95明细数据失败:', error)
@@ -358,9 +368,6 @@ onMounted(() => {
 
 .filter-section {
   margin-bottom: 20px;
-  padding: 15px;
-  background-color: #f9f9f9;
-  border-radius: 4px;
 }
 
 .table-section {

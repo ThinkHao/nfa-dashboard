@@ -17,16 +17,27 @@ onMounted(async () => {
   try {
     loading.value = true
     // 获取流量汇总数据
-    const summaryRes = await api.getTrafficSummary()
-    if (summaryRes.code === 200) {
-      summary.value = summaryRes.data
+    const summaryRes = await api.getTrafficSummary() as any
+    const s = summaryRes
+    if (s && typeof s === 'object') {
+      summary.value = {
+        total: Number((s as any).total) || 0,
+        total_recv: Number((s as any).total_recv) || 0,
+        total_send: Number((s as any).total_send) || 0,
+      }
     }
     
     // 获取学校数量
-    const schoolsRes = await api.getSchools({ limit: 1 })
-    if (schoolsRes.code === 200) {
-      schoolCount.value = schoolsRes.data.total
+    const schoolsRes = await api.getSchools({ limit: 1 }) as any
+    let count = 0
+    if (typeof schoolsRes?.total === 'number') {
+      count = schoolsRes.total
+    } else if (Array.isArray(schoolsRes)) {
+      count = schoolsRes.length
+    } else if (Array.isArray(schoolsRes?.items)) {
+      count = schoolsRes.items.length
     }
+    schoolCount.value = count
   } catch (error) {
     console.error('加载首页数据失败:', error)
   } finally {
@@ -35,7 +46,7 @@ onMounted(async () => {
 })
 
 // 格式化流量数据，将字节转换为更易读的格式
-const formatTraffic = (bytes) => {
+const formatTraffic = (bytes: number): string => {
   if (bytes === 0) return '0 B'
   const k = 1024
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
@@ -43,7 +54,7 @@ const formatTraffic = (bytes) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
 }
 
-const navigateTo = (path) => {
+const navigateTo = (path: string) => {
   router.push(path)
 }
 </script>
@@ -56,7 +67,7 @@ const navigateTo = (path) => {
     <ElRow :gutter="20" class="dashboard-cards">
       <ElCol :span="8">
         <ElCard shadow="hover" @click="navigateTo('/traffic')" class="dashboard-card">
-          <ElStatistic :value="formatTraffic(summary.total)" title="总流量" :loading="loading">
+          <ElStatistic :value="summary.total" title="总流量" :loading="loading">
             <template #suffix>
               <div class="dashboard-card-icon">
                 <i class="el-icon-data-analysis"></i>
@@ -68,7 +79,7 @@ const navigateTo = (path) => {
       
       <ElCol :span="8">
         <ElCard shadow="hover" @click="navigateTo('/traffic')" class="dashboard-card">
-          <ElStatistic :value="formatTraffic(summary.total_recv)" title="总下载流量" :loading="loading">
+          <ElStatistic :value="summary.total_recv" title="总下载流量" :loading="loading">
             <template #suffix>
               <div class="dashboard-card-icon download-icon">
                 <i class="el-icon-download"></i>
@@ -80,7 +91,7 @@ const navigateTo = (path) => {
       
       <ElCol :span="8">
         <ElCard shadow="hover" @click="navigateTo('/traffic')" class="dashboard-card">
-          <ElStatistic :value="formatTraffic(summary.total_send)" title="总上传流量" :loading="loading">
+          <ElStatistic :value="summary.total_send" title="总上传流量" :loading="loading">
             <template #suffix>
               <div class="dashboard-card-icon upload-icon">
                 <i class="el-icon-upload"></i>
@@ -125,16 +136,14 @@ const navigateTo = (path) => {
 }
 
 .page-title {
-  font-size: 2.5rem;
+  /* rely on global .page-title styles for color, size, spacing, and shadow */
   text-align: center;
-  margin-bottom: 1rem;
-  color: var(--dark-color);
 }
 
 .page-description {
   text-align: center;
   font-size: 1.2rem;
-  color: #666;
+  color: var(--text-default);
   margin-bottom: 3rem;
 }
 
@@ -191,7 +200,8 @@ const navigateTo = (path) => {
 .feature-content h3 {
   font-size: 1.5rem;
   margin-bottom: 1rem;
-  color: var(--dark-color);
+  color: var(--text-strong);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.35);
 }
 
 .feature-content p {

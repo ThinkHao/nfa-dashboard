@@ -1,0 +1,81 @@
+:root {
+  /* App base colors */
+  --color-primary: #1890ff;
+  --color-success: #52c41a;
+  --color-warning: #faad14;
+  --color-danger:  #ff4d4f;
+  --color-info:    #909399;
+
+  /* Text */
+  --text-color: #303133;
+  --text-muted: #909399;
+  --text-placeholder: #a8abb2;
+
+  /* Titles */
+  --title-font-size: clamp(20px, 2.2vw, 26px);
+  --title-weight: 700;
+  /* 阴影减弱 */
+  --title-shadow: 0 1px 2px rgba(0,0,0,0.25), 0 0 8px rgba(0,0,0,0.18);
+  --title-margin-bottom: 1.5rem;
+
+  /* Surfaces */
+  --bg-page: #f5f7fa;
+  --bg-card: #ffffff;
+  --bg-header: #ffffff;
+  --bg-sidebar: #001529; /* aligned with ant/gva style */
+  --border-color: #ebeef5;
+  --shadow-1: 0 6px 16px rgba(0,0,0,.08), 0 3px 6px rgba(0,0,0,.05);
+
+  /* Radius & spacing */
+  --radius: 10px;
+  --card-padding: 16px;
+
+  /* Density (normal) */
+  --form-item-gap: 12px;
+  --table-row-padding-y: 10px;
+  --table-row-padding-x: 12px;
+
+  /* Element Plus bridge */
+  --el-color-primary: var(--color-primary);
+  --el-text-color-regular: var(--text-color);
+}
+
+/******** Dark theme via data attribute ********/
+/* 仅作为 Phase 1 的基础暗色变量，后续可细化 */
+[data-theme="dark"] {
+  --color-primary: #409eff; /* element plus default */
+  --text-color: #e5eaf3;
+  --text-muted: #c0c4cc;
+  --text-placeholder: #a3a6ad;
+
+  --bg-page: #0b1220;
+  --bg-card: rgba(255,255,255,0.06);
+  --bg-header: rgba(9,14,26,0.55);
+  --bg-sidebar: rgba(8,14,27,0.55);
+  --border-color: rgba(255,255,255,0.12);
+}
+
+/* Density overrides */
+[data-density="compact"] {
+  --form-item-gap: 8px;
+  --table-row-padding-y: 6px;
+  --table-row-padding-x: 8px;
+}
+
+/* Page background and text fallbacks using variables */
+html, body {
+  background-color: var(--bg-page);
+  color: var(--text-color);
+}
+
+/* Card fallback (glass/dark styles are defined in src/assets/theme.css)
+   这里不设置颜色与阴影，避免覆盖 theme.css；仅保留结构性样式 */
+.page-title {
+  font-size: var(--title-font-size);
+  font-weight: var(--title-weight);
+  margin: 0 0 var(--title-margin-bottom);
+}
+.el-card__header .card-title {
+  font-size: var(--title-font-size);
+  font-weight: var(--title-weight);
+}

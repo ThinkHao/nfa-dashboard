@@ -1,7 +1,7 @@
 <template>
   <div class="settlement-data-tab">
     <!-- 筛选条件区域 -->
-    <div class="filter-section">
+    <el-card class="filter-section" shadow="hover">
       <el-form :model="filterForm" inline>
         <el-form-item label="地区" style="min-width: 200px;">
           <el-select v-model="filterForm.region" placeholder="选择地区" clearable style="width: 180px;" @change="handleRegionChange">
@@ -51,10 +51,10 @@
           <el-button @click="resetFilter">重置</el-button>
         </el-form-item>
       </el-form>
-    </div>
+    </el-card>
 
     <!-- 数据表格区域 -->
-    <div class="table-section">
+    <el-card class="table-section" shadow="hover">
       <div class="table-header">
         <h3>结算数据列表</h3>
         <el-button type="success" @click="exportData">导出数据</el-button>
@@ -115,7 +115,7 @@
           @current-change="handleCurrentChange"
         />
       </div>
-    </div>
+    </el-card>
   </div>
 </template>
 
@@ -123,16 +123,10 @@
 import { ref, reactive, onMounted } from 'vue'
 import api from '../../api'
 import { ElMessage } from 'element-plus'
-import type { SettlementListResponse, Settlement } from '../../types/settlement'
-import type { ApiResponse, School, PaginationParams } from '../../types/api'
+import type { SettlementListResponse } from '../../types/settlement'
+import type { School, PaginationParams } from '../../types/api'
 
 // 学校、地区和运营商数据
-interface School {
-  school_id: string;
-  school_name: string;
-  region?: string;
-  cp?: string;
-}
 
 const schools = ref<School[]>([])
 const regions = ref<string[]>([])
@@ -222,35 +216,30 @@ const formatDateDisplay = (dateStr: string): string => {
   return dateStr
 }
 
+// 基于 schools 动态派生地区/运营商选项，仅限可见院校范围
+const computeRegionCpOptions = () => {
+  try {
+    const rset = new Set<string>()
+    const cset = new Set<string>()
+    ;(schools.value || []).forEach((s: any) => {
+      if (s && typeof s.region === 'string' && s.region && s.region !== 'NULL') rset.add(s.region)
+      if (s && typeof s.cp === 'string' && s.cp && s.cp !== 'NULL') cset.add(s.cp)
+    })
+    regions.value = Array.from(rset).sort()
+    cps.value = Array.from(cset).sort()
+  } catch (e) {
+    console.warn('派生地区/运营商选项失败:', e)
+    regions.value = []
+    cps.value = []
+  }
+}
+
 // 获取基础数据
 const fetchBaseData = async () => {
   try {
-    // 获取地区列表
-    const regionsResponse = await api.getRegions() as ApiResponse<string[]>
-    console.log('地区列表原始响应:', regionsResponse)
-    if (regionsResponse && (regionsResponse.code === 0 || regionsResponse.code === 200) && regionsResponse.data) {
-      // 过滤掉 "NULL" 值
-      regions.value = regionsResponse.data.filter(region => region !== "NULL")
-      console.log('地区列表设置为:', regions.value)
-    } else {
-      console.error('地区列表数据为空')
-      regions.value = []
-    }
-
-    // 获取运营商列表
-    const cpsResponse = await api.getCPs() as ApiResponse<string[]>
-    console.log('运营商列表原始响应:', cpsResponse)
-    if (cpsResponse && (cpsResponse.code === 0 || cpsResponse.code === 200) && cpsResponse.data) {
-      // 过滤掉 "NULL" 值
-      cps.value = cpsResponse.data.filter(cp => cp !== "NULL")
-      console.log('运营商列表设置为:', cps.value)
-    } else {
-      console.error('运营商列表数据为空')
-      cps.value = []
-    }
-    
-    // 加载学校列表（不带过滤条件）
+    // 直接加载 v2 学校（已按用户权限过滤），后派生地区/运营商
     await loadSchools()
+    computeRegionCpOptions()
   } catch (error) {
     console.error('获取基础数据失败', error)
     ElMessage.error('获取基础数据失败')
@@ -258,7 +247,7 @@ const fetchBaseData = async () => {
 }
 
 // 加载学校数据
-const loadSchools = async (region: string = '', cp: string = ''): Promise<void> => {
+const loadSchools = async (region: string = '', cp: string = ''): Promise<number> => {
   try {
     // 清空学校列表，避免显示旧数据
     schools.value = []
@@ -279,19 +268,24 @@ const loadSchools = async (region: string = '', cp: string = ''): Promise<void> 
     params.limit = 1000 // 获取足够多的学校数据
     params.offset = 0
     
-    const response = await api.getSchools(params) as ApiResponse<{ items: School[]; total: number }>
+    const response = await (api as any).v2.getSchools(params) as any
     console.log('学校列表原始响应:', response)
-    
-    // 检查响应状态
-    if (response && (response.code === 0 || response.code === 200) && response.data) {
-      schools.value = response.data.items || []
-      console.log('学校列表设置为:', schools.value)
-      return response.data.total || 0
-    } else {
-      console.error('学校列表数据为空')
-      schools.value = []
-      return 0
-    }
+    const items: School[] = Array.isArray(response)
+      ? response
+      : Array.isArray(response?.items)
+        ? response.items
+        : []
+    // 过滤掉异常项
+    schools.value = items.filter((s: any) => s && s.school_id && s.school_name)
+    console.log('学校列表设置为:', schools.value)
+    const total: number = typeof response?.total === 'number'
+      ? response.total
+      : Array.isArray(items)
+        ? items.length
+        : 0
+    // 刷新地区/运营商选项
+    computeRegionCpOptions()
+    return total
   } catch (error) {
     console.error('获取学校数据失败', error)
     ElMessage.error('获取学校数据失败')
@@ -305,9 +299,9 @@ const handleRegionChange = (region: string): void => {
   console.log('地区选择变化:', region)
   // 当地区变化时，重新加载学校列表
   if (region) {
-    loadSchools(region, filterForm.cp)
+    loadSchools(region, filterForm.cp).then(() => computeRegionCpOptions())
   } else {
-    loadSchools('', filterForm.cp)
+    loadSchools('', filterForm.cp).then(() => computeRegionCpOptions())
   }
   // 当地区变化时自动刷新数据
   fetchData()
@@ -318,9 +312,9 @@ const handleCPChange = (cp: string): void => {
   console.log('运营商选择变化:', cp)
   // 当运营商变化时，重新加载学校列表
   if (cp) {
-    loadSchools(filterForm.region, cp)
+    loadSchools(filterForm.region, cp).then(() => computeRegionCpOptions())
   } else {
-    loadSchools(filterForm.region, '')
+    loadSchools(filterForm.region, '').then(() => computeRegionCpOptions())
   }
   // 当运营商变化时自动刷新数据
   fetchData()
@@ -391,102 +385,31 @@ const fetchData = async () => {
     
     console.log('最终请求参数:', params)
     
-    // 发送请求
-    const response = await api.settlement.getSettlements(params) as ApiResponse<SettlementListResponse>
+    // 发送请求并解析已解包的数据
+    const response = await (api as any).v2.settlement.getSettlements(params) as any
     console.log('结算数据响应:', response)
-    
-    // 检查响应状态
-    if (response && (response.code === 0 || response.code === 200)) {
-      console.log('原始响应数据:', JSON.stringify(response.data))
-      
-      // 直接使用后端返回的数据结构
-      if (response.data && typeof response.data === 'object') {
-        // 如果数据是数组，将其包装为预期的结构
-        if (Array.isArray(response.data)) {
-          settlementData.value = { items: response.data, total: response.data.length }
-          console.log('将数组转换为预期结构:', settlementData.value)
-        } 
-        // 如果数据已经有items属性，直接使用
-        else if (response.data.items && Array.isArray(response.data.items)) {
-          settlementData.value = response.data
-          console.log('使用现有items结构:', settlementData.value)
-        } 
-        // 如果数据是单个对象，将其包装为数组
-        else {
-          settlementData.value = { items: [response.data], total: 1 }
-          console.log('将单个对象转换为预期结构:', settlementData.value)
-        }
+    if (Array.isArray(response)) {
+      settlementData.value = { items: response, total: response.length }
+    } else if (response && typeof response === 'object') {
+      if (Array.isArray((response as any).items)) {
+        settlementData.value = { items: (response as any).items, total: Number((response as any).total) || (response as any).items.length }
       } else {
         settlementData.value = { items: [], total: 0 }
-        console.log('数据为空或不是对象:', response.data)
-      }
-      
-      // 检查数据结构
-      if (settlementData.value.items && Array.isArray(settlementData.value.items)) {
-        console.log('结算数据项目数量:', settlementData.value.items.length)
-        if (settlementData.value.items.length > 0) {
-          console.log('第一个数据项:', JSON.stringify(settlementData.value.items[0]))
-        }
-      } else {
-        console.error('数据结构不符合预期:', settlementData.value)
-        // 尝试修复数据结构
-        if (typeof settlementData.value === 'object' && !settlementData.value.items) {
-          settlementData.value = { items: [settlementData.value], total: 1 }
-          console.log('尝试修复后的数据:', settlementData.value)
-        }
       }
     } else {
-      console.error('获取结算数据失败:', response)
-      ElMessage.error('获取结算数据失败: ' + (response?.message || '未知错误'))
       settlementData.value = { items: [], total: 0 }
     }
     
-    // 如果没有数据，显示提示
-    if (!settlementData.value.items || settlementData.value.items.length === 0) {
-      console.log('没有找到结算数据')
-      ElMessage.warning(`没有找到${filterForm.start_date}至${filterForm.end_date}的结算数据`)
-      
-      // 尝试直接使用fetch获取数据
-      try {
-        const queryParams = new URLSearchParams()
-        queryParams.append('start_date', filterForm.start_date)
-        queryParams.append('end_date', filterForm.end_date)
-        queryParams.append('limit', String(pageSize.value))
-        queryParams.append('offset', String((currentPage.value - 1) * pageSize.value))
-        
-        if (filterForm.school_name) queryParams.append('school_name', filterForm.school_name)
-        if (filterForm.region) queryParams.append('region', filterForm.region)
-        if (filterForm.cp) queryParams.append('cp', filterForm.cp)
-        
-        const fullUrl = `http://localhost:8081/api/v1/settlement/data?${queryParams.toString()}`
-        console.log('直接请求URL:', fullUrl)
-        
-        const fetchResponse = await fetch(fullUrl)
-        const fetchData = await fetchResponse.json()
-        console.log('直接请求响应:', fetchData)
-        
-        if (fetchData && fetchData.code === 200 && fetchData.data) {
-          if (Array.isArray(fetchData.data.items)) {
-            settlementData.value.items = fetchData.data.items
-            settlementData.value.total = fetchData.data.total || 0
-            console.log('直接请求获取数据成功:', settlementData.value.items.length, '条记录')
-          }
-        }
-      } catch (fetchError) {
-        console.error('直接请求获取数据失败:', fetchError)
+    // 检查数据结构
+    if (settlementData.value.items && Array.isArray(settlementData.value.items)) {
+      console.log('结算数据项目数量:', settlementData.value.items.length)
+      if (settlementData.value.items.length > 0) {
+        console.log('第一个数据项:', JSON.stringify(settlementData.value.items[0]))
       }
-    }
-    
-    // 多日结算值不需要额外处理，后端已经返回了最大值
-    if (dateRange.value && dateRange.value[0] !== dateRange.value[1]) {
-      // 计算日期范围天数仅用于日志记录
-      const startDate = new Date(dateRange.value[0])
-      const endDate = new Date(dateRange.value[1])
-      const daysDiff = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1
-      console.log('日期范围天数:', daysDiff)
-      
+    } else {
+      console.error('数据结构不符合预期:', settlementData.value)
       // 如果没有数据，显示提示
-      if (settlementData.value.items.length === 0) {
+      if (!Array.isArray(settlementData.value.items) || settlementData.value.items.length === 0) {
         console.log('没有找到结算数据')
         ElMessage.warning('没有找到符合条件的结算数据')
       }
@@ -545,17 +468,9 @@ onMounted(() => {
 
 .filter-section {
   margin-bottom: 20px;
-  padding: 15px;
-  background-color: #f5f7fa;
-  border-radius: 4px;
 }
 
-.table-section {
-  background-color: #fff;
-  padding: 15px;
-  border-radius: 4px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
-}
+/* .table-section 使用全局 .el-card 玻璃化样式，无需局部背景与阴影 */
 
 .table-header {
   display: flex;

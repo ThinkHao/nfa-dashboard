@@ -1,2 +1,3 @@
 !docs/*.md
 *.png
+backend/config/config.yaml

@@ -1,31 +1,31 @@
 <template>
   <div class="settlement-config-tab">
-    <div class="config-card">
-      <div class="card-header">
-        <h3>结算系统配置</h3>
-        <div class="header-actions">
-          <el-switch
-            v-model="config.enabled"
-            active-text="启用自动结算"
-            inactive-text="禁用自动结算"
-            @change="updateEnabledStatus"
-          />
+    <el-card class="config-card">
+      <template #header>
+        <div class="card-header">
+          <h3 class="card-title">结算系统配置</h3>
+          <div class="header-actions">
+            <el-switch
+              v-model="config.enabled"
+              active-text="启用自动结算"
+              inactive-text="禁用自动结算"
+              @change="updateEnabledStatus"
+            />
+          </div>
         </div>
-      </div>
-
-      <el-divider />
+      </template>
 
       <div v-loading="loading">
         <el-form
           ref="configForm"
           :model="config"
           label-width="120px"
-          :disabled="!isEditing"
         >
           <el-form-item label="日结算时间">
             <el-time-picker
-              v-model="dailyTime"
+              v-model="config.daily_time"
               format="HH:mm"
+              value-format="HH:mm"
               placeholder="选择时间"
               :disabled="!isEditing"
             />
@@ -33,7 +33,7 @@
           </el-form-item>
 
           <el-form-item label="周结算日">
-            <el-select v-model="config.weekly_day" placeholder="选择星期">
+            <el-select v-model="config.weekly_day" placeholder="选择星期" :disabled="!isEditing">
               <el-option label="周一" :value="1" />
               <el-option label="周二" :value="2" />
               <el-option label="周三" :value="3" />
@@ -47,8 +47,9 @@
 
           <el-form-item label="周结算时间">
             <el-time-picker
-              v-model="weeklyTime"
+              v-model="config.weekly_time"
               format="HH:mm"
+              value-format="HH:mm"
               placeholder="选择时间"
               :disabled="!isEditing"
             />
@@ -78,12 +79,12 @@
           </el-form-item>
         </el-form>
       </div>
-    </div>
+    </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import api from '../../api'
 import { ElMessage } from 'element-plus'
 import type { SettlementConfig } from '../../types/settlement'
@@ -92,8 +93,8 @@ import type { SettlementConfig } from '../../types/settlement'
 const loading = ref(false)
 const saving = ref(false)
 
-// 编辑状态
-const isEditing = ref(false)
+// 编辑状态（默认允许编辑）
+const isEditing = ref(true)
 
 // 配置数据
 const config = reactive<SettlementConfig>({
@@ -106,48 +107,15 @@ const config = reactive<SettlementConfig>({
   update_time: ''
 })
 
-// 时间选择器绑定值
-const dailyTime = computed({
-  get: () => {
-    if (!config.daily_time) return null
-    const [hours, minutes] = config.daily_time.split(':').map(Number)
-    const date = new Date()
-    date.setHours(hours, minutes, 0)
-    return date
-  },
-  set: (value: Date | null) => {
-    if (value) {
-      const hours = value.getHours().toString().padStart(2, '0')
-      const minutes = value.getMinutes().toString().padStart(2, '0')
-      config.daily_time = `${hours}:${minutes}`
-    }
-  }
-})
-
-const weeklyTime = computed({
-  get: () => {
-    if (!config.weekly_time) return null
-    const [hours, minutes] = config.weekly_time.split(':').map(Number)
-    const date = new Date()
-    date.setHours(hours, minutes, 0)
-    return date
-  },
-  set: (value: Date | null) => {
-    if (value) {
-      const hours = value.getHours().toString().padStart(2, '0')
-      const minutes = value.getMinutes().toString().padStart(2, '0')
-      config.weekly_time = `${hours}:${minutes}`
-    }
-  }
-})
+// 时间选择器直接绑定字符串（value-format="HH:mm"）
 
 // 获取结算配置
 const fetchConfig = async () => {
   loading.value = true
   try {
     const response = await api.settlement.getConfig()
-    if (response.data) {
-      Object.assign(config, response.data)
+    if (response && typeof response === 'object') {
+      Object.assign(config, response as any)
     }
   } catch (error) {
     console.error('获取结算配置失败', error)
@@ -228,27 +196,16 @@ onMounted(() => {
   padding: 10px;
 }
 
-.config-card {
-  background-color: #fff;
-  padding: 20px;
-  border-radius: 4px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
-}
 
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
-}
-
-.card-header h3 {
-  margin: 0;
 }
 
 .time-description {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-muted);
   margin-top: 5px;
 }
 </style>

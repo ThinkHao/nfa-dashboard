@@ -33,6 +33,7 @@ type SettlementFilter struct {
 	CP         string    `form:"cp"`
 	Limit      int       `form:"limit,default=100"`
 	Offset     int       `form:"offset,default=0"`
+	UserID     *uint64   `form:"user_id" json:"user_id"` // v2：按用户可见院校范围过滤（nil/0 表示不启用）
 }
 
 // SettlementConfig 结算配置
@@ -57,8 +58,8 @@ type SettlementTask struct {
 	TaskType       string    `gorm:"column:task_type;not null" json:"task_type"`              // 任务计算周期：daily(每日计算前一天)、weekly(每周计算前一周每天)
 	TaskDate       time.Time `gorm:"column:task_date;not null;type:date" json:"task_date"`    // 任务日期
 	Status         string    `gorm:"column:status;not null" json:"status"`                    // 状态：pending、running、success、failed
-	StartTime      time.Time `gorm:"column:start_time" json:"start_time"`                     // 开始时间
-	EndTime        time.Time `gorm:"column:end_time" json:"end_time"`                         // 结束时间
+	StartTime      *time.Time `gorm:"column:start_time" json:"start_time"`                    // 开始时间
+	EndTime        *time.Time `gorm:"column:end_time" json:"end_time"`                        // 结束时间
 	ProcessedCount int       `gorm:"column:processed_count;default:0" json:"processed_count"` // 处理记录数
 	ErrorMessage   string    `gorm:"column:error_message" json:"error_message"`               // 错误信息
 	CreateTime     time.Time `gorm:"column:create_time;not null;default:CURRENT_TIMESTAMP" json:"create_time"`
