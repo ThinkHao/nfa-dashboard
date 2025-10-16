@@ -70,8 +70,37 @@ jobs:
           # 复制后端构建产物
           cp backend/nfa-dashboard-backend dist/backend/
           
-          # 复制配置文件模板
-          cp backend/config/config.yaml dist/backend/config/config.yaml.template
+          # 复制配置文件模板（兼容无 config.yaml 的环境变量启动）
+          if [ -f backend/config/config.yaml ]; then
+            cp backend/config/config.yaml dist/backend/config/config.yaml.template
+          else
+            printf "%s\n" \
+              "# This file is optional. Backend also supports environment variables." \
+              "server:" \
+              "  port: 8081" \
+              "" \
+              "database:" \
+              "  host: \"\"" \
+              "  port: 3306" \
+              "  username: \"\"" \
+              "  password: \"\"" \
+              "  dbname: \"\"" \
+              "" \
+              "auth:" \
+              "  secret: \"\"" \
+              "  access_token_ttl_minutes: 60" \
+              "  refresh_token_ttl_minutes: 43200" \
+              "" \
+              "binding:" \
+              "  allowed_sales_roles: []" \
+              "  allowed_line_roles: []" \
+              "  allowed_node_roles: []" \
+              "" \
+              "rates_owner_roles:" \
+              "  customer_fee: []" \
+              "  network_line_fee: []" \
+              > dist/backend/config/config.yaml.template
+          fi
           
           # 复制部署脚本
           cp scripts/deploy.sh dist/scripts/
