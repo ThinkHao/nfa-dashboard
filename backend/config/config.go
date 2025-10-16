@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"github.com/spf13/viper"
 	"log"
+	"os"
+	"strings"
 )
 
 type Config struct {
@@ -57,16 +59,41 @@ type RatesOwnerRolesConfig struct {
 var AppConfig Config
 
 func LoadConfig() {
-	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
-	viper.AddConfigPath("./config")
+	if cfg := os.Getenv("APP_CONFIG"); cfg != "" {
+		viper.SetConfigFile(cfg)
+	} else {
+		viper.SetConfigName("config")
+		viper.AddConfigPath("./config")
+	}
+
+	viper.SetDefault("server.port", 8081)
+	viper.AutomaticEnv()
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	_ = viper.BindEnv("server.port", "APP_PORT")
+	_ = viper.BindEnv("database.host", "DB_HOST")
+	_ = viper.BindEnv("database.port", "DB_PORT")
+	_ = viper.BindEnv("database.username", "DB_USER")
+	_ = viper.BindEnv("database.password", "DB_PASS")
+	_ = viper.BindEnv("database.dbname", "DB_NAME")
+	// Auth via env
+	_ = viper.BindEnv("auth.secret", "AUTH_SECRET")
+	_ = viper.BindEnv("auth.access_token_ttl_minutes", "AUTH_ACCESS_TOKEN_TTL_MINUTES")
+	_ = viper.BindEnv("auth.refresh_token_ttl_minutes", "AUTH_REFRESH_TOKEN_TTL_MINUTES")
 
 	if err := viper.ReadInConfig(); err != nil {
-		log.Fatalf("Error reading config file: %s", err)
+		log.Printf("config file not found, using env only: %v", err)
 	}
 
 	if err := viper.Unmarshal(&AppConfig); err != nil {
 		log.Fatalf("Unable to decode config into struct: %s", err)
+	}
+
+	// Apply list-type env overrides (comma-separated)
+	applyEnvOverridesFromEnv()
+
+	if err := validateAndSetDefaults(); err != nil {
+		log.Fatalf("Invalid configuration: %v", err)
 	}
 
 	log.Println("配置加载成功")
@@ -93,10 +120,55 @@ func GetAccessTokenTTLMinutes() int {
 }
 
 func GetRefreshTokenTTLMinutes() int {
-	if AppConfig.Auth.RefreshTokenTTLMinutes <= 0 {
-		return 43200
-	}
-	return AppConfig.Auth.RefreshTokenTTLMinutes
+    if AppConfig.Auth.RefreshTokenTTLMinutes <= 0 {
+        return 43200
+    }
+    return AppConfig.Auth.RefreshTokenTTLMinutes
+}
+
+// validateAndSetDefaults validates essential configuration and applies sane defaults.
+func validateAndSetDefaults() error {
+    // Default port safeguard (in case env binding/unmarshal didn't set it)
+    if AppConfig.Server.Port == 0 {
+        AppConfig.Server.Port = 8081
+    }
+    // Database required fields
+    db := AppConfig.Database
+    if db.Host == "" || db.Port == 0 || db.Username == "" || db.Password == "" || db.DBName == "" {
+        return fmt.Errorf("incomplete database config")
+    }
+    return nil
+}
+
+// applyEnvOverridesFromEnv overrides list-type configs from comma-separated env vars.
+func applyEnvOverridesFromEnv() {
+    if v := strings.TrimSpace(os.Getenv("BINDING_ALLOWED_SALES_ROLES")); v != "" {
+        AppConfig.Binding.AllowedSalesRoles = splitCSV(v)
+    }
+    if v := strings.TrimSpace(os.Getenv("BINDING_ALLOWED_LINE_ROLES")); v != "" {
+        AppConfig.Binding.AllowedLineRoles = splitCSV(v)
+    }
+    if v := strings.TrimSpace(os.Getenv("BINDING_ALLOWED_NODE_ROLES")); v != "" {
+        AppConfig.Binding.AllowedNodeRoles = splitCSV(v)
+    }
+    if v := strings.TrimSpace(os.Getenv("RATES_OWNER_ROLES_CUSTOMER_FEE")); v != "" {
+        AppConfig.RatesOwnerRoles.CustomerFee = splitCSV(v)
+    }
+    if v := strings.TrimSpace(os.Getenv("RATES_OWNER_ROLES_NETWORK_LINE_FEE")); v != "" {
+        AppConfig.RatesOwnerRoles.NetworkLineFee = splitCSV(v)
+    }
+}
+
+func splitCSV(s string) []string {
+    parts := strings.Split(s, ",")
+    out := make([]string, 0, len(parts))
+    for _, p := range parts {
+        p = strings.TrimSpace(p)
+        if p != "" {
+            out = append(out, p)
+        }
+    }
+    return out
 }
 
 // 新增：分别获取销售与线路的角色白名单
