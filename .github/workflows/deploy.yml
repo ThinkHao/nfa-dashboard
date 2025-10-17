@@ -233,6 +233,13 @@ jobs:
           cp -r compose/docker-compose.prod.yml ${BUNDLE}/compose/
           cp -r compose/docker-compose.offline.yml ${BUNDLE}/compose/
           cp -r compose/.env.example ${BUNDLE}/compose/
+          # 生成 .env 并自动写入 IMAGE_TAG=VERSION
+          cp ${BUNDLE}/compose/.env.example ${BUNDLE}/compose/.env
+          if grep -q '^IMAGE_TAG=' ${BUNDLE}/compose/.env; then
+            sed -i.bak "s/^IMAGE_TAG=.*/IMAGE_TAG=${VERSION}/" ${BUNDLE}/compose/.env && rm -f ${BUNDLE}/compose/.env.bak
+          else
+            echo "IMAGE_TAG=${VERSION}" >> ${BUNDLE}/compose/.env
+          fi
           cp -r compose/nginx/nginx.conf ${BUNDLE}/compose/nginx/nginx.conf
           cp -r compose/README-RUNBOOK.md ${BUNDLE}/
           cp -r sql/dist/install_full.sql ${BUNDLE}/sql/dist/
