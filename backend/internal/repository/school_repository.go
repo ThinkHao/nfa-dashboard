@@ -16,6 +16,10 @@ type SchoolRepository interface {
 	GetAllRegions() ([]string, error)
 	// 获取所有运营商
 	GetAllCPs() ([]string, error)
+	// v2：按用户过滤的地区列表
+	GetRegionsWithUser(userID *uint64) ([]string, error)
+	// v2：按用户过滤的运营商列表
+	GetCPsWithUser(userID *uint64) ([]string, error)
 	// 根据过滤条件获取流量数据
 	GetTrafficData(filter model.TrafficFilter) ([]model.TrafficResponse, error)
 	// 获取流量汇总数据
@@ -109,6 +113,32 @@ func (r *schoolRepository) GetAllCPs() ([]string, error) {
 	var cps []string
 	err := model.DB.Model(&model.School{}).Distinct().Pluck("cp", &cps).Error
 	return cps, err
+}
+
+// GetRegionsWithUser v2：按用户过滤可见院校范围的地区列表
+func (r *schoolRepository) GetRegionsWithUser(userID *uint64) ([]string, error) {
+	var regions []string
+	q := model.DB.Model(&model.School{})
+	if userID != nil && *userID > 0 {
+		q = q.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", *userID)
+	}
+	if err := q.Distinct().Pluck("region", &regions).Error; err != nil {
+		return nil, err
+	}
+	return regions, nil
+}
+
+// GetCPsWithUser v2：按用户过滤可见院校范围的运营商列表
+func (r *schoolRepository) GetCPsWithUser(userID *uint64) ([]string, error) {
+	var cps []string
+	q := model.DB.Model(&model.School{})
+	if userID != nil && *userID > 0 {
+		q = q.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", *userID)
+	}
+	if err := q.Distinct().Pluck("cp", &cps).Error; err != nil {
+		return nil, err
+	}
+	return cps, nil
 }
 
 // GetTrafficData 根据过滤条件获取流量数据

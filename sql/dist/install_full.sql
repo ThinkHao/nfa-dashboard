@@ -146,12 +146,19 @@ CREATE TABLE IF NOT EXISTS `permissions` (
   `code` VARCHAR(128) NOT NULL,
   `name` VARCHAR(128) NOT NULL,
   `description` VARCHAR(255) NULL,
+  `enabled` TINYINT(1) NOT NULL DEFAULT 1,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_permissions_code` (`code`),
   KEY `idx_permissions_name` (`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Guarded migration: ensure `enabled` column exists for existing installations
+SET @ddl := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='permissions' AND COLUMN_NAME='enabled')=0,
+  'ALTER TABLE `permissions` ADD COLUMN `enabled` TINYINT(1) NOT NULL DEFAULT 1 AFTER `description`', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- 004_auth_user_roles.sql
 CREATE TABLE IF NOT EXISTS `user_roles` (
@@ -215,7 +222,8 @@ INSERT INTO `permissions` (`code`, `name`, `description`) VALUES
   ('baseconfig.manage', '进制配置-管理', 'Manage base config'),
   ('operation_logs.read', '操作日志-查看', 'Read operation logs'),
   ('system.user.manage', '系统用户-管理', 'Manage system users'),
-  ('system.role.manage', '系统角色-管理', 'Manage system roles')
+  ('system.role.manage', '系统角色-管理', 'Manage system roles'),
+  ('system.permission.manage', '权限管理', 'Manage permissions and sync from code')
 ON DUPLICATE KEY UPDATE `name` = VALUES(`name`), `description` = VALUES(`description`);
 
 INSERT INTO `users` (`username`, `password_hash`, `email`, `phone`, `status`)
@@ -229,7 +237,7 @@ INSERT IGNORE INTO `role_permissions` (`role_id`, `permission_id`)
 SELECT r.id, p.id FROM `roles` r JOIN `permissions` p ON p.code IN (
   'rates.customer.read','rates.customer.write','rates.node.read','rates.node.write',
   'rates.final.read','rates.final.write','settlement.calculate','settlement.export',
-  'bizobject.manage','baseconfig.manage','operation_logs.read','system.user.manage','system.role.manage')
+  'bizobject.manage','baseconfig.manage','operation_logs.read','system.user.manage','system.role.manage','system.permission.manage')
 WHERE r.name = 'admin';
 
 -- 008_settlement_rates.sql（核心表，若不存在则创建最小必需结构）

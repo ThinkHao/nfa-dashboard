@@ -16,6 +16,32 @@ type SchoolController struct {
 	schoolService service.SchoolService
 }
 
+// GetAllRegionsV2 获取所有地区（v2：按 user_id 过滤，普通用户强制为自身；管理员可查看全量或指定 user_id）
+func (c *SchoolController) GetAllRegionsV2(ctx *gin.Context) {
+    var reqUserID *uint64
+    if v := ctx.Query("user_id"); v != "" { if uv, err := strconv.ParseUint(v, 10, 64); err == nil && uv > 0 { reqUserID = &uv } }
+    if !hasAnyPermission(ctx, "system.user.manage") { if uid, ok := currentUserID(ctx); ok { reqUserID = &uid } }
+    regions, err := c.schoolService.GetRegionsWithUser(reqUserID)
+    if err != nil {
+        ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取地区列表失败", "error": err.Error()})
+        return
+    }
+    ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取地区列表成功", "data": regions})
+}
+
+// GetAllCPsV2 获取所有运营商（v2：按 user_id 过滤，普通用户强制为自身；管理员可查看全量或指定 user_id）
+func (c *SchoolController) GetAllCPsV2(ctx *gin.Context) {
+    var reqUserID *uint64
+    if v := ctx.Query("user_id"); v != "" { if uv, err := strconv.ParseUint(v, 10, 64); err == nil && uv > 0 { reqUserID = &uv } }
+    if !hasAnyPermission(ctx, "system.user.manage") { if uid, ok := currentUserID(ctx); ok { reqUserID = &uid } }
+    cps, err := c.schoolService.GetCPsWithUser(reqUserID)
+    if err != nil {
+        ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取运营商列表失败", "error": err.Error()})
+        return
+    }
+    ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取运营商列表成功", "data": cps})
+}
+
 // GetTrafficDataV2 获取流量数据（v2：按 user_id 过滤，普通用户强制为自身）
 func (c *SchoolController) GetTrafficDataV2(ctx *gin.Context) {
     var filter model.TrafficFilter

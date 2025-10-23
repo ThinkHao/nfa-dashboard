@@ -16,6 +16,10 @@ type SchoolService interface {
 	GetAllRegions() ([]string, error)
 	// 获取所有运营商
 	GetAllCPs() ([]string, error)
+	// v2：按用户过滤的地区列表
+	GetRegionsWithUser(userID *uint64) ([]string, error)
+	// v2：按用户过滤的运营商列表
+	GetCPsWithUser(userID *uint64) ([]string, error)
 	// 根据过滤条件获取流量数据
 	GetTrafficData(filter model.TrafficFilter) ([]model.TrafficResponse, error)
 	// 获取流量汇总数据
@@ -69,6 +73,16 @@ func (s *schoolService) GetAllRegions() ([]string, error) {
 // GetAllCPs 获取所有运营商
 func (s *schoolService) GetAllCPs() ([]string, error) {
 	return s.repo.GetAllCPs()
+}
+
+// GetRegionsWithUser v2：按用户过滤
+func (s *schoolService) GetRegionsWithUser(userID *uint64) ([]string, error) {
+	return s.repo.GetRegionsWithUser(userID)
+}
+
+// GetCPsWithUser v2：按用户过滤
+func (s *schoolService) GetCPsWithUser(userID *uint64) ([]string, error) {
+	return s.repo.GetCPsWithUser(userID)
 }
 
 // GetTrafficData 根据过滤条件获取流量数据

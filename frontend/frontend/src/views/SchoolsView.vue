@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import api from '../api'
 import { 
   ElCard, 
@@ -31,13 +32,18 @@ const queryForm = reactive({
   cp: ''
 })
 
+const router = useRouter()
+
 // 初始化数据
 onMounted(async () => {
   try {
+    await loadRegionCpOptions()
     // 先加载学校数据（基于 v2，按用户过滤）
     await loadSchools()
     // 基于学校数据动态派生地区与运营商选项
-    computeRegionCpOptions()
+    if ((!regions.value || regions.value.length === 0) || (!cps.value || cps.value.length === 0)) {
+      computeRegionCpOptions()
+    }
   } catch (error) {
     console.error('初始化数据失败:', error)
     ElMessage.error('加载数据失败，请刷新页面重试')
@@ -145,6 +151,30 @@ function formatDate(dateStr) {
   const date = new Date(dateStr)
   return date.toLocaleString()
 }
+
+async function loadRegionCpOptions() {
+  try {
+    const r = await (api as any).v2.getRegions()
+    regions.value = Array.isArray(r) ? r.filter((v: any) => v && v !== 'NULL').sort() : []
+  } catch {
+    regions.value = []
+  }
+  try {
+    const c = await (api as any).v2.getCPs()
+    cps.value = Array.isArray(c) ? c.filter((v: any) => v && v !== 'NULL').sort() : []
+  } catch {
+    cps.value = []
+  }
+}
+
+// 跳转到流量监控并带上过滤参数
+function goTraffic(row: any) {
+  const query: Record<string, string> = {}
+  if (row?.school_name) query.school_name = String(row.school_name)
+  if (row?.region && row.region !== 'NULL') query.region = String(row.region)
+  if (row?.cp && row.cp !== 'NULL') query.cp = String(row.cp)
+  router.push({ path: '/traffic', query })
+}
 </script>
 
 <template>
@@ -205,7 +235,7 @@ function formatDate(dateStr) {
             <ElButton 
               type="primary" 
               size="small" 
-              @click="$router.push(`/traffic?school_name=${scope.row.school_name}`)"
+              @click="goTraffic(scope.row)"
             >
               查看流量
             </ElButton>

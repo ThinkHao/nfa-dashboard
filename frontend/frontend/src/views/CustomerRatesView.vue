@@ -454,11 +454,11 @@ async function preloadSelectedUsersIntoOptions(idsOverride?: number[]) {
 async function loadRegionsAndCPs() {
   try {
     const [regions, cps] = await Promise.all([
-      api.getRegions(),
-      api.getCPs(),
+      (api as any).v2.getRegions(),
+      (api as any).v2.getCPs(),
     ])
-    regionOptions.value = Array.isArray(regions) ? regions : []
-    cpOptions.value = Array.isArray(cps) ? cps : []
+    regionOptions.value = Array.isArray(regions) ? regions.filter((v: any) => v && v !== 'NULL') : []
+    cpOptions.value = Array.isArray(cps) ? cps.filter((v: any) => v && v !== 'NULL') : []
   } catch {}
 }
 
@@ -466,7 +466,7 @@ async function loadRegionsAndCPs() {
 async function remoteSearchSchoolsFilter(q: string) {
   schoolsLoading.value = true
   try {
-    const data = await api.getSchools({ region: query.region, cp: query.cp, school_name: q || undefined, page: 1, page_size: 20 })
+    const data = await (api as any).v2.getSchools({ region: query.region, cp: query.cp, school_name: q || undefined, limit: 20, offset: 0 })
     const list: any[] = Array.isArray(data?.items) ? data.items : (Array.isArray(data) ? data : [])
     schoolOptions.value = list.map((it: any) => it?.school_name || it?.name || it).filter(Boolean)
   } catch {}
@@ -477,7 +477,7 @@ async function remoteSearchSchoolsFilter(q: string) {
 async function remoteSearchSchoolsDialog(q: string) {
   schoolsLoading.value = true
   try {
-    const data = await api.getSchools({ region: form.region, cp: form.cp, school_name: q || undefined, page: 1, page_size: 20 })
+    const data = await (api as any).v2.getSchools({ region: form.region, cp: form.cp, school_name: q || undefined, limit: 20, offset: 0 })
     const list: any[] = Array.isArray(data?.items) ? data.items : (Array.isArray(data) ? data : [])
     schoolOptions.value = list.map((it: any) => it?.school_name || it?.name || it).filter(Boolean)
   } catch {}

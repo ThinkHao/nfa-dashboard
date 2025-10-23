@@ -131,6 +131,8 @@ func main() {
 		{
 			// 学校与流量相关接口（需要登录与权限）
 			v2.GET("/schools", authMW.AuthRequired(), authMW.PermissionRequired("school.read"), schoolController.GetAllSchoolsV2)
+			v2.GET("/regions", authMW.AuthRequired(), authMW.PermissionRequired("school.read"), schoolController.GetAllRegionsV2)
+			v2.GET("/cps", authMW.AuthRequired(), authMW.PermissionRequired("school.read"), schoolController.GetAllCPsV2)
 			v2.GET("/traffic", authMW.AuthRequired(), authMW.PermissionRequired("traffic.read"), schoolController.GetTrafficDataV2)
 			v2.GET("/traffic/summary", authMW.AuthRequired(), authMW.PermissionRequired("traffic.read"), schoolController.GetTrafficSummaryV2)
 

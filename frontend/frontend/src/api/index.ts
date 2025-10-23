@@ -40,20 +40,27 @@ import type {
 // 获取当前 API 基地址（不带路径，形如 https://host:port）
 const getBaseUrl = () => {
   try {
-    const envBase = (import.meta as any)?.env?.VITE_API_BASE as string | undefined;
-    if (envBase && typeof envBase === 'string' && envBase.trim()) {
-      return envBase.replace(/\/$/, '');
+    const raw = (import.meta as any)?.env?.VITE_API_BASE as string | undefined
+    const envBase = typeof raw === 'string' ? raw.trim() : ''
+    const isDev = (import.meta as any)?.env?.DEV
+    if (isDev) {
+      try { console.debug('[API] VITE_API_BASE(raw)=', raw, 'trimmed=', envBase) } catch {}
+    }
+    if (envBase) {
+      return envBase.replace(/\/+$/, '')
     }
   } catch {}
   if (typeof window !== 'undefined') {
-    return `${window.location.origin}`;
+    return `${window.location.origin}`
   }
-  return 'http://localhost:8091';
-};
+  return 'http://localhost:8091'
+}
 
 // 创建axios实例
+const __BASE = getBaseUrl()
+try { if ((import.meta as any)?.env?.DEV) console.debug('[API] axios baseURL =', __BASE) } catch {}
 const api = axios.create({
-  baseURL: getBaseUrl(), // 动态设置后端API地址
+  baseURL: __BASE, // 动态设置后端API地址
   timeout: 60000, // 请求超时时间增加到60秒，以处理大量数据
   maxContentLength: 50 * 1024 * 1024, // 最大内容长度50MB
   maxBodyLength: 50 * 1024 * 1024 // 最大请求体长度50MB
@@ -528,6 +535,16 @@ export default {
     // 学校列表（v2）
     getSchools(params?: any) {
       return api.get('/api/v2/schools', { params })
+        .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+    },
+    // 地区列表（v2，按用户可见范围）
+    getRegions(params?: any) {
+      return api.get('/api/v2/regions', { params })
+        .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+    },
+    // 运营商列表（v2，按用户可见范围）
+    getCPs(params?: any) {
+      return api.get('/api/v2/cps', { params })
         .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
     // 流量数据（v2）

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import api from '../api'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -30,6 +31,9 @@ use([
   DataZoomComponent,
   ToolboxComponent
 ])
+
+// 路由
+const route = useRoute()
 
 // 数据状态
 const loading = ref(false)
@@ -261,15 +265,28 @@ onMounted(async () => {
     queryForm.start_time = oneHourAgo.toISOString()
     queryForm.end_time = now.toISOString()
     
-    // 加载学校数据（基于 v2，仅返回当前用户可见范围）
-    await loadSchools()
-    // 基于学校数据动态派生地区与运营商选项
-    computeRegionCpOptions()
+    // 读取路由查询参数作为默认过滤
+    const q: any = route.query || {}
+    if (typeof q.school_name === 'string' && q.school_name) {
+      queryForm.school_name = q.school_name
+    }
+    if (typeof q.region === 'string' && q.region) {
+      queryForm.region = q.region
+    }
+    if (typeof q.cp === 'string' && q.cp) {
+      queryForm.cp = q.cp
+    }
     
-    // 加载流量数据，确保默认查询条件下数据正确
-    queryForm.school_name = ''
-    queryForm.region = ''
-    queryForm.cp = ''
+    // 先加载地区/运营商（v2，按用户可见范围）
+    await loadRegionCpOptions()
+    // 再加载学校数据（基于 v2，仅返回当前用户可见范围）
+    await loadSchools()
+    // 若未能从接口获得地区/运营商，则基于学校数据兜底派生
+    if ((!regions.value || regions.value.length === 0) || (!cps.value || cps.value.length === 0)) {
+      computeRegionCpOptions()
+    }
+    
+    // 加载流量数据：使用来自路由的过滤条件（若提供）
     await loadTrafficData()
   } catch (error) {
     console.error('初始化数据失败:', error)
@@ -281,6 +298,21 @@ onMounted(async () => {
 watch(currentPage, () => {
   loadTrafficData()
 })
+
+// 监听路由查询变化（在已处于 /traffic 页面时再次从外部带参跳转也能生效）
+watch(
+  () => route.query,
+  (q: any) => {
+    try {
+      if (q && typeof q === 'object') {
+        queryForm.school_name = typeof q.school_name === 'string' ? q.school_name : ''
+        queryForm.region = typeof q.region === 'string' ? q.region : ''
+        queryForm.cp = typeof q.cp === 'string' ? q.cp : ''
+        loadTrafficData()
+      }
+    } catch {}
+  }
+)
 
 // 基于当前 schools 列表动态派生地区/运营商选项（仅限可见院校）
 function computeRegionCpOptions() {
@@ -296,6 +328,22 @@ function computeRegionCpOptions() {
   } catch (e) {
     console.warn('派生地区/运营商选项失败:', e)
     regions.value = []
+    cps.value = []
+  }
+}
+
+// 通过 v2 接口加载地区/运营商选项（按用户可见范围过滤）
+async function loadRegionCpOptions() {
+  try {
+    const r = await (api as any).v2.getRegions()
+    regions.value = Array.isArray(r) ? r.filter((v: any) => v && v !== 'NULL').sort() : []
+  } catch {
+    regions.value = []
+  }
+  try {
+    const c = await (api as any).v2.getCPs()
+    cps.value = Array.isArray(c) ? c.filter((v: any) => v && v !== 'NULL').sort() : []
+  } catch {
     cps.value = []
   }
 }
