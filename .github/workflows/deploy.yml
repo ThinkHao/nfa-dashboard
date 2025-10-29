@@ -211,8 +211,88 @@ jobs:
           path: artifacts/*
           retention-days: 7
 
+  offline-bundle-amd64:
+    needs: build-linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 获取版本号
+        id: meta
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          else
+            VERSION=dev-$(date +'%Y%m%d%H%M')
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: 构建离线镜像 (amd64)
+        run: |
+          docker build -t nfa-dashboard-backend:${{ steps.meta.outputs.VERSION }} ./backend
+          docker build -t nfa-dashboard-frontend:${{ steps.meta.outputs.VERSION }} ./frontend/frontend
+
+      - name: 组装离线包
+        run: |
+          set -euo pipefail
+          VERSION=${{ steps.meta.outputs.VERSION }}
+          BUNDLE="nfa-offline-bundle-${VERSION}-linux-amd64"
+          mkdir -p "${BUNDLE}/compose/nginx" "${BUNDLE}/scripts"
+          # 复制 Compose 离线文件与示例环境
+          cp compose/docker-compose.offline.yml "${BUNDLE}/compose/docker-compose.offline.yml"
+          cp compose/.env.example "${BUNDLE}/compose/.env.example"
+          cp compose/nginx/nginx.conf "${BUNDLE}/compose/nginx/nginx.conf"
+          # 生成 compose/.env 并写入 IMAGE_TAG
+          cp "${BUNDLE}/compose/.env.example" "${BUNDLE}/compose/.env"
+          if grep -q '^IMAGE_TAG=' "${BUNDLE}/compose/.env"; then
+            sed -i.bak "s/^IMAGE_TAG=.*/IMAGE_TAG=${VERSION}/" "${BUNDLE}/compose/.env" && rm -f "${BUNDLE}/compose/.env.bak"
+          else
+            echo "IMAGE_TAG=${VERSION}" >> "${BUNDLE}/compose/.env"
+          fi
+          # 复制离线脚本
+          cp scripts/offline-deploy.sh "${BUNDLE}/scripts/offline-deploy.sh"
+          cp scripts/offline-rollback.sh "${BUNDLE}/scripts/offline-rollback.sh"
+          chmod +x "${BUNDLE}/scripts/offline-deploy.sh" "${BUNDLE}/scripts/offline-rollback.sh"
+          # 生成 bundle.yaml 元数据
+          cat > "${BUNDLE}/bundle.yaml" <<'EOF'
+          version: v1
+          app:
+            name: nfa-dashboard
+            release: __VERSION__
+          images:
+            - name: nfa-dashboard-backend
+              tag: __VERSION__
+            - name: nfa-dashboard-frontend
+              tag: __VERSION__
+          env:
+            required:
+              - DB_HOST
+              - DB_USER
+              - DB_PASS
+              - DB_NAME
+              - AUTH_SECRET
+          health:
+            endpoint: /health
+          rollback:
+            keep_releases: 2
+          EOF
+          sed -i.bak "s/__VERSION__/${VERSION}/g" "${BUNDLE}/bundle.yaml" && rm -f "${BUNDLE}/bundle.yaml.bak"
+          # 导出合并镜像
+          docker save nfa-dashboard-backend:${VERSION} nfa-dashboard-frontend:${VERSION} | gzip > "${BUNDLE}/images-amd64.tar.gz"
+          # 生成校验文件
+          (cd "${BUNDLE}" && sha256sum images-amd64.tar.gz compose/docker-compose.offline.yml compose/.env.example bundle.yaml scripts/offline-deploy.sh scripts/offline-rollback.sh > sha256sums.txt)
+          # 打包 ZIP
+          zip -r "${BUNDLE}.zip" "${BUNDLE}"
+
+      - name: 上传离线包
+        uses: actions/upload-artifact@v4
+        with:
+          name: offline-bundle-amd64
+          path: nfa-offline-bundle-${{ steps.meta.outputs.VERSION }}-linux-amd64.zip
+          retention-days: 7
+
   create-release:
-    needs: [build-linux, docker-offline-images]
+    needs: [build-linux, docker-offline-images, offline-bundle-amd64]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -262,3 +342,4 @@ jobs:
             nfa-dashboard-bundle-${{ steps.get_version.outputs.VERSION }}.zip
             offline-images-amd64/nfa-dashboard-backend-image-linux-amd64.tar
             offline-images-amd64/nfa-dashboard-frontend-image-linux-amd64.tar
+            offline-bundle-amd64/nfa-offline-bundle-${{ steps.get_version.outputs.VERSION }}-linux-amd64.zip
