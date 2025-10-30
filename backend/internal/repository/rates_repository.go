@@ -69,9 +69,10 @@ func (r *ratesRepository) ListCustomerRates(filter map[string]interface{}, limit
 			if b {
 				q = q.Where("school_name IS NOT NULL AND school_name <> ''").
 					Where("customer_fee IS NOT NULL").
-					Where("network_line_fee IS NOT NULL")
+					Where("network_line_fee IS NOT NULL").
+					Where("general_fee IS NOT NULL")
 			} else {
-				q = q.Where("(school_name IS NULL OR school_name = '' OR customer_fee IS NULL OR network_line_fee IS NULL)")
+				q = q.Where("(school_name IS NULL OR school_name = '' OR customer_fee IS NULL OR network_line_fee IS NULL OR general_fee IS NULL)")
 			}
 		}
 	}

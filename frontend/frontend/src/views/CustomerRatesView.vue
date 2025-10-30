@@ -656,6 +656,7 @@ function formatMissingFields(m?: string[]): string {
     school_name: '学校',
     customer_fee: '客户费',
     network_line_fee: '线路费',
+    general_fee: '节点通用费',
   }
   return '缺失字段：' + m.map(k => map[k] || k).join('、')
 }

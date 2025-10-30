@@ -53,6 +53,7 @@ func (ctl *SettlementRatesController) ListCustomerRates(c *gin.Context) {
 		if name == "" { missing = append(missing, "school_name") }
 		if it.CustomerFee == nil { missing = append(missing, "customer_fee") }
 		if it.NetworkLineFee == nil { missing = append(missing, "network_line_fee") }
+		if it.GeneralFee == nil { missing = append(missing, "general_fee") }
 		ready := len(missing) == 0
 		resp = append(resp, customerResp{RateCustomer: it, SettlementReady: ready, MissingFields: missing})
 	}
