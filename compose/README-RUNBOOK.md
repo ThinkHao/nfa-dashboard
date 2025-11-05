@@ -47,3 +47,43 @@ docker compose --env-file .env --profile with-db up -d
 ## 六、回滚建议
 - 镜像回滚：切换回上一个 tag 并重启 compose
 - 数据回滚：使用执行 install_full.sql 前的数据库备份
+
+## 七、离线部署（无网络环境）
+
+适用于无法联网拉取镜像的环境，使用离线包内置镜像与脚本进行一键升级，保留最近 2 个版本。
+
+- 约束与前置条件
+  - 仅支持 Linux amd64
+  - 已安装 Docker 20+ 与 docker compose v2
+  - 使用外置 MySQL 5.7（离线方案不包含数据库容器）
+  - 后端健康检查 URL：`GET /health`
+
+- .env 准备与继承
+  - 离线脚本仅从当前包的 `compose/.env` 合并生成新配置；不会自动读取包外目录
+  - 建议做法：
+    - 覆盖升级：保留上次的 `compose/.env`；或
+    - 将旧版本的 `compose/.env` 复制到新包的 `compose/.env`
+  - 合并规则：以 `compose/.env.example` 为基准，旧键覆盖默认值，example 中不存在的旧键将被原样保留；并强制写入 `IMAGE_TAG=<离线包版本>`
+
+- 升级执行
+  ```bash
+  cd scripts
+  chmod +x offline-deploy.sh offline-rollback.sh
+  ./offline-deploy.sh
+  ```
+  - 流程：校验 → 导入镜像（images-amd64.tar.gz） → 合并/校验 .env →
+    `docker compose -f compose/docker-compose.offline.yml --env-file compose/.env up -d` → 健康检查
+
+- 验证
+  - 前端：http://<host>:${FRONTEND_PORT}（默认 8080）
+  - 健康检查：http://<host>:${APP_PORT}/health（默认 8081），返回 `{ "status": "ok" }`
+
+- 回滚
+  - 手动回滚：`cd scripts && ./offline-rollback.sh`
+  - 升级失败时脚本会尝试自动回滚到 `releases/` 中的上一个版本
+
+- 常见问题（FAQ）
+  - 旧 `.env` 不在当前包目录，如何继承？
+    - 将旧版本 `compose/.env` 复制到新包 `compose/.env` 后再执行脚本，脚本会自动合并
+  - `.env` 的镜像标签如何确定？
+    - 脚本会从 `bundle.yaml` 或 `.env.example` 解析版本并写入 `IMAGE_TAG`

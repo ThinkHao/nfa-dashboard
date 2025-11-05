@@ -97,6 +97,64 @@ git push origin v1.0.0
    ./deploy.sh uninstall
    ```
 
+### 离线部署（一键升级，Linux amd64）
+
+> 适用于无法联网拉取镜像的环境。离线包内置镜像与脚本，支持健康检查与自动回滚，仅保留最近 2 个版本。
+
+- 约束与前置条件
+  - 仅支持 Linux amd64
+  - 服务器已安装 Docker 20+ 与 docker compose v2
+  - 使用外置 MySQL 5.7（compose 离线方案不包含数据库容器）
+  - 后端健康检查 URL：`GET /health`（脚本会等待通过）
+
+- 离线包目录结构（解压后）
+  ```
+  nfa-dashboard/
+  ├─ compose/
+  │  ├─ docker-compose.offline.yml
+  │  └─ .env.example
+  ├─ scripts/
+  │  ├─ offline-deploy.sh        # 升级/部署
+  │  └─ offline-rollback.sh      # 回滚到上一个版本
+  ├─ images-amd64.tar.gz         # 预打包镜像
+  ├─ sha256sums.txt              # 可选：文件校验
+  └─ releases/                   # 部署后生成的回滚点目录（最多保留 2 个版本）
+  ```
+
+- 准备环境变量（.env 来源说明）
+  - 脚本仅从当前包内的 `compose/.env` 合并生成新配置；不会自动读取包外目录
+  - 升级前请确保以下其一：
+    - 同目录覆盖升级：保留上次的 `compose/.env`
+    - 或将“旧版本”中的 `compose/.env` 复制到新包 `compose/.env`
+  - 脚本会以 `compose/.env.example` 为基准合并旧值，保留 example 中没有的自定义键，并强制写入 `IMAGE_TAG=<离线包版本>`
+  - 必填项：`DB_HOST`、`DB_USER`、`DB_PASS`、`DB_NAME`、`AUTH_SECRET`
+
+- 执行升级
+  ```bash
+  cd scripts
+  chmod +x offline-deploy.sh offline-rollback.sh
+  ./offline-deploy.sh
+  ```
+  - 流程：校验 → 导入镜像 → 合并/校验 .env → `docker compose -f compose/docker-compose.offline.yml --env-file compose/.env up -d` → 健康检查
+  - 成功后会把本次使用的 `compose/.env` 与 compose 文件保存到 `releases/<版本>/`，最多保留最近 2 个版本
+
+- 验证
+  - 前端：http://<host>:`${FRONTEND_PORT}`（默认 8080）
+  - 健康检查：http://<host>:`${APP_PORT}`/health（默认 8081），返回 `{"status":"ok"}`
+
+- 回滚
+  - 手动回滚：
+    ```bash
+    cd scripts && ./offline-rollback.sh
+    ```
+  - 脚本还会在升级健康检查失败时尝试自动回滚到上一个版本（如果 `releases/` 中存在）
+
+- 常见问题
+  - 问：旧的 `.env` 不在当前包目录，如何继承？
+    - 答：请将旧版本的 `compose/.env` 复制到新包的 `compose/.env` 后再执行脚本，脚本会自动合并到新 `.env`
+  - 问：`.env` 中的镜像标签如何确定？
+    - 答：脚本会从 `bundle.yaml` 或 `.env.example` 解析版本并写入 `IMAGE_TAG`，无需手工修改
+
 部署脚本支持的参数：
 - `--domain`: 网站域名（默认：localhost）
 - `--db-host`: 数据库主机地址（默认：localhost）

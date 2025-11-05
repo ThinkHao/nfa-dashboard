@@ -513,9 +513,30 @@ async function loadTrafficData() {
         return itemTime >= startDate.getTime() && itemTime <= endDate.getTime()
       })
       
-      // 如果选择了学校名称但没有选择内容方，需要对数据进行特殊处理
+      // 聚合策略：
+      // 1) 无任何筛选（学校/地区/运营商均为空）时，按时间点聚合求和，显示整体“总服务/总回源流速”。
+      // 2) 选择了学校但未选择内容方时，按时间点聚合该学校的所有内容方数据。
       let finalData = filteredData
-      if (queryForm.school_name && !queryForm.cp) {
+      if (!queryForm.school_name && !queryForm.region && !queryForm.cp) {
+        console.log('检测到无任何筛选条件，按时间点聚合全量数据')
+
+        const dataByTimeAll: Record<string, any> = {}
+        filteredData.forEach((item: any) => {
+          const timeKey = item.create_time
+          if (!dataByTimeAll[timeKey]) {
+            dataByTimeAll[timeKey] = {
+              create_time: timeKey,
+              total_recv: 0,
+              total_send: 0,
+              time_str: item.time_str || timeKey,
+            }
+          }
+          dataByTimeAll[timeKey].total_recv += Number(item.total_recv) || 0
+          dataByTimeAll[timeKey].total_send += Number(item.total_send) || 0
+        })
+        finalData = Object.values(dataByTimeAll)
+        console.log(`无筛选聚合后数据点: ${finalData.length}, 原始: ${filteredData.length}`)
+      } else if (queryForm.school_name && !queryForm.cp) {
         console.log('检测到选择了学校但未选择内容方，将进行数据合并处理')
         
         // 按时间点分组数据
