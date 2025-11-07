@@ -21,6 +21,89 @@ import {
   ElMessage
 } from 'element-plus'
 
+function formatLabel(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const h = String(d.getHours()).padStart(2, '0')
+  const mi = String(d.getMinutes()).padStart(2, '0')
+  return `${y}-${m}-${day} ${h}:${mi}`
+}
+
+// 从任意 create_time 值生成“到分钟”的稳定字符串键（不做时区换算），示例："2025-11-05 15:45"
+function toMinuteKeyStr(val: any): string {
+  if (typeof val === 'string') {
+    const s = val.trim()
+    // ISO: 2025-11-05T15:45[:ss][Z]
+    let m = s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/)
+    if (m) return `${m[1]} ${m[2]}`
+    // 紧凑: 20251105 1545 或 2025/11/05 15:45
+    m = s.match(/^(\d{4})[-\/]?(\d{2})[-\/]?(\d{2}).*?(\d{2}):(\d{2})/)
+    if (m) return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}`
+    return s.slice(0, 16)
+  }
+  if (typeof val === 'number') {
+    const d = new Date(val < 1e12 ? val * 1000 : val)
+    return formatLabel(d)
+  }
+  if (val && typeof val === 'object' && 'toString' in val) {
+    return toMinuteKeyStr(String(val))
+  }
+  return ''
+}
+
+// 时间工具：格式化为 RFC3339（去毫秒，UTC Z），避免时区误差
+function toRFC3339Seconds(d: Date): string {
+  return d.toISOString().replace(/\.\d{3}Z$/, 'Z')
+}
+
+// 将任意时间归一化到其所在的5分钟桶，并返回标准ISO字符串（到分钟，秒固定为00）
+function toFiveMinuteKeyISO(d: Date): string {
+  const ms = d.getTime()
+  const minutes = Math.floor(ms / (60 * 1000))
+  const bucketMinutes = minutes - (minutes % 5)
+  const bucketMs = bucketMinutes * 60 * 1000
+  const dd = new Date(bucketMs)
+  // 使用 UTC ISO，去毫秒，保留到分钟
+  const iso = dd.toISOString().replace(/\.\d{3}Z$/, 'Z')
+  // 规范到“YYYY-MM-DDTHH:mm:00Z”
+  return iso.replace(/:\d{2}Z$/, ':00Z')
+}
+
+// 安全解析任意时间值为 Date（支持 RFC3339、"YYYY-MM-DD HH:mm:ss"、毫秒时间戳等）
+function parseTime(val: any): Date {
+  if (val instanceof Date) return val
+  if (typeof val === 'number') {
+    // 兼容秒/毫秒时间戳：小于 1e12 视为秒
+    return new Date(val < 1e12 ? val * 1000 : val)
+  }
+  if (typeof val === 'string') {
+    const s = val.trim()
+    // 1) 直接解析
+    let dt = new Date(s)
+    if (!isNaN(dt.getTime())) return dt
+    // 2) 抽取 "YYYY[-/]MM[-/]DD HH:mm[:ss]" 数字并作为本地时间构造
+    const m = s.match(/(\d{4})[-\/]?(\d{2})[-\/]?(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/)
+    if (m) {
+      const year = Number(m[1])
+      const month = Number(m[2]) - 1
+      const day = Number(m[3])
+      const hour = Number(m[4])
+      const minute = Number(m[5])
+      const second = m[6] ? Number(m[6]) : 0
+      dt = new Date(year, month, day, hour, minute, second)
+      if (!isNaN(dt.getTime())) return dt
+    }
+    // 3) 转 RFC3339（无时区时补 Z）
+    const t = s.replace(' ', 'T')
+    dt = /Z|[+-]\d{2}:?\d{2}$/.test(t) ? new Date(t) : new Date(`${t}Z`)
+    if (!isNaN(dt.getTime())) return dt
+  }
+  // 兜底：当前时间，避免 NaN 破坏聚合（并输出日志）
+  try { console.warn('无法解析时间，使用当前时间兜底:', val) } catch {}
+  return new Date()
+}
+
 // 注册 ECharts 组件
 use([
   CanvasRenderer,
@@ -57,6 +140,11 @@ const queryForm = reactive({
   timeRange: 'last1h' // 默认选择过去1小时
 })
 
+// 是否已选择任一筛选条件（地区/内容方/学校）
+const hasFilter = computed(() => {
+  return !!(queryForm.school_name || queryForm.region || queryForm.cp)
+})
+
 // 预设时间范围选项
 const timeRangeOptions = [
   { label: '过去1小时', value: 'last1h' },
@@ -78,6 +166,16 @@ const chartOption = computed(() => {
     console.log('第一条数据:', trafficData.value[0])
   }
   
+  // 无筛选时，不显示图表数据
+  if (!hasFilter.value) {
+    return {
+      title: { text: '流量监控', left: 'center', subtext: '请选择任一筛选条件后再查询' },
+      xAxis: { type: 'time' },
+      yAxis: { type: 'value', name: '流速 (bits/s)' },
+      series: []
+    }
+  }
+
   // 检查数据是否为空
   if (trafficData.value.length === 0) {
     console.warn('没有数据可供显示')
@@ -87,10 +185,7 @@ const chartOption = computed(() => {
         text: '流量监控',
         left: 'center'
       },
-      xAxis: {
-        type: 'category',
-        data: []
-      },
+      xAxis: { type: 'time' },
       yAxis: {
         type: 'value'
       },
@@ -98,58 +193,36 @@ const chartOption = computed(() => {
     }
   }
   
-  // 按时间升序排序数据
+  // 按时间升序排序数据（优先使用我们生成的 minute key 字符串，避免 Date 解析差异）
   const sortedData = [...trafficData.value].sort((a, b) => {
-    return new Date(a.create_time).getTime() - new Date(b.create_time).getTime()
+    const ak = String((a as any).time_str || (a as any).create_time || '')
+    const bk = String((b as any).time_str || (b as any).create_time || '')
+    if (ak === bk) return 0
+    return ak < bk ? -1 : 1
   })
   
   console.log('排序后数据长度:', sortedData.length)
   
-  // 提取时间点，保留完整时间信息（包括分钟）
+  // 提取时间点标签：使用我们生成的 minute key 字符串
   const times = sortedData.map(item => {
-    try {
-      const date = new Date(item.create_time)
-      if (isNaN(date.getTime())) {
-        console.error('无效的时间格式:', item.create_time)
-        return 'Invalid Date'
-      }
-      // 保留完整时间格式，包括分钟，确保显示 5 分钟额度
-      const year = date.getFullYear()
-      const month = String(date.getMonth() + 1).padStart(2, '0')
-      const day = String(date.getDate()).padStart(2, '0')
-      const hour = String(date.getHours()).padStart(2, '0')
-      const minute = String(date.getMinutes()).padStart(2, '0')
-      return `${year}-${month}-${day} ${hour}:${minute}`
-    } catch (error) {
-      console.error('格式化时间出错:', error, item)
-      return 'Error'
-    }
+    const key = String((item as any).time_str || (item as any).create_time || '')
+    return key.replace('T', ' ').replace('Z', '').slice(0, 16)
   })
   
   console.log('时间点数组:', times)
   
-  // 将原始数据转换为 bits/s
-  // 服务流速（原下载流速）
-  const serviceData = sortedData.map(item => {
-    try {
-      const bitsPerSecond = convertToBitsPerSecond(item.total_recv)
-      return bitsPerSecond // 返回原始数值，不进行格式化
-    } catch (error) {
-      console.error('计算服务流速出错:', error, item)
-      return 0
+  // 将原始数据转换为 bits/s，并与时间戳配对，供 time 轴渲染
+  const points = sortedData.map(item => {
+    const ms = typeof item.create_time === 'number' ? item.create_time : parseTime(item.create_time).getTime()
+    return {
+      t: ms,
+      recv: convertToBitsPerSecond(item.total_recv),
+      send: convertToBitsPerSecond(item.total_send),
     }
-  })
-  
-  // 回源流速（原上传流速）
-  const backSourceData = sortedData.map(item => {
-    try {
-      const bitsPerSecond = convertToBitsPerSecond(item.total_send)
-      return bitsPerSecond // 返回原始数值，不进行格式化
-    } catch (error) {
-      console.error('计算回源流速出错:', error, item)
-      return 0
-    }
-  })
+  }).filter(p => !isNaN(p.t))
+
+  const serviceData = points.map(p => [p.t, p.recv])
+  const backSourceData = points.map(p => [p.t, p.send])
   
   console.log('服务流速数组:', serviceData)
   console.log('回源流速数组:', backSourceData)
@@ -173,9 +246,17 @@ const chartOption = computed(() => {
     tooltip: {
       trigger: 'axis',
       formatter: function(params) {
-        let result = params[0].name + '<br/>'
+        let result = ''
+        if (params && params.length) {
+          const first = params[0]
+          // time 轴下，axisPointer 的 name 可能是格式化后的时间，也可能为空
+          const ts = Array.isArray(first.value) ? first.value[0] : undefined
+          const label = ts ? new Date(ts).toLocaleString() : (first.name || '')
+          result += label + '<br/>'
+        }
         params.forEach(param => {
-          result += param.seriesName + ': ' + formatBitRate(param.value) + '<br/>'
+          const v = Array.isArray(param.value) ? param.value[1] : param.value
+          result += param.seriesName + ': ' + formatBitRate(Number(v || 0)) + '<br/>'
         })
         return result
       }
@@ -208,21 +289,8 @@ const chartOption = computed(() => {
       }
     ],
     xAxis: {
-      type: 'category',
-      data: times,
-      axisLabel: {
-        rotate: 45,
-        formatter: function(value) {
-          // 根据当前粒度格式化时间标签
-          try {
-            const date = new Date(value)
-            return formatDate(date, currentGranularity.value)
-          } catch (error) {
-            console.error('格式化X轴标签出错:', error, value)
-            return value
-          }
-        }
-      }
+      type: 'time',
+      axisLabel: { rotate: 45 }
     },
     yAxis: {
       type: 'value',
@@ -239,18 +307,16 @@ const chartOption = computed(() => {
         type: 'line',
         data: serviceData,
         smooth: true,
-        areaStyle: {
-          opacity: 0.3
-        }
+        showSymbol: false,
+        areaStyle: { opacity: 0.1 }
       },
       {
         name: '回源流速',
         type: 'line',
         data: backSourceData,
         smooth: true,
-        areaStyle: {
-          opacity: 0.3
-        }
+        showSymbol: false,
+        areaStyle: { opacity: 0.1 }
       }
     ]
   }
@@ -262,8 +328,8 @@ onMounted(async () => {
     // 设置默认时间范围为最近1小时（与 timeRange 保持一致）
     const now = new Date()
     const oneHourAgo = new Date(now.getTime() - 1 * 60 * 60 * 1000)
-    queryForm.start_time = oneHourAgo.toISOString()
-    queryForm.end_time = now.toISOString()
+    queryForm.start_time = toRFC3339Seconds(oneHourAgo)
+    queryForm.end_time = toRFC3339Seconds(now)
     
     // 读取路由查询参数作为默认过滤
     const q: any = route.query || {}
@@ -286,8 +352,7 @@ onMounted(async () => {
       computeRegionCpOptions()
     }
     
-    // 加载流量数据：使用来自路由的过滤条件（若提供）
-    await loadTrafficData()
+    // 默认不加载流量数据，待用户选择筛选条件后点击查询
   } catch (error) {
     console.error('初始化数据失败:', error)
     ElMessage.error('加载数据失败，请刷新页面重试')
@@ -503,16 +568,9 @@ async function loadTrafficData() {
       console.log('原始数据:', JSON.stringify(rawList[0] || {}))
       console.log('处理后数据:', JSON.stringify(processedData[0] || {}))
       
-      // 手动过滤数据，确保只显示指定时间范围内的数据
-      const filteredData = processedData.filter(item => {
-        if (!item.create_time) {
-          console.warn('数据缺少时间字段:', item)
-          return false
-        }
-        const itemTime = new Date(item.create_time).getTime()
-        return itemTime >= startDate.getTime() && itemTime <= endDate.getTime()
-      })
-      
+      // 依赖服务端时间范围过滤，前端不再二次截断，避免时区误差导致数据丢失
+      const filteredData = processedData
+
       // 聚合策略：
       // 1) 无任何筛选（学校/地区/运营商均为空）时，按时间点聚合求和，显示整体“总服务/总回源流速”。
       // 2) 选择了学校但未选择内容方时，按时间点聚合该学校的所有内容方数据。
@@ -522,46 +580,49 @@ async function loadTrafficData() {
 
         const dataByTimeAll: Record<string, any> = {}
         filteredData.forEach((item: any) => {
-          const timeKey = item.create_time
-          if (!dataByTimeAll[timeKey]) {
-            dataByTimeAll[timeKey] = {
-              create_time: timeKey,
+          const key = toMinuteKeyStr(item.time_str || item.create_time)
+          if (!key) return
+          if (!dataByTimeAll[key]) {
+            dataByTimeAll[key] = {
+              create_time: key,
               total_recv: 0,
               total_send: 0,
-              time_str: item.time_str || timeKey,
+              time_str: key,
             }
           }
-          dataByTimeAll[timeKey].total_recv += Number(item.total_recv) || 0
-          dataByTimeAll[timeKey].total_send += Number(item.total_send) || 0
+          dataByTimeAll[key].total_recv += Number(item.total_recv) || 0
+          dataByTimeAll[key].total_send += Number(item.total_send) || 0
         })
-        finalData = Object.values(dataByTimeAll)
+        finalData = Object.values(dataByTimeAll).sort((a: any, b: any) => (a.create_time as string).localeCompare(b.create_time as string))
+        try { console.log('无筛选聚合桶数:', Object.keys(dataByTimeAll).length) } catch {}
         console.log(`无筛选聚合后数据点: ${finalData.length}, 原始: ${filteredData.length}`)
       } else if (queryForm.school_name && !queryForm.cp) {
         console.log('检测到选择了学校但未选择内容方，将进行数据合并处理')
         
         // 按时间点分组数据
-        const dataByTime = {}
+        const dataByTime: Record<string, any> = {}
         filteredData.forEach(item => {
-          const timeKey = item.create_time
-          if (!dataByTime[timeKey]) {
-            dataByTime[timeKey] = {
-              create_time: timeKey,
+          const key = toMinuteKeyStr(item.time_str || item.create_time)
+          if (!key) return
+          if (!dataByTime[key]) {
+            dataByTime[key] = {
+              create_time: key,
               school_name: queryForm.school_name,
               region: item.region || '',
               total_recv: 0,
               total_send: 0,
-              // 保留其他必要字段
-              time_str: item.time_str || timeKey
+              time_str: key
             }
           }
           
           // 累加流量数据
-          dataByTime[timeKey].total_recv += Number(item.total_recv) || 0
-          dataByTime[timeKey].total_send += Number(item.total_send) || 0
+          dataByTime[key].total_recv += Number(item.total_recv) || 0
+          dataByTime[key].total_send += Number(item.total_send) || 0
         })
         
         // 转换回数组形式
-        finalData = Object.values(dataByTime)
+        finalData = Object.values(dataByTime).sort((a: any, b: any) => (a.create_time as string).localeCompare(b.create_time as string))
+        try { console.log('学校聚合桶数:', Object.keys(dataByTime).length) } catch {}
         console.log(`合并后的数据点数量: ${finalData.length}, 原始数据点数量: ${filteredData.length}`)
       }
       
@@ -592,6 +653,12 @@ async function loadTrafficData() {
 
 // 查询按钮点击事件
 function handleQuery() {
+  if (!hasFilter.value) {
+    ElMessage.info('请选择地区、内容方或学校后再查询')
+    trafficData.value = []
+    total.value = 0
+    return
+  }
   currentPage.value = 1
   loadTrafficData()
 }
@@ -665,8 +732,8 @@ function handleTimeRangeChange(value) {
   }
   
   // 设置时间范围
-  queryForm.start_time = startTime.toISOString()
-  queryForm.end_time = now.toISOString()
+  queryForm.start_time = toRFC3339Seconds(startTime)
+  queryForm.end_time = toRFC3339Seconds(now)
   
   console.log('设置时间范围:', queryForm.start_time, '至', queryForm.end_time)
   
@@ -679,8 +746,8 @@ function handleTimeRangeChange(value) {
   // 重置分页到第一页
   currentPage.value = 1
   
-  // 自动查询
-  loadTrafficData()
+  // 只有在存在筛选条件时才查询
+  if (hasFilter.value) loadTrafficData()
 }
 
 // 重置按钮点击事件
@@ -694,12 +761,13 @@ function handleReset() {
   // 设置默认时间范围为最近1小时
   const now = new Date()
   const oneHourAgo = new Date(now.getTime() - 1 * 60 * 60 * 1000)
-  queryForm.start_time = oneHourAgo.toISOString()
-  queryForm.end_time = now.toISOString()
+  queryForm.start_time = toRFC3339Seconds(oneHourAgo)
+  queryForm.end_time = toRFC3339Seconds(now)
   
-  // 重新加载数据
+  // 清空数据并不自动加载
   currentPage.value = 1
-  loadTrafficData()
+  trafficData.value = []
+  total.value = 0
 }
 
 // 格式化流量数据
@@ -723,7 +791,7 @@ function convertToBitsPerSecond(bytes) {
   // *8 是将字节转换为比特
   // /60 是将每分钟的数据转换为每秒的数据
   // 我们始终使用原始5分钟粒度，所以因子始终是60
-  const factor = 60
+  const factor = 300
   
   // 将字节转换为比特，然后除以时间因子
   return (bytes * 8) / factor
@@ -880,9 +948,11 @@ function formatDate(date: Date | string, granularity: string) {
     <!-- 流量数据表格 -->
     <ElCard class="data-card">
       <ElTable :data="trafficData" border stripe v-loading="loading">
-        <ElTableColumn prop="create_time" label="时间" width="180">
+        <ElTableColumn prop="create_time" label="时间" width="200">
           <template #default="scope">
-            {{ new Date(scope.row.create_time).toLocaleString() }}
+            {{ typeof scope.row.create_time === 'number' 
+              ? new Date(scope.row.create_time).toLocaleString() 
+              : (scope.row.time_str || scope.row.create_time) }}
           </template>
         </ElTableColumn>
         <ElTableColumn prop="school_name" label="学校名称" />
