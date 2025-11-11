@@ -29,12 +29,7 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="换算系数">
-          <el-select v-model="unitBase" style="width: 200px">
-            <el-option :value="1000" label="SI (1000, GB)" />
-            <el-option :value="1024" label="IEC (1024, GiB)" />
-          </el-select>
-        </el-form-item>
+        
         <el-form-item label="日期范围" required>
           <el-date-picker
             v-model="dateRange"
@@ -79,9 +74,17 @@
         </el-table-column>
         <el-table-column label="账期天数" width="90" prop="billing_days" />
         <el-table-column label="缺失天数" width="90" prop="missing_days" />
-        <el-table-column :label="`平均95值 (${unitLabel})`" min-width="180">
+        <el-table-column label="平均95值 (Gbps)" min-width="180">
           <template #default="{ row }">
-            {{ formatGByte(row.average_95_flow) }}
+            <template v-if="parseDetail(row.calculation_detail)?.average_95_gbps !== undefined">
+              {{ formatNumber(parseDetail(row.calculation_detail)!.average_95_gbps) }}
+            </template>
+            <template v-else-if="parseDetail(row.calculation_detail)?.average_95_bytes !== undefined">
+              {{ formatGbpsFromBytes(parseDetail(row.calculation_detail)!.average_95_bytes) }}
+            </template>
+            <template v-else>
+              {{ formatGbpsFromBytes(row.average_95_flow) }}
+            </template>
           </template>
         </el-table-column>
         <el-table-column label="结算金额" min-width="120">
@@ -119,9 +122,9 @@
             <div>{{ row.formula_name }} (#{{ row.formula_id }})</div>
             <el-popover trigger="hover" placement="top" width="260">
               <template #reference>
-                <el-button link type="primary">查看公式Token</el-button>
+                <el-button link type="primary">查看公式</el-button>
               </template>
-              <pre class="token-preview">{{ prettyJSON(row.formula_tokens) }}</pre>
+              <code class="token-preview">{{ formulaPreview(row.formula_tokens) }}</code>
             </el-popover>
           </template>
         </el-table-column>
@@ -136,14 +139,11 @@
                 <div class="detail-line">
                   <span class="detail-key">平均95值：</span>
                   <span>
-                    <template v-if="parseDetail(row.calculation_detail)?.average_95_converted !== undefined">
-                      {{ formatNumber(parseDetail(row.calculation_detail)!.average_95_converted) }}
-                      {{ parseDetail(row.calculation_detail)!.converted_unit || unitLabel }}
-                      ({{ formatBytes(parseDetail(row.calculation_detail)!.average_95_bytes) }})
+                    <template v-if="parseDetail(row.calculation_detail)?.average_95_gbps !== undefined">
+                      {{ formatNumber(parseDetail(row.calculation_detail)!.average_95_gbps) }} Gbps
                     </template>
                     <template v-else>
-                      {{ formatGByte(parseDetail(row.calculation_detail)!.average_95) }} {{ unitLabel }}
-                      ({{ formatBytes(parseDetail(row.calculation_detail)!.average_95) }})
+                      {{ formatGbpsFromBytes(parseDetail(row.calculation_detail)?.average_95_bytes ?? parseDetail(row.calculation_detail)?.average_95) }} Gbps
                     </template>
                   </span>
                 </div>
@@ -151,14 +151,11 @@
                 <div class="detail-line">
                   <span class="detail-key">总95值：</span>
                   <span>
-                    <template v-if="parseDetail(row.calculation_detail)?.total_95_converted !== undefined">
-                      {{ formatNumber(parseDetail(row.calculation_detail)!.total_95_converted) }}
-                      {{ parseDetail(row.calculation_detail)!.converted_unit || unitLabel }}
-                      ({{ formatBytes(parseDetail(row.calculation_detail)!.total_95_bytes) }})
+                    <template v-if="parseDetail(row.calculation_detail)?.total_95_gbps !== undefined">
+                      {{ formatNumber(parseDetail(row.calculation_detail)!.total_95_gbps) }} Gbps
                     </template>
                     <template v-else>
-                      {{ formatGByte(parseDetail(row.calculation_detail)!.total_95) }} {{ unitLabel }}
-                      ({{ formatBytes(parseDetail(row.calculation_detail)!.total_95) }})
+                      {{ formatGbpsFromBytes(parseDetail(row.calculation_detail)?.total_95_bytes ?? parseDetail(row.calculation_detail)?.total_95) }} Gbps
                     </template>
                   </span>
                 </div>
@@ -206,7 +203,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, onMounted, computed, watch } from 'vue'
+import { reactive, ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api'
 import type { SettlementResultFilter, SettlementResultItem, SettlementResultResponse } from '@/types/settlement'
@@ -223,21 +220,7 @@ const formulas = ref<SettlementFormulaItem[]>([])
 const formulasLoading = ref(false)
 const calculating = ref(false)
 
-// 单位换算设置：1000 表示十进制（GB），1024 表示二进制（GiB），默认 1024
-const unitBase = ref<number>(1024)
-const unitLabel = computed(() => (unitBase.value === 1000 ? 'GB' : 'GiB'))
-
-// 从本地存储读取用户偏好
-const loadUnitBaseFromStorage = () => {
-  const raw = localStorage.getItem('settlement.unitBase')
-  const v = raw ? Number(raw) : 1024
-  unitBase.value = v === 1000 || v === 1024 ? v : 1024
-}
-
-// 持久化用户选择
-watch(unitBase, (v) => {
-  try { localStorage.setItem('settlement.unitBase', String(v)) } catch {}
-})
+ 
 
 const filterForm = reactive<FilterForm>({
   region: '',
@@ -290,23 +273,16 @@ const formatNumber = (val: number | null | undefined) => {
   return Number(val).toFixed(2)
 }
 
-// 将后端字节值换算为 GB/GiB 的数值字符串（两位小数），单位由 unitLabel 控制
-const formatGByte = (val: number | null | undefined) => {
+const formatGbps = (val: number | null | undefined) => {
   const num = val === null || val === undefined ? 0 : Number(val)
-  const base = unitBase.value
-  const converted = num / Math.pow(base, 3)
-  return converted.toFixed(2)
+  return num.toFixed(2)
 }
 
-// 计算明细中需要按容量单位换算的键
-const FLOW_DETAIL_KEYS = new Set<string>(['average_95', 'total_95'])
-
-// 统一格式化计算明细的值：流量相关按 GB/GiB 展示，其余保留两位小数
-const formatDetailValue = (key: string, value: number) => {
-  if (FLOW_DETAIL_KEYS.has(key)) {
-    return `${formatGByte(value)} ${unitLabel.value}`
-  }
-  return formatNumber(value)
+// 从 Byte（每分钟样本）换算为 Gbps：bytes * 8 / 60 / 1e9
+const formatGbpsFromBytes = (bytes: number | null | undefined) => {
+  const n = bytes === null || bytes === undefined ? 0 : Number(bytes)
+  const gbps = (n * 8) / 60 / 1e9
+  return gbps.toFixed(2)
 }
 
 const formatCurrency = (val: number | null | undefined, currency?: string) => {
@@ -315,11 +291,33 @@ const formatCurrency = (val: number | null | undefined, currency?: string) => {
   return `${num.toFixed(2)} ${unit}`
 }
 
-// Byte 原样格式化展示（带千分位）
-const formatBytes = (val: number | null | undefined) => {
-  const n = val === null || val === undefined ? 0 : Number(val)
-  return `${Math.round(n).toLocaleString()} B`
+// 将公式 tokens（JSON 字符串或数组）渲染为可读表达式
+const formulaPreview = (tokensPayload: any): string => {
+  try {
+    let tokens: any[] = []
+    if (typeof tokensPayload === 'string' && tokensPayload.trim().length) {
+      tokens = JSON.parse(tokensPayload)
+    } else if (Array.isArray(tokensPayload)) {
+      tokens = tokensPayload
+    } else {
+      return '无'
+    }
+    const parts = tokens.map((t: any) => {
+      if (!t) return ''
+      const type = typeof t.type === 'string' ? t.type : (typeof t.value === 'string' && /^[+\-*/()]$/.test(t.value) ? 'operator' : 'field')
+      const value = typeof t.value === 'string' ? t.value : ''
+      const label = typeof t.label === 'string' && t.label.length ? t.label : ''
+      if (type === 'field') return label || `{{${value}}}`
+      return label || value
+    }).filter(Boolean)
+    return parts.join(' ')
+  } catch {
+    // 解析失败时，回退为原始字符串或提示
+    return typeof tokensPayload === 'string' && tokensPayload.trim().length ? tokensPayload : '无'
+  }
 }
+
+ 
 
 const formatDate = (val: string | Date) => {
   if (!val) return '-'
@@ -341,9 +339,6 @@ const buildParams = () => {
     end_date: filterForm.end_date,
     limit: pageSize.value,
     offset: (currentPage.value - 1) * pageSize.value,
-    // 将单位基数传递给后端，配合元/G 的公式计算
-    // @ts-ignore 扩展字段
-    unit_base: unitBase.value as any,
   }
 
   if (filterForm.region) params.region = filterForm.region
@@ -473,7 +468,6 @@ const handleSizeChange = (size: number) => {
 }
 
 onMounted(async () => {
-  loadUnitBaseFromStorage()
   setDefaultDateRange()
   await loadFormulas()
   fetchResults()

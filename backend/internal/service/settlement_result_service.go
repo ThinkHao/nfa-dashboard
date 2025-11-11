@@ -90,9 +90,16 @@ func (s *settlementResultService) CalculateResults(filter model.SettlementResult
         avgG := averageFlow / denom
         totalG := row.TotalFlow / denom
 
+        // 新增：速率口径（Gbps）。假设采样周期为 60s（与日95计算一致）
+        // Gbps = Byte * 8 / 60 / 1e9（SI）
+        samplingSeconds := 60.0
+        avgGbps := (averageFlow * 8.0) / samplingSeconds / 1e9
+        totalGbps := (row.TotalFlow * 8.0) / samplingSeconds / 1e9
+
         env := map[string]float64{
-            "settlement_flow_95":    avgG,
-            "settlement_flow_total": totalG,
+            // 改为速率口径（Gbps）供公式使用
+            "settlement_flow_95":    avgGbps,
+            "settlement_flow_total": totalGbps,
             "customer_fee":          valueOrZero(row.CustomerFee),
             "network_line_fee":      valueOrZero(row.NetworkLineFee),
             "node_deduction_fee":    valueOrZero(row.NodeDeductionFee),
@@ -135,6 +142,12 @@ func (s *settlementResultService) CalculateResults(filter model.SettlementResult
             "converted_unit":        unitLabel,
             "unit_base":             base,
 
+            // 新增：速率口径（Gbps）
+            "average_95_gbps":       avgGbps,
+            "total_95_gbps":         totalGbps,
+            "rate_unit":             "Gbps",
+            "sampling_interval_seconds": int(samplingSeconds),
+
             // 费率项（原样）
             "customer_fee":          env["customer_fee"],
             "network_fee":           env["network_line_fee"],
@@ -162,8 +175,9 @@ func (s *settlementResultService) CalculateResults(filter model.SettlementResult
             StartDate:         filter.StartDate,
             EndDate:           filter.EndDate,
             BillingDays:       billingDays,
-            Total95Flow:       row.TotalFlow,
-            Average95Flow:     averageFlow,
+            // 存储速率口径（Gbps）
+            Total95Flow:       totalGbps,
+            Average95Flow:     avgGbps,
             CustomerFee:       pointerFromValue(row.CustomerFee),
             NetworkLineFee:    pointerFromValue(row.NetworkLineFee),
             NodeDeductionFee:  pointerFromValue(row.NodeDeductionFee),

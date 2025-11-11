@@ -129,13 +129,27 @@
           </el-radio-group>
         </el-form-item>
 
-        <el-form-item v-if="actionMode==='template'" label="模板值">
-          <div class="template-grid">
-            <el-input-number v-model="templateValues.customer_fee" :step="0.01" :min="0" placeholder="customer_fee" />
-            <el-input-number v-model="templateValues.network_line_fee" :step="0.01" :min="0" placeholder="network_line_fee" />
-            <el-input-number v-model="templateValues.general_fee" :step="0.01" :min="0" placeholder="general_fee" />
+        <el-form-item v-if="actionMode==='template'">
+          <template #label>
+            模板值
+            <el-tooltip content="留空的字段将不会写入" placement="top">
+              <el-icon class="label-tip"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </template>
+          <div class="template-list">
+            <div class="template-row">
+              <el-input-number v-model="templateValues.customer_fee" :step="0.01" :min="0" />
+              <span class="row-hint">客户费率</span>
+            </div>
+            <div class="template-row">
+              <el-input-number v-model="templateValues.network_line_fee" :step="0.01" :min="0" />
+              <span class="row-hint">线路费率</span>
+            </div>
+            <div class="template-row">
+              <el-input-number v-model="templateValues.general_fee" :step="0.01" :min="0" />
+              <span class="row-hint">通用费率</span>
+            </div>
           </div>
-          <div class="help">留空的字段将不会写入</div>
         </el-form-item>
 
         <el-form-item v-if="actionMode==='expr'" label="表达式">
@@ -156,6 +170,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { QuestionFilled } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api'
@@ -445,4 +460,10 @@ function goBack() {
 .rule-form :deep(textarea) { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
 .pagination { display: flex; justify-content: flex-end; margin-top: 12px; }
 .help { color: var(--text-muted); font-size: 12px; }
+/* 模板值样式 */
+.template-list { display: flex; flex-direction: column; gap: 8px; }
+.template-row { display: flex; align-items: center; gap: 8px; }
+.template-row :deep(.el-input-number) { width: 220px; }
+.row-hint { color: var(--text-muted); font-size: 12px; }
+.label-tip { margin-left: 6px; cursor: help; color: var(--text-muted); }
 </style>
