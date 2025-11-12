@@ -74,22 +74,32 @@
         </el-table-column>
         <el-table-column label="账期天数" width="90" prop="billing_days" />
         <el-table-column label="缺失天数" width="90" prop="missing_days" />
-        <el-table-column label="平均95值 (Gbps)" min-width="180">
+        <el-table-column label="平均95值 (Gbps)" min-width="220">
           <template #default="{ row }">
-            <template v-if="parseDetail(row.calculation_detail)?.average_95_gbps !== undefined">
-              {{ formatNumber(parseDetail(row.calculation_detail)!.average_95_gbps) }}
-            </template>
-            <template v-else-if="parseDetail(row.calculation_detail)?.average_95_bytes !== undefined">
-              {{ formatGbpsFromBytes(parseDetail(row.calculation_detail)!.average_95_bytes) }}
-            </template>
-            <template v-else>
-              {{ formatGbpsFromBytes(row.average_95_flow) }}
-            </template>
+            <el-tooltip placement="top">
+              <template #content>
+                <div>
+                  <div>计费天数（自然日）：{{ getNaturalDays(row.start_date, row.end_date) }}</div>
+                  <div>总95（Σ每日日95）：{{ formatNumberPrec(getTotalGbps(row), 4) }} Gbps</div>
+                  <div>
+                    平均95 = 总95 / 计费天数 =
+                    {{ formatNumberPrec(getTotalGbps(row), 4) }}
+                    /
+                    {{ getNaturalDays(row.start_date, row.end_date) }}
+                    =
+                    {{ formatNumberPrec(getAverageGbps(row, getNaturalDays(row.start_date, row.end_date)), 4) }} Gbps
+                  </div>
+                </div>
+              </template>
+              <span>{{ formatNumber(getAverageGbps(row, getNaturalDays(row.start_date, row.end_date))) }}</span>
+            </el-tooltip>
           </template>
         </el-table-column>
         <el-table-column label="结算金额" min-width="120">
           <template #default="{ row }">
-            {{ formatCurrency(row.amount, row.currency) }}
+            <el-tooltip :content="`${formatNumberPrec(parseDetail(row.calculation_detail)?.amount_raw ?? row.amount, 4)} ${row.currency || 'CNY'}`" placement="top">
+              <span>{{ formatCurrency(row.amount, row.currency) }}</span>
+            </el-tooltip>
           </template>
         </el-table-column>
         <el-table-column label="费率" min-width="220">
@@ -97,7 +107,7 @@
             <div class="rate-line">客户：{{ formatNumber(row.customer_fee) }}</div>
             <div class="rate-line">线路：{{ formatNumber(row.network_line_fee) }}</div>
             <div class="rate-line">节点：{{ formatNumber(row.node_deduction_fee) }}</div>
-            <div class="rate-line">最终：{{ formatNumber(row.final_fee) }}</div>
+            <div class="rate-line">毛利：{{ formatNumber(row.final_fee) }}</div>
           </template>
         </el-table-column>
         <el-table-column label="缺失字段" min-width="160">
@@ -139,12 +149,23 @@
                 <div class="detail-line">
                   <span class="detail-key">平均95值：</span>
                   <span>
-                    <template v-if="parseDetail(row.calculation_detail)?.average_95_gbps !== undefined">
-                      {{ formatNumber(parseDetail(row.calculation_detail)!.average_95_gbps) }} Gbps
-                    </template>
-                    <template v-else>
-                      {{ formatGbpsFromBytes(parseDetail(row.calculation_detail)?.average_95_bytes ?? parseDetail(row.calculation_detail)?.average_95) }} Gbps
-                    </template>
+                    <el-tooltip placement="top">
+                      <template #content>
+                        <div>
+                          <div>计费天数（自然日）：{{ getNaturalDays(row.start_date, row.end_date) }}</div>
+                          <div>总95（Σ每日日95）：{{ formatNumberPrec(getTotalGbps(row), 4) }} Gbps</div>
+                          <div>
+                            平均95 = 总95 / 计费天数 =
+                            {{ formatNumberPrec(getTotalGbps(row), 4) }}
+                            /
+                            {{ getNaturalDays(row.start_date, row.end_date) }}
+                            =
+                            {{ formatNumberPrec(getAverageGbps(row, getNaturalDays(row.start_date, row.end_date)), 4) }} Gbps
+                          </div>
+                        </div>
+                      </template>
+                      <span>{{ formatNumber(getAverageGbps(row, getNaturalDays(row.start_date, row.end_date)) ) }} Gbps</span>
+                    </el-tooltip>
                   </span>
                 </div>
                 <!-- 总95值：优先使用 *_converted 与 *_bytes；退化为 total_95 -->
@@ -152,10 +173,14 @@
                   <span class="detail-key">总95值：</span>
                   <span>
                     <template v-if="parseDetail(row.calculation_detail)?.total_95_gbps !== undefined">
-                      {{ formatNumber(parseDetail(row.calculation_detail)!.total_95_gbps) }} Gbps
+                      <el-tooltip :content="`${formatNumberPrec(parseDetail(row.calculation_detail)!.total_95_gbps, 4)} Gbps`" placement="top">
+                        <span>{{ formatNumber(parseDetail(row.calculation_detail)!.total_95_gbps) }} Gbps</span>
+                      </el-tooltip>
                     </template>
                     <template v-else>
-                      {{ formatGbpsFromBytes(parseDetail(row.calculation_detail)?.total_95_bytes ?? parseDetail(row.calculation_detail)?.total_95) }} Gbps
+                      <el-tooltip :content="`${formatGbpsFromBytesPrec(parseDetail(row.calculation_detail)?.total_95_bytes ?? parseDetail(row.calculation_detail)?.total_95, 4)} Gbps`" placement="top">
+                        <span>{{ formatGbpsFromBytes(parseDetail(row.calculation_detail)?.total_95_bytes ?? parseDetail(row.calculation_detail)?.total_95) }} Gbps</span>
+                      </el-tooltip>
                     </template>
                   </span>
                 </div>
@@ -174,7 +199,7 @@
                 <div class="detail-line"><span class="detail-key">客户费率：</span><span>{{ formatNumber(row.customer_fee) }}</span></div>
                 <div class="detail-line"><span class="detail-key">线路费率：</span><span>{{ formatNumber(row.network_line_fee) }}</span></div>
                 <div class="detail-line"><span class="detail-key">节点扣减：</span><span>{{ formatNumber(row.node_deduction_fee) }}</span></div>
-                <div class="detail-line"><span class="detail-key">最终费率：</span><span>{{ formatNumber(row.final_fee) }}</span></div>
+                <div class="detail-line"><span class="detail-key">毛利：</span><span>{{ formatNumber(row.final_fee) }}</span></div>
               </div>
               <div v-else>暂无</div>
             </el-popover>
@@ -278,11 +303,58 @@ const formatGbps = (val: number | null | undefined) => {
   return num.toFixed(2)
 }
 
+// 数字保留自定义小数位（默认9位）
+const formatNumberPrec = (val: number | null | undefined, digits = 9) => {
+  const num = val === null || val === undefined ? 0 : Number(val)
+  return num.toFixed(digits)
+}
+
 // 从 Byte（每分钟样本）换算为 Gbps：bytes * 8 / 60 / 1e9
 const formatGbpsFromBytes = (bytes: number | null | undefined) => {
   const n = bytes === null || bytes === undefined ? 0 : Number(bytes)
   const gbps = (n * 8) / 60 / 1e9
   return gbps.toFixed(2)
+}
+
+const formatGbpsFromBytesPrec = (bytes: number | null | undefined, digits = 9) => {
+  const n = bytes === null || bytes === undefined ? 0 : Number(bytes)
+  const gbps = (n * 8) / 60 / 1e9
+  return gbps.toFixed(digits)
+}
+
+// 计算总/平均 Gbps（优先行字段 total_95_flow，其次 *_gbps，再次 *_bytes，缺省返回 0）
+const getTotalGbpsFromDetail = (detail: any): number => {
+  try {
+    if (detail && typeof detail.total_95_gbps === 'number') return Number(detail.total_95_gbps)
+    if (detail && (typeof detail.total_95_bytes === 'number' || typeof detail.total_95 === 'number')) {
+      const b = Number(detail.total_95_bytes ?? detail.total_95 ?? 0)
+      return (b * 8) / 60 / 1e9
+    }
+  } catch {}
+  return 0
+}
+
+const getTotalGbps = (row: any): number => {
+  if (typeof row?.total_95_flow === 'number') return Number(row.total_95_flow)
+  return getTotalGbpsFromDetail(parseDetail(row?.calculation_detail))
+}
+
+const getAverageGbps = (row: any, billingDays: number): number => {
+  try {
+    const total = getTotalGbps(row)
+    return billingDays > 0 ? total / billingDays : 0
+  } catch {}
+  return 0
+}
+
+// 计算所选范围内的自然日天数（含起止，两端闭区间）
+const getNaturalDays = (start: string | Date, end: string | Date): number => {
+  if (!start || !end) return 0
+  const s = typeof start === 'string' ? new Date(start) : new Date(start)
+  const e = typeof end === 'string' ? new Date(end) : new Date(end)
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return 0
+  const oneDay = 24 * 60 * 60 * 1000
+  return Math.floor((e.getTime() - s.getTime()) / oneDay) + 1
 }
 
 const formatCurrency = (val: number | null | undefined, currency?: string) => {

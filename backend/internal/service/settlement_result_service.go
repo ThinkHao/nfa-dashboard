@@ -77,8 +77,8 @@ func (s *settlementResultService) CalculateResults(filter model.SettlementResult
         }
 
         averageFlow := 0.0
-        if billingDays > 0 {
-            averageFlow = row.TotalFlow / float64(billingDays)
+        if expectedDays > 0 {
+            averageFlow = row.TotalFlow / float64(expectedDays)
         }
 
         // 将 Byte 换算为 G（GB 或 GiB），用于“元/G”口径的公式计算
@@ -174,7 +174,7 @@ func (s *settlementResultService) CalculateResults(filter model.SettlementResult
             SchoolName:        row.SchoolName,
             StartDate:         filter.StartDate,
             EndDate:           filter.EndDate,
-            BillingDays:       billingDays,
+            BillingDays:       expectedDays,
             // 存储速率口径（Gbps）
             Total95Flow:       totalGbps,
             Average95Flow:     avgGbps,
