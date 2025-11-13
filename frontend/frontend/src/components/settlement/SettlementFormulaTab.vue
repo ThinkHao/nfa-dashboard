@@ -330,7 +330,8 @@ const fieldGroups: FieldGroup[] = [
     fields: [
       { key: 'customer_fee', label: '客户费率 customer_fee', value: 'customer_fee', description: 'rate_final_customer.customer_fee' },
       { key: 'network_line_fee', label: '线路费率 network_line_fee', value: 'network_line_fee', description: 'rate_final_customer.network_line_fee' },
-      { key: 'node_deduction_fee', label: '节点抵扣 node_deduction_fee', value: 'node_deduction_fee', description: 'rate_final_customer.node_deduction_fee' }
+      { key: 'node_deduction_fee', label: '节点抵扣 node_deduction_fee', value: 'node_deduction_fee', description: 'rate_final_customer.node_deduction_fee' },
+      { key: 'final_fee', label: '毛利 final_fee', value: 'final_fee', description: 'rate_final_customer.final_fee' }
     ]
   },
   {
@@ -434,7 +435,7 @@ function sanitizeTokens(rawTokens: any): FormulaToken[] {
   for (const item of source) {
     if (!item) continue
     const value = typeof item.value === 'string' ? item.value : ''
-    if (!value || value === 'final_fee') continue
+    if (!value) continue
     let type = (item.type as TokenType) || 'field'
     if (type !== 'field' && type !== 'operator' && type !== 'number') {
       type = value.match(/^[+\-*/()]$/) ? 'operator' : 'field'

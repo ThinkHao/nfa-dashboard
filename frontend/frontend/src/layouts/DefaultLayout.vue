@@ -7,6 +7,8 @@ import TagsView from '@/components/TagsView/index.vue'
 import SidebarMenu from '@/components/Sidebar/Menu.vue'
 import Navbar from '@/components/Navbar/index.vue'
 
+const currentYear = new Date().getFullYear()
+
 const auth = useAuthStore()
 
 const isAuthed = computed(() => auth.isAuthenticated)
@@ -66,7 +68,9 @@ const canBusinessTypes = computed(() => auth.hasPermission('business_types.read'
         </RouterView>
       </el-main>
       <el-footer class="app-footer">
-        <p> 2025 学校流量监控系统 - NFA Dashboard</p>
+        <div class="footer-inner">
+          <span>© {{ currentYear }} NFA Dashboard · 学校流量监控系统</span>
+        </div>
       </el-footer>
     </el-container>
   </el-container>
@@ -259,22 +263,21 @@ const canBusinessTypes = computed(() => auth.hasPermission('business_types.read'
   position: relative;
   z-index: 1;
   text-align: center;
-  padding: 20px 16px 32px;
+  padding: 16px 16px 24px;
   background: transparent;
+  border-top: 1px solid rgba(148, 163, 184, 0.24);
   color: rgba(71, 85, 105, 0.8);
   font-size: 0.85rem;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.2px;
 }
 :global([data-theme="dark"]) .app-footer {
-  color: rgba(203, 213, 225, 0.75);
+  border-top-color: rgba(51, 65, 85, 0.5);
+  color: rgba(203, 213, 225, 0.72);
 }
-.app-footer::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, rgba(59, 130, 246, 0.08), rgba(20, 184, 166, 0.12), rgba(59, 130, 246, 0.08));
-  opacity: 0.7;
-  z-index: -1;
+
+.footer-inner {
+  max-width: 1360px;
+  margin: 0 auto;
 }
 
 @keyframes pulse {

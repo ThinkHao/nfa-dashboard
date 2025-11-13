@@ -233,8 +233,8 @@ a { color: var(--brand-accent); }
 
 /* Footer */
 .app-footer {
-  background: rgba(8, 14, 27, 0.6);
-  color: #cbd5e1;
+  background: transparent;
+  color: inherit;
 }
 
 /* Smooth page padding */
