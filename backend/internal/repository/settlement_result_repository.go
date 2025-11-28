@@ -15,9 +15,105 @@ import (
 // 3. 查询/删除缓存表中的结算结果
 type SettlementResultRepository interface {
     ListAggregatedFlows(filter model.SettlementResultFilter) ([]model.AggregatedFlowRecord, int64, error)
+    ListAggregatedFlowsWithOwners(filter model.SettlementResultFilter) ([]AggregatedFlowWithOwners, int64, error)
     UpsertResults(records []model.SettlementResultRecord) error
     ListResults(filter model.SettlementResultFilter) ([]model.SettlementResultRecord, int64, error)
     DeleteByID(id uint64) error
+}
+
+// AggregatedFlowWithOwners 聚合后的日流量与费率 + owner 归属
+type AggregatedFlowWithOwners struct {
+    Region           string   `gorm:"column:region"`
+    CP               string   `gorm:"column:cp"`
+    SchoolID         string   `gorm:"column:school_id"`
+    SchoolName       string   `gorm:"column:school_name"`
+    DayCount         int      `gorm:"column:day_count"`
+    TotalFlow        float64  `gorm:"column:total_flow"`
+    CustomerFee      *float64 `gorm:"column:customer_fee"`
+    NetworkLineFee   *float64 `gorm:"column:network_line_fee"`
+    NodeDeductionFee *float64 `gorm:"column:node_deduction_fee"`
+    FinalFee         *float64 `gorm:"column:final_fee"`
+    CustOwnerID      *uint64  `gorm:"column:cust_owner_id"`
+    NetOwnerID       *uint64  `gorm:"column:net_owner_id"`
+    NodeOwnerID      *uint64  `gorm:"column:node_owner_id"`
+}
+
+// ListAggregatedFlowsWithOwners 类似 ListAggregatedFlows，但附带各费率 owner 归属
+func (r *settlementResultRepository) ListAggregatedFlowsWithOwners(filter model.SettlementResultFilter) ([]AggregatedFlowWithOwners, int64, error) {
+    if filter.Limit <= 0 {
+        filter.Limit = 50
+    }
+    if filter.Offset < 0 {
+        filter.Offset = 0
+    }
+
+    baseSQL := strings.Builder{}
+    args := make([]interface{}, 0, 8)
+
+    baseSQL.WriteString(
+        " FROM nfa_school_settlement s\n" +
+            " JOIN rate_final_customer fc ON fc.region COLLATE utf8mb4_unicode_ci = s.region COLLATE utf8mb4_unicode_ci" +
+            " AND fc.cp COLLATE utf8mb4_unicode_ci = s.cp COLLATE utf8mb4_unicode_ci" +
+            " AND fc.school_name COLLATE utf8mb4_unicode_ci = s.school_name COLLATE utf8mb4_unicode_ci\n" +
+            " WHERE DATE(s.settlement_date) BETWEEN ? AND ?",
+    )
+    args = append(args,
+        filter.StartDate.Format("2006-01-02"),
+        filter.EndDate.Format("2006-01-02"),
+    )
+
+    if filter.Region != "" {
+        baseSQL.WriteString(" AND s.region = ?")
+        args = append(args, filter.Region)
+    }
+    if filter.CP != "" {
+        baseSQL.WriteString(" AND s.cp = ?")
+        args = append(args, filter.CP)
+    }
+    if filter.SchoolID != "" {
+        baseSQL.WriteString(" AND s.school_id = ?")
+        args = append(args, filter.SchoolID)
+    }
+    if filter.SchoolName != "" {
+        baseSQL.WriteString(" AND s.school_name LIKE ?")
+        args = append(args, "%"+filter.SchoolName+"%")
+    }
+    if filter.UserID != nil && *filter.UserID > 0 {
+        baseSQL.WriteString(" AND s.school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)")
+        args = append(args, *filter.UserID)
+    }
+
+    countSQL := "SELECT COUNT(*) FROM (SELECT s.school_id" + baseSQL.String() + " GROUP BY s.region, s.cp, s.school_id, s.school_name) AS agg"
+    var total int64
+    if err := model.DB.Raw(countSQL, args...).Scan(&total).Error; err != nil {
+        return nil, 0, err
+    }
+    if total == 0 {
+        return []AggregatedFlowWithOwners{}, 0, nil
+    }
+
+    dataSQL := "SELECT\n" +
+        " s.region, s.cp, s.school_id, s.school_name,\n" +
+        " COUNT(*) AS day_count,\n" +
+        " SUM(s.settlement_value) AS total_flow,\n" +
+        " MAX(fc.customer_fee) AS customer_fee,\n" +
+        " MAX(fc.network_line_fee) AS network_line_fee,\n" +
+        " MAX(fc.node_deduction_fee) AS node_deduction_fee,\n" +
+        " MAX(fc.final_fee) AS final_fee,\n" +
+        " MAX(fc.customer_fee_owner_id) AS cust_owner_id,\n" +
+        " MAX(fc.network_line_fee_owner_id) AS net_owner_id,\n" +
+        " MAX(fc.node_deduction_fee_owner_id) AS node_owner_id\n" +
+        baseSQL.String() +
+        " GROUP BY s.region, s.cp, s.school_id, s.school_name\n" +
+        " ORDER BY total_flow DESC\n" +
+        " LIMIT ? OFFSET ?"
+
+    dataArgs := append(append([]interface{}{}, args...), filter.Limit, filter.Offset)
+    var rows []AggregatedFlowWithOwners
+    if err := model.DB.Raw(dataSQL, dataArgs...).Scan(&rows).Error; err != nil {
+        return nil, 0, err
+    }
+    return rows, total, nil
 }
 
 type settlementResultRepository struct{}

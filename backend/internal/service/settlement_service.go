@@ -3,7 +3,6 @@ package service
 import (
 	"fmt"
 	"log"
-	"sync"
 	"time"
 
 	"nfa-dashboard/internal/model"
@@ -36,6 +35,11 @@ type SettlementService interface {
 	ExecuteWeeklySettlementWithDateRange(taskID int64, startDate, endDate time.Time) error
 	// GetDailySettlementDetails 获取日95明细数据列表
 	GetDailySettlementDetails(filter model.SettlementFilter) ([]model.DailySettlementDetail, int64, error) // 假设 model.DailySettlementDetail 存在
+}
+
+// GetDailySettlementDetails 获取日95明细数据列表
+func (s *settlementService) GetDailySettlementDetails(filter model.SettlementFilter) ([]model.DailySettlementDetail, int64, error) {
+	return s.repo.GetDailySettlementDetails(filter)
 }
 
 // settlementService 结算服务实现
@@ -223,7 +227,7 @@ func (s *settlementService) GetSettlements(filter model.SettlementFilter) ([]mod
 // 返回结算数据、处理记录数和错误
 func (s *settlementService) executeDailySettlementInternal(date time.Time) ([]model.SchoolSettlement, int, error) {
 	log.Printf("开始计算 %s 的日结算数据", date.Format("2006-01-02"))
-	
+
 	processedCount := 0
 	var settlements []model.SchoolSettlement
 
@@ -235,7 +239,7 @@ func (s *settlementService) executeDailySettlementInternal(date time.Time) ([]mo
 		Region     string
 		CP         string
 	}
-	
+
 	var validCombinations []SchoolRegionCP
 	query := `
 SELECT DISTINCT school_id, school_name, region, cp
@@ -248,9 +252,9 @@ WHERE school_id IS NOT NULL AND school_id <> ''
 	if err != nil {
 		return nil, 0, fmt.Errorf("获取有效学校组合失败: %v", err)
 	}
-	
+
 	log.Printf("找到 %d 个有效的学校、地区、运营商组合", len(validCombinations))
-	
+
 	// 为每个有效组合计算95值
 	for _, combo := range validCombinations {
 		// 跳过字段为 NULL 或空字符串的无效院校组合（双重保证）
@@ -261,7 +265,7 @@ WHERE school_id IS NOT NULL AND school_id <> ''
 		// 计算95值，传入学校ID、地区和运营商
 		settlement, err := s.repo.CalculateDaily95WithRegionAndCP(date, combo.SchoolID, combo.Region, combo.CP)
 		if err != nil {
-			log.Printf("计算学校 %s 在地区 %s 运营商 %s 的日95值失败: %v", 
+			log.Printf("计算学校 %s 在地区 %s 运营商 %s 的日95值失败: %v",
 				combo.SchoolName, combo.Region, combo.CP, err)
 			continue
 		}
@@ -271,208 +275,127 @@ WHERE school_id IS NOT NULL AND school_id <> ''
 			processedCount++
 		}
 	}
-	
+
 	log.Printf("完成 %s 的日结算计算，共生成 %d 条数据", date.Format("2006-01-02"), processedCount)
 	return settlements, processedCount, nil
 }
 
 // ExecuteDailySettlement 执行日结算任务
 func (s *settlementService) ExecuteDailySettlement(taskID int64, date time.Time) error {
-	// 更新任务状态为运行中
-	err := s.UpdateSettlementTaskStatus(taskID, "running", "")
-	if err != nil {
+	// 标记运行中
+	if err := s.UpdateSettlementTaskStatus(taskID, "running", ""); err != nil {
 		return fmt.Errorf("更新任务状态失败: %v", err)
 	}
 
-	// 调用内部方法执行日结算
+	// 计算
 	settlements, processedCount, err := s.executeDailySettlementInternal(date)
 	if err != nil {
-		s.UpdateSettlementTaskStatus(taskID, "failed", fmt.Sprintf("执行日结算失败: %v", err))
+		_ = s.UpdateSettlementTaskStatus(taskID, "failed", fmt.Sprintf("执行日结算失败: %v", err))
 		return fmt.Errorf("执行日结算失败: %v", err)
 	}
 
-	// 批量保存结算数据
+	// 保存
 	if len(settlements) > 0 {
-		log.Printf("开始保存日结算数据，共 %d 条", len(settlements))
-		err = s.repo.BatchCreateSettlements(settlements)
-		if err != nil {
-			s.UpdateSettlementTaskStatus(taskID, "failed", fmt.Sprintf("保存结算数据失败: %v", err))
+		if err := s.repo.BatchCreateSettlements(settlements); err != nil {
+			_ = s.UpdateSettlementTaskStatus(taskID, "failed", fmt.Sprintf("保存结算数据失败: %v", err))
 			return fmt.Errorf("保存结算数据失败: %v", err)
 		}
-		log.Printf("日结算数据保存成功")
-	} else {
-		log.Printf("没有日结算数据需要保存")
 	}
 
-	// 更新任务状态和处理记录数
+	// 标记成功
 	task, err := s.repo.GetSettlementTaskByID(taskID)
 	if err != nil {
 		return fmt.Errorf("获取任务信息失败: %v", err)
 	}
-
 	task.Status = "success"
 	now := time.Now()
 	task.EndTime = &now
 	task.ProcessedCount = processedCount
-
-	err = s.repo.UpdateSettlementTask(task)
-	if err != nil {
+	if err := s.repo.UpdateSettlementTask(task); err != nil {
 		return fmt.Errorf("更新任务状态失败: %v", err)
 	}
+
+	go func(runDate time.Time) {
+		cfg, cfgErr := s.repo.GetSettlementConfig()
+		if cfgErr != nil || !cfg.Enabled || !cfg.RecalcAfterDaily {
+			return
+		}
+		init := &model.SettlementTask{TaskType: "customer_init", TaskDate: runDate, Status: "running", StartTime: ptrTime(time.Now()), CreateTime: time.Now(), UpdateTime: time.Now()}
+		if err := model.DB.Create(init).Error; err != nil {
+			return
+		}
+		dataRepo := repository.NewSettlementDataRepository()
+		affected, recErr := dataRepo.BackfillFromSchoolSettlement("", "", "", runDate, runDate, false)
+		if recErr != nil {
+			_ = model.DB.Model(&model.SettlementTask{}).Where("id = ?", init.ID).Updates(map[string]interface{}{"status": "failed", "end_time": time.Now(), "error_message": recErr.Error()}).Error
+			return
+		}
+		_ = model.DB.Model(&model.SettlementTask{}).Where("id = ?", init.ID).Updates(map[string]interface{}{"status": "success", "end_time": time.Now(), "processed_count": affected}).Error
+	}(date)
 
 	return nil
 }
 
-// ExecuteWeeklySettlement 执行周结算任务
+// ExecuteWeeklySettlement 执行周结算任务（以开始日期+6天为结束）
 func (s *settlementService) ExecuteWeeklySettlement(taskID int64, weekStartDate time.Time) error {
-	// 默认结束日期为开始日期后的6天（一周）
 	weekEndDate := weekStartDate.AddDate(0, 0, 6)
 	return s.ExecuteWeeklySettlementWithDateRange(taskID, weekStartDate, weekEndDate)
 }
 
-// GetDailySettlementDetails 获取日95明细数据列表
-func (s *settlementService) GetDailySettlementDetails(filter model.SettlementFilter) ([]model.DailySettlementDetail, int64, error) {
-	// 如果没有提供日期范围，则默认查询最近一个月的数据
-	if filter.StartDate.IsZero() || filter.EndDate.IsZero() {
-		now := time.Now()
-		filter.EndDate = now
-		// 一个月前
-		filter.StartDate = now.AddDate(0, -1, 0)
-		log.Printf("日95明细查询未提供日期范围，默认查询最近一个月: %s to %s",
-			filter.StartDate.Format("2006-01-02"),
-			filter.EndDate.Format("2006-01-02"))
-	}
-	return s.repo.GetDailySettlementDetails(filter)
-}
-
 // ExecuteWeeklySettlementWithDateRange 执行周结算任务（支持自定义日期范围）
 func (s *settlementService) ExecuteWeeklySettlementWithDateRange(taskID int64, startDate, endDate time.Time) error {
-	log.Printf("开始执行周结算任务 ID=%d", taskID)
-	
-	// 更新任务状态为运行中
-	err := s.UpdateSettlementTaskStatus(taskID, "running", "")
-	if err != nil {
+	if err := s.UpdateSettlementTaskStatus(taskID, "running", ""); err != nil {
 		return fmt.Errorf("更新任务状态失败: %v", err)
 	}
 
-	// 计算日期范围内的天数
-	daysCount := int(endDate.Sub(startDate).Hours() / 24) + 1
-	log.Printf("开始计算从 %s 到 %s 的结算数据，共 %d 天", 
-		startDate.Format("2006-01-02"), endDate.Format("2006-01-02"), daysCount)
-
-	// 使用通道来控制并发数量
-	maxConcurrent := 7 // 最大并发数
-	semaphore := make(chan struct{}, maxConcurrent)
-
-	// 使用WaitGroup来等待所有日期的结算完成
-	var wg sync.WaitGroup
-	
-	// 使用互斥锁保护共享数据
-	var mu sync.Mutex
-	var allSettlements []model.SchoolSettlement
-	totalProcessedCount := 0
-	
-	// 进度跟踪
-	completedDays := 0
-	totalDays := daysCount
-	
-	// 定期更新进度
-	progressTicker := time.NewTicker(5 * time.Second)
-	go func() {
-		for range progressTicker.C {
-			if completedDays >= totalDays {
-				progressTicker.Stop()
-				return
-			}
-			
-			mu.Lock()
-			progress := float64(completedDays) / float64(totalDays) * 100
-			log.Printf("周结算任务进度: %.2f%% (%d/%d 天完成，已生成 %d 条数据)", 
-				progress, completedDays, totalDays, totalProcessedCount)
-			
-			// 更新任务状态中的进度信息
-			progressMsg := fmt.Sprintf("进度: %.2f%% (%d/%d 天)", progress, completedDays, totalDays)
-			s.UpdateSettlementTaskStatus(taskID, "running", progressMsg)
-			mu.Unlock()
-		}
-	}()
-	
-	// 并行计算每一天的结算数据，复用单日结算的内部逻辑
-	for i := 0; i < daysCount; i++ {
-		date := startDate.AddDate(0, 0, i)
-		wg.Add(1)
-		
-		// 获取信号量，限制并发数
-		semaphore <- struct{}{}
-		
-		// 使用匿名函数捕获当前日期变量
-		go func(currentDate time.Time, dayIndex int) {
-			defer wg.Done()
-			defer func() { <-semaphore }() // 释放信号量
-			
-			log.Printf("开始计算 %s 的结算数据 (第 %d/%d 天)", 
-				currentDate.Format("2006-01-02"), dayIndex+1, totalDays)
-			
-			// 直接复用单日结算的内部逻辑
-			daySettlements, dayCount, err := s.executeDailySettlementInternal(currentDate)
-			if err != nil {
-				log.Printf("计算 %s 的日结算数据失败: %v", currentDate.Format("2006-01-02"), err)
-				return
-			}
-			
-			// 安全地更新共享数据
-			mu.Lock()
-			allSettlements = append(allSettlements, daySettlements...)
-			totalProcessedCount += dayCount
-			completedDays++ // 更新已完成的天数
-			log.Printf("完成 %s 的结算任务，生成 %d 条数据 (进度: %d/%d 天)", 
-				currentDate.Format("2006-01-02"), dayCount, completedDays, totalDays)
-			mu.Unlock()
-		}(date, i)
-	}
-
-	// 等待所有日期的结算任务完成
-	log.Printf("等待所有日期的结算任务完成...")
-	wg.Wait()
-	
-	log.Printf("并发计算完成，共生成 %d 条结算数据", totalProcessedCount)
-
-	// 批量保存结算数据
-	log.Printf("开始保存结算数据，总数量: %d", len(allSettlements))
-	if len(allSettlements) > 0 {
-		// 打印前5条结算数据以便调试
-		for i := 0; i < 5 && i < len(allSettlements); i++ {
-			log.Printf("结算数据示例[%d]: 学校=%s, 区域=%s, CP=%s, 日期=%s, 值=%d", 
-				i, allSettlements[i].SchoolName, allSettlements[i].Region, allSettlements[i].CP, 
-				allSettlements[i].SettlementDate.Format("2006-01-02"), allSettlements[i].SettlementValue)
-		}
-		
-		err = s.repo.BatchCreateSettlements(allSettlements)
+	var all []model.SchoolSettlement
+	total := 0
+	for d := startDate; !d.After(endDate); d = d.AddDate(0, 0, 1) {
+		ds, cnt, err := s.executeDailySettlementInternal(d)
 		if err != nil {
-			log.Printf("保存结算数据失败: %v", err)
-			s.UpdateSettlementTaskStatus(taskID, "failed", fmt.Sprintf("保存结算数据失败: %v", err))
+			continue
+		}
+		all = append(all, ds...)
+		total += cnt
+	}
+	if len(all) > 0 {
+		if err := s.repo.BatchCreateSettlements(all); err != nil {
+			_ = s.UpdateSettlementTaskStatus(taskID, "failed", fmt.Sprintf("保存结算数据失败: %v", err))
 			return fmt.Errorf("保存结算数据失败: %v", err)
 		}
-		log.Printf("结算数据保存成功")
-	} else {
-		log.Printf("没有结算数据需要保存")
 	}
-
-	// 更新任务状态和处理记录数
 	task, err := s.repo.GetSettlementTaskByID(taskID)
 	if err != nil {
 		return fmt.Errorf("获取任务信息失败: %v", err)
 	}
-
 	task.Status = "success"
 	now := time.Now()
 	task.EndTime = &now
-	task.ProcessedCount = totalProcessedCount
-
-	err = s.repo.UpdateSettlementTask(task)
-	if err != nil {
+	task.ProcessedCount = total
+	if err := s.repo.UpdateSettlementTask(task); err != nil {
 		return fmt.Errorf("更新任务状态失败: %v", err)
 	}
 
+	// 周结算完成后按配置触发初算（不标记复算）
+	go func(sdate, edate time.Time) {
+		cfg, e := s.repo.GetSettlementConfig()
+		if e != nil || !cfg.Enabled || !cfg.RecalcAfterWeekly {
+			return
+		}
+		init := &model.SettlementTask{TaskType: "customer_init", TaskDate: sdate, Status: "running", StartTime: ptrTime(time.Now()), CreateTime: time.Now(), UpdateTime: time.Now()}
+		if err := model.DB.Create(init).Error; err != nil {
+			return
+		}
+		dataRepo := repository.NewSettlementDataRepository()
+		affected, recErr := dataRepo.BackfillFromSchoolSettlement("", "", "", sdate, edate, false)
+		if recErr != nil {
+			_ = model.DB.Model(&model.SettlementTask{}).Where("id = ?", init.ID).Updates(map[string]interface{}{"status": "failed", "end_time": time.Now(), "error_message": recErr.Error()}).Error
+			return
+		}
+		_ = model.DB.Model(&model.SettlementTask{}).Where("id = ?", init.ID).Updates(map[string]interface{}{"status": "success", "end_time": time.Now(), "processed_count": affected}).Error
+	}(startDate, endDate)
 	return nil
 }
+
+// 辅助：取指针
+func ptrTime(t time.Time) *time.Time { return &t }

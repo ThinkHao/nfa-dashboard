@@ -100,6 +100,7 @@ const canBusinessTypes = computed(() => auth.hasPermission('business_types.read'
   background: radial-gradient(600px at 80% 80%, rgba(20, 184, 166, 0.22), transparent 70%);
   transform: rotate(6deg);
   filter: blur(2px);
+  pointer-events: none;
 }
 
 .sidebar {

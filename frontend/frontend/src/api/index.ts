@@ -35,6 +35,7 @@ import type {
   SettlementFormulaItem,
   CreateSettlementFormulaRequest,
   UpdateSettlementFormulaRequest,
+  DiscountedFinalCustomerRate,
 } from '@/types/api'
 
 // 获取当前 API 基地址（不带路径，形如 https://host:port）
@@ -231,6 +232,10 @@ export default {
         weekly_day: config.weekly_day,
         weekly_time: config.weekly_time,
         enabled: config.enabled,
+        daily_enabled: config.daily_enabled,
+        weekly_enabled: config.weekly_enabled,
+        recalc_after_daily: config.recalc_after_daily,
+        recalc_after_weekly: config.recalc_after_weekly,
       }
       return api
         .put('/api/v1/settlement/config', payload)
@@ -279,6 +284,13 @@ export default {
     getResults(params?: any) {
       return api
         .get('/api/v1/settlement/results', { params })
+        .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+    },
+
+    // 获取渠道维度结算结果列表
+    getChannelResults(params?: any) {
+      return api
+        .get('/api/v1/settlement/results/channels', { params })
         .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
 
@@ -366,7 +378,7 @@ export default {
     },
     binding: {
       // 获取允许被绑定为“院校可见用户”的角色名列表
-      async getAllowedUserRoles(type?: 'sales' | 'line' | 'node'): Promise<string[]> {
+      async getAllowedUserRoles(type?: 'sales' | 'line' | 'node' | 'channel'): Promise<string[]> {
         const res: any = await api.get('/api/v1/system/binding/allowed-user-roles', { params: type ? { type } : undefined })
         if (res && Array.isArray(res.items)) return res.items as string[]
         if (Array.isArray(res)) return res as string[]
@@ -434,6 +446,29 @@ export default {
       upsert(data: UpsertRateCustomerRequest): Promise<void> {
         return api.post('/api/v1/settlement/rates/customer', data).then(() => undefined)
       },
+      export(params?: any): Promise<Blob> {
+        return api.get('/api/v1/settlement/rates/customer/export', { params, responseType: 'blob' as any }).then((d: any) => d as Blob)
+      },
+      exportXlsx(params?: any): Promise<Blob> {
+        return api.get('/api/v1/settlement/rates/customer/export-xlsx', { params, responseType: 'blob' as any }).then((d: any) => d as Blob)
+      },
+      template(): Promise<Blob> {
+        return api
+          .get('/api/v1/settlement/rates/customer/import-template', { responseType: 'blob' as any })
+          .then((d: any) => d as Blob)
+      },
+      import(form: FormData, opts?: { validateOnly?: boolean }): Promise<{ affected: number; errors: Array<{ line: number; message: string }>; validate_only?: boolean }> {
+        const params: any = {}
+        if (opts?.validateOnly) params.validate_only = 1
+        return api
+          .post('/api/v1/settlement/rates/customer/import', form, { params })
+          .then((d: any) => {
+            const affected = d && typeof d === 'object' && 'affected' in d ? Number((d as any).affected) : 0
+            const errors = d && typeof d === 'object' && Array.isArray((d as any).errors) ? (d as any).errors as Array<{ line: number; message: string }> : []
+            const validate_only = d && typeof d === 'object' && 'validate_only' in d ? Boolean((d as any).validate_only) : undefined
+            return { affected, errors, validate_only }
+          })
+      },
     },
     node: {
       list(params?: any): Promise<PaginatedData<RateNode>> {
@@ -446,6 +481,12 @@ export default {
     final: {
       list(params?: any): Promise<PaginatedData<RateFinalCustomer>> {
         return api.get('/api/v1/settlement/rates/final', { params }).then((d: any) => d as PaginatedData<RateFinalCustomer>)
+      },
+      // 按服务日期获取折损后的最终客户费率视图
+      listDiscounted(params?: any): Promise<PaginatedData<DiscountedFinalCustomerRate>> {
+        return api
+          .get('/api/v1/settlement/rates/final-discounted', { params })
+          .then((d: any) => d as PaginatedData<DiscountedFinalCustomerRate>)
       },
       upsert(data: UpsertRateFinalCustomerRequest): Promise<void> {
         return api.post('/api/v1/settlement/rates/final', data).then(() => undefined)
@@ -490,6 +531,27 @@ export default {
         return api.put(`/api/v1/settlement/rates/sync-rules/${id}/enabled`, { enabled }).then(() => undefined)
       },
     },
+    // 折损规则管理
+    discountRules: {
+      list(params?: any): Promise<PaginatedData<any>> {
+        return api.get('/api/v1/settlement/rates/discount-rules', { params }).then((d: any) => d as PaginatedData<any>)
+      },
+      get(id: number): Promise<{ rule: any; items: any[] }> {
+        return api.get(`/api/v1/settlement/rates/discount-rules/${id}`).then((d: any) => d as { rule: any; items: any[] })
+      },
+      create(data: any): Promise<{ rule: any; items: any[] }> {
+        return api.post('/api/v1/settlement/rates/discount-rules', data).then((d: any) => d as { rule: any; items: any[] })
+      },
+      update(id: number, data: any): Promise<void> {
+        return api.put(`/api/v1/settlement/rates/discount-rules/${id}`, data).then(() => undefined)
+      },
+      remove(id: number): Promise<void> {
+        return api.delete(`/api/v1/settlement/rates/discount-rules/${id}`).then(() => undefined)
+      },
+      replaceItems(id: number, items: any[]): Promise<void> {
+        return api.put(`/api/v1/settlement/rates/discount-rules/${id}/items`, items).then(() => undefined)
+      },
+    },
   },
 
   // 结算 - 业务对象 API
@@ -527,6 +589,28 @@ export default {
       const res = await api.get('/api/v1/settlement/business-types', { params: { enabled: true, page_size: 1000, page: 1 } })
       if (res && typeof res === 'object' && 'items' in res) return (res as any).items as BusinessType[]
       return Array.isArray(res) ? (res as BusinessType[]) : []
+    },
+  }
+  ,
+  // 结算数据明细 API（settlement_customer）
+  settlementData: {
+    // 列表
+    list(params?: any) {
+      return api
+        .get('/api/v1/settlement/data/customer', { params })
+        .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+    },
+    // 导出 CSV
+    export(params?: any): Promise<Blob> {
+      return api
+        .get('/api/v1/settlement/data/customer/export', { params, responseType: 'blob' as any })
+        .then((d: any) => d as Blob)
+    },
+    // 触发复算
+    recalculate(payload: any = {}): Promise<void> {
+      return api
+        .post('/api/v1/settlement/data/customer/recalculate', payload)
+        .then(() => undefined)
     },
   }
   ,

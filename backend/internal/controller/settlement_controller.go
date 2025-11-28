@@ -19,6 +19,55 @@ type SettlementController struct {
 	settlementResultService service.SettlementResultService
 }
 
+// GetChannelSettlementResults 获取渠道维度结算结果（聚合到渠道/账户）
+func (c *SettlementController) GetChannelSettlementResults(ctx *gin.Context) {
+    var filter model.ChannelResultFilter
+
+    filter.ChannelName = ctx.Query("channel_name")
+    filter.UserName = ctx.Query("user_name")
+    startDateStr := ctx.Query("start_date")
+    endDateStr := ctx.Query("end_date")
+
+    if startDateStr == "" || endDateStr == "" {
+        ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "start_date 与 end_date 必填"})
+        return
+    }
+    var err error
+    if filter.StartDate, err = time.Parse("2006-01-02", startDateStr); err != nil {
+        ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "开始日期格式错误，应为YYYY-MM-DD", "error": err.Error()})
+        return
+    }
+    if filter.EndDate, err = time.Parse("2006-01-02", endDateStr); err != nil {
+        ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "结束日期格式错误，应为YYYY-MM-DD", "error": err.Error()})
+        return
+    }
+
+    if v := ctx.Query("formula_id"); v != "" {
+        if id, parseErr := strconv.ParseUint(v, 10, 64); parseErr == nil {
+            filter.FormulaID = id
+        } else {
+            ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "公式ID格式错误", "error": parseErr.Error()})
+            return
+        }
+    }
+    if v := ctx.DefaultQuery("limit", "50"); v != "" {
+        if n, parseErr := strconv.Atoi(v); parseErr == nil { filter.Limit = n }
+    }
+    if v := ctx.DefaultQuery("offset", "0"); v != "" {
+        if n, parseErr := strconv.Atoi(v); parseErr == nil { filter.Offset = n }
+    }
+    if filter.Limit <= 0 { filter.Limit = 50 }
+    if filter.Offset < 0 { filter.Offset = 0 }
+
+    items, total, svcErr := c.settlementResultService.CalculateChannelResults(filter)
+    if svcErr != nil {
+        ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取渠道结算结果失败", "error": svcErr.Error()})
+        return
+    }
+
+    ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取渠道结算结果成功", "data": gin.H{"total": total, "items": items}})
+}
+
 func NewSettlementController(settlementService service.SettlementService, settlementResultService service.SettlementResultService) *SettlementController {
 	return &SettlementController{
 		settlementService:       settlementService,

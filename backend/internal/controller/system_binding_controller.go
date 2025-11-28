@@ -4,8 +4,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"nfa-dashboard/config"
+
+	"github.com/gin-gonic/gin"
 )
 
 // SystemBindingController 暴露与“绑定配置”相关的只读接口
@@ -16,21 +17,30 @@ import (
 type SystemBindingController struct{}
 
 func NewSystemBindingController() *SystemBindingController { return &SystemBindingController{} }
+
 // GET /api/v1/system/binding/allowed-user-roles
 func (ctl *SystemBindingController) GetAllowedUserRoles(c *gin.Context) {
 	// type: sales | line | ""(compat->sales)
 	t := strings.TrimSpace(strings.ToLower(c.Query("type")))
 	var roles []string
 	switch t {
+	case "channel":
+		roles = config.GetAllowedChannelRoles()
 	case "node":
 		roles = config.GetAllowedNodeRoles()
-		if len(roles) == 0 { roles = config.GetAllowedLineRoles() }
+		if len(roles) == 0 {
+			roles = config.GetAllowedLineRoles()
+		}
 	case "line":
 		roles = config.GetAllowedLineRoles()
-		if len(roles) == 0 { roles = config.GetOwnerRoles("network_line_fee") }
+		if len(roles) == 0 {
+			roles = config.GetOwnerRoles("network_line_fee")
+		}
 	case "sales", "":
 		roles = config.GetAllowedSalesRoles()
-		if len(roles) == 0 { roles = config.GetOwnerRoles("customer_fee") }
+		if len(roles) == 0 {
+			roles = config.GetOwnerRoles("customer_fee")
+		}
 	default:
 		roles = config.GetAllowedSalesRoles()
 	}
@@ -38,7 +48,9 @@ func (ctl *SystemBindingController) GetAllowedUserRoles(c *gin.Context) {
 	norm := make([]string, 0, len(roles))
 	for _, r := range roles {
 		r = strings.TrimSpace(r)
-		if r == "" { continue }
+		if r == "" {
+			continue
+		}
 		norm = append(norm, r)
 	}
 	c.JSON(http.StatusOK, gin.H{"items": norm, "total": len(norm)})

@@ -39,11 +39,11 @@ type RatesRepository interface {
 // 仅针对 fee_type='auto' 且 (final_fee IS NULL OR customer_fee IS NULL OR network_line_fee IS NULL)
 // 不强制 node_deduction_fee 非空，因其可选
 func (r *ratesRepository) CleanupInvalidFinalCustomerRates() (int64, error) {
-    sql := `DELETE FROM rate_final_customer
+	sql := `DELETE FROM rate_final_customer
 WHERE fee_type = 'auto'
   AND (final_fee IS NULL OR customer_fee IS NULL OR network_line_fee IS NULL)`
-    res := model.DB.Exec(sql)
-    return res.RowsAffected, res.Error
+	res := model.DB.Exec(sql)
+	return res.RowsAffected, res.Error
 }
 
 type ratesRepository struct{}
@@ -83,45 +83,48 @@ func (r *ratesRepository) ListCustomerRates(filter map[string]interface{}, limit
 		return []model.RateCustomer{}, 0, nil
 	}
 	if err := q.Order("updated_at DESC").Limit(limit).Offset(offset).Find(&items).Error; err != nil {
-        return nil, 0, err
-    }
-    return items, count, nil
+		return nil, 0, err
+	}
+	return items, count, nil
 }
 
 // UpsertCustomerRate 基于唯一键(region,cp,school_name)进行插入或更新
 func (r *ratesRepository) UpsertCustomerRate(rate *model.RateCustomer) error {
-    updates := map[string]interface{}{
-        "customer_fee":              rate.CustomerFee,
-        "network_line_fee":          rate.NetworkLineFee,
-        "general_fee":               rate.GeneralFee,
-        "general_fee_owner_id":      rate.GeneralFeeOwnerID,
-        "customer_fee_owner_id":     rate.CustomerFeeOwnerID,
-        "network_line_fee_owner_id": rate.NetworkLineFeeOwnerID,
-        "extra":                     rate.Extra,
-        "updated_at":                gorm.Expr("NOW()"),
-    }
-    if rate.FeeMode != "" {
-        updates["fee_mode"] = rate.FeeMode
-    }
-    // 确保新插入时 fee_mode 有默认值（auto）
-    if rate.FeeMode == "" {
-        rate.FeeMode = "auto"
-    }
-    return model.DB.Clauses(clause.OnConflict{
-        Columns:   []clause.Column{{Name: "region"}, {Name: "cp"}, {Name: "school_name"}},
-        DoUpdates: clause.Assignments(updates),
-    }).Create(rate).Error
+	updates := map[string]interface{}{
+		"customer_fee":              rate.CustomerFee,
+		"network_line_fee":          rate.NetworkLineFee,
+		"general_fee":               rate.GeneralFee,
+		"general_fee_owner_id":      rate.GeneralFeeOwnerID,
+		"customer_fee_owner_id":     rate.CustomerFeeOwnerID,
+		"network_line_fee_owner_id": rate.NetworkLineFeeOwnerID,
+		"channel_rate":              rate.ChannelRate,
+		"channel_owner_user_id":     rate.ChannelOwnerUserID,
+		"start_at":                  rate.StartAt,
+		"extra":                     rate.Extra,
+		"updated_at":                gorm.Expr("NOW()"),
+	}
+	if rate.FeeMode != "" {
+		updates["fee_mode"] = rate.FeeMode
+	}
+	// 确保新插入时 fee_mode 有默认值（auto）
+	if rate.FeeMode == "" {
+		rate.FeeMode = "auto"
+	}
+	return model.DB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "region"}, {Name: "cp"}, {Name: "school_name"}},
+		DoUpdates: clause.Assignments(updates),
+	}).Create(rate).Error
 }
 
 // UpdateCustomerByID 基于主键进行局部字段更新
 func (r *ratesRepository) UpdateCustomerByID(id uint64, updates map[string]interface{}) error {
-    if id == 0 {
-        return gorm.ErrInvalidData
-    }
-    if len(updates) == 0 {
-        return nil
-    }
-    return model.DB.Model(&model.RateCustomer{}).Where("id = ?", id).Updates(updates).Error
+	if id == 0 {
+		return gorm.ErrInvalidData
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+	return model.DB.Model(&model.RateCustomer{}).Where("id = ?", id).Updates(updates).Error
 }
 
 // ListNodeRates 列表查询节点业务费率
@@ -212,7 +215,7 @@ func (r *ratesRepository) GetFinalCustomerRate(region, cp, schoolName string) (*
 
 // InitFinalCustomerRatesFromCustomer 从 rate_customer 初始化/同步到 rate_final_customer（保护 config 不被覆盖）
 func (r *ratesRepository) InitFinalCustomerRatesFromCustomer() (int64, error) {
-    sql := `
+	sql := `
 INSERT INTO rate_final_customer
   (region, cp, school_name, fee_type,
    customer_fee, customer_fee_owner_id,
@@ -244,18 +247,18 @@ ON DUPLICATE KEY UPDATE
   node_deduction_fee = IF(rate_final_customer.fee_type = 'config', rate_final_customer.node_deduction_fee, VALUES(node_deduction_fee)),
   node_deduction_fee_owner_id = IF(rate_final_customer.fee_type = 'config', rate_final_customer.node_deduction_fee_owner_id, VALUES(node_deduction_fee_owner_id)),
   updated_at = NOW();`
-    res := model.DB.Exec(sql)
-    return res.RowsAffected, res.Error
+	res := model.DB.Exec(sql)
+	return res.RowsAffected, res.Error
 }
 
 // RefreshFinalCustomerRates 按公式重算 final_fee（仅 auto）
 // 公式：final_fee = COALESCE(customer_fee,0) + COALESCE(network_line_fee,0) - COALESCE(node_deduction_fee,0)
 func (r *ratesRepository) RefreshFinalCustomerRates() (int64, error) {
-    // 仅针对“参与结算”的记录刷新（与 rate_customer 条件保持一致）：
-    // 条件：rc.school_name 非空 且 rc.customer_fee 与 rc.network_line_fee 均非 NULL；并且仅刷新 fee_type='auto'
-    // 先统计匹配行数（使用 JOIN），避免因值未变化导致 RowsAffected=0 的错觉
-    var matched int64
-    countSQL := `
+	// 仅针对“参与结算”的记录刷新（与 rate_customer 条件保持一致）：
+	// 条件：rc.school_name 非空 且 rc.customer_fee 与 rc.network_line_fee 均非 NULL；并且仅刷新 fee_type='auto'
+	// 先统计匹配行数（使用 JOIN），避免因值未变化导致 RowsAffected=0 的错觉
+	var matched int64
+	countSQL := `
 SELECT COUNT(*)
 FROM rate_final_customer fc
 JOIN rate_customer rc
@@ -264,11 +267,11 @@ WHERE (fc.fee_type = 'auto' OR fc.fee_type IS NULL OR fc.fee_type = '')
   AND rc.school_name IS NOT NULL AND rc.school_name <> ''
   AND rc.customer_fee IS NOT NULL
   AND rc.network_line_fee IS NOT NULL`
-    if err := model.DB.Raw(countSQL).Scan(&matched).Error; err != nil {
-        return 0, err
-    }
-    // 执行更新计算，仅更新匹配的“参与结算 + auto”记录
-    updateSQL := `
+	if err := model.DB.Raw(countSQL).Scan(&matched).Error; err != nil {
+		return 0, err
+	}
+	// 执行更新计算，仅更新匹配的“参与结算 + auto”记录
+	updateSQL := `
 UPDATE rate_final_customer fc
 JOIN rate_customer rc
   ON fc.region = rc.region AND fc.cp = rc.cp AND fc.school_name = rc.school_name
@@ -285,8 +288,8 @@ WHERE (fc.fee_type = 'auto' OR fc.fee_type IS NULL OR fc.fee_type = '')
   AND rc.school_name IS NOT NULL AND rc.school_name <> ''
   AND rc.customer_fee IS NOT NULL
   AND rc.network_line_fee IS NOT NULL`
-    if err := model.DB.Exec(updateSQL).Error; err != nil {
-        return 0, err
-    }
-    return matched, nil
+	if err := model.DB.Exec(updateSQL).Error; err != nil {
+		return 0, err
+	}
+	return matched, nil
 }

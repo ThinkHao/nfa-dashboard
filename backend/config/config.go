@@ -2,18 +2,19 @@ package config
 
 import (
 	"fmt"
-	"github.com/spf13/viper"
 	"log"
 	"os"
 	"strings"
+
+	"github.com/spf13/viper"
 )
 
 type Config struct {
-	Server   ServerConfig   `mapstructure:"server"`
-	Database DatabaseConfig `mapstructure:"database"`
-	Redis    RedisConfig    `mapstructure:"redis"`
-	Auth     AuthConfig     `mapstructure:"auth"`
-	Binding  BindingConfig  `mapstructure:"binding"`
+	Server          ServerConfig          `mapstructure:"server"`
+	Database        DatabaseConfig        `mapstructure:"database"`
+	Redis           RedisConfig           `mapstructure:"redis"`
+	Auth            AuthConfig            `mapstructure:"auth"`
+	Binding         BindingConfig         `mapstructure:"binding"`
 	RatesOwnerRoles RatesOwnerRolesConfig `mapstructure:"rates_owner_roles"`
 }
 
@@ -30,24 +31,25 @@ type DatabaseConfig struct {
 }
 
 type RedisConfig struct {
-    Host     string `mapstructure:"host"`
-    Port     int    `mapstructure:"port"`
-    Password string `mapstructure:"password"`
-    DB       int    `mapstructure:"db"`
+	Host     string `mapstructure:"host"`
+	Port     int    `mapstructure:"port"`
+	Password string `mapstructure:"password"`
+	DB       int    `mapstructure:"db"`
 }
 
 type AuthConfig struct {
-    Secret                 string `mapstructure:"secret"`
-    AccessTokenTTLMinutes  int    `mapstructure:"access_token_ttl_minutes"`
-    RefreshTokenTTLMinutes int    `mapstructure:"refresh_token_ttl_minutes"`
+	Secret                 string `mapstructure:"secret"`
+	AccessTokenTTLMinutes  int    `mapstructure:"access_token_ttl_minutes"`
+	RefreshTokenTTLMinutes int    `mapstructure:"refresh_token_ttl_minutes"`
 }
 
 type BindingConfig struct {
-    // 新字段：客户费归属（销售）可选的系统用户角色名
-    AllowedSalesRoles []string `mapstructure:"allowed_sales_roles"`
-    // 新字段：线路费归属可选的系统用户角色名
-    AllowedLineRoles  []string `mapstructure:"allowed_line_roles"`
-    AllowedNodeRoles  []string `mapstructure:"allowed_node_roles"`
+	// 新字段：客户费归属（销售）可选的系统用户角色名
+	AllowedSalesRoles []string `mapstructure:"allowed_sales_roles"`
+	// 新字段：线路费归属可选的系统用户角色名
+	AllowedLineRoles    []string `mapstructure:"allowed_line_roles"`
+	AllowedNodeRoles    []string `mapstructure:"allowed_node_roles"`
+	AllowedChannelRoles []string `mapstructure:"allowed_channel_roles"`
 }
 
 // RatesOwnerRolesConfig 控制费率页面“归属”下拉可选角色
@@ -120,61 +122,65 @@ func GetAccessTokenTTLMinutes() int {
 }
 
 func GetRefreshTokenTTLMinutes() int {
-    if AppConfig.Auth.RefreshTokenTTLMinutes <= 0 {
-        return 43200
-    }
-    return AppConfig.Auth.RefreshTokenTTLMinutes
+	if AppConfig.Auth.RefreshTokenTTLMinutes <= 0 {
+		return 43200
+	}
+	return AppConfig.Auth.RefreshTokenTTLMinutes
 }
 
 // validateAndSetDefaults validates essential configuration and applies sane defaults.
 func validateAndSetDefaults() error {
-    // Default port safeguard (in case env binding/unmarshal didn't set it)
-    if AppConfig.Server.Port == 0 {
-        AppConfig.Server.Port = 8081
-    }
-    // Database required fields
-    db := AppConfig.Database
-    if db.Host == "" || db.Port == 0 || db.Username == "" || db.Password == "" || db.DBName == "" {
-        return fmt.Errorf("incomplete database config")
-    }
-    return nil
+	// Default port safeguard (in case env binding/unmarshal didn't set it)
+	if AppConfig.Server.Port == 0 {
+		AppConfig.Server.Port = 8081
+	}
+	// Database required fields
+	db := AppConfig.Database
+	if db.Host == "" || db.Port == 0 || db.Username == "" || db.Password == "" || db.DBName == "" {
+		return fmt.Errorf("incomplete database config")
+	}
+	return nil
 }
 
 // applyEnvOverridesFromEnv overrides list-type configs from comma-separated env vars.
 func applyEnvOverridesFromEnv() {
-    if v := strings.TrimSpace(os.Getenv("BINDING_ALLOWED_SALES_ROLES")); v != "" {
-        AppConfig.Binding.AllowedSalesRoles = splitCSV(v)
-    }
-    if v := strings.TrimSpace(os.Getenv("BINDING_ALLOWED_LINE_ROLES")); v != "" {
-        AppConfig.Binding.AllowedLineRoles = splitCSV(v)
-    }
-    if v := strings.TrimSpace(os.Getenv("BINDING_ALLOWED_NODE_ROLES")); v != "" {
-        AppConfig.Binding.AllowedNodeRoles = splitCSV(v)
-    }
-    if v := strings.TrimSpace(os.Getenv("RATES_OWNER_ROLES_CUSTOMER_FEE")); v != "" {
-        AppConfig.RatesOwnerRoles.CustomerFee = splitCSV(v)
-    }
-    if v := strings.TrimSpace(os.Getenv("RATES_OWNER_ROLES_NETWORK_LINE_FEE")); v != "" {
-        AppConfig.RatesOwnerRoles.NetworkLineFee = splitCSV(v)
-    }
+	if v := strings.TrimSpace(os.Getenv("BINDING_ALLOWED_SALES_ROLES")); v != "" {
+		AppConfig.Binding.AllowedSalesRoles = splitCSV(v)
+	}
+	if v := strings.TrimSpace(os.Getenv("BINDING_ALLOWED_LINE_ROLES")); v != "" {
+		AppConfig.Binding.AllowedLineRoles = splitCSV(v)
+	}
+	if v := strings.TrimSpace(os.Getenv("BINDING_ALLOWED_NODE_ROLES")); v != "" {
+		AppConfig.Binding.AllowedNodeRoles = splitCSV(v)
+	}
+	if v := strings.TrimSpace(os.Getenv("BINDING_ALLOWED_CHANNEL_ROLES")); v != "" {
+		AppConfig.Binding.AllowedChannelRoles = splitCSV(v)
+	}
+	if v := strings.TrimSpace(os.Getenv("RATES_OWNER_ROLES_CUSTOMER_FEE")); v != "" {
+		AppConfig.RatesOwnerRoles.CustomerFee = splitCSV(v)
+	}
+	if v := strings.TrimSpace(os.Getenv("RATES_OWNER_ROLES_NETWORK_LINE_FEE")); v != "" {
+		AppConfig.RatesOwnerRoles.NetworkLineFee = splitCSV(v)
+	}
 }
 
 func splitCSV(s string) []string {
-    parts := strings.Split(s, ",")
-    out := make([]string, 0, len(parts))
-    for _, p := range parts {
-        p = strings.TrimSpace(p)
-        if p != "" {
-            out = append(out, p)
-        }
-    }
-    return out
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // 新增：分别获取销售与线路的角色白名单
-func GetAllowedSalesRoles() []string { return AppConfig.Binding.AllowedSalesRoles }
-func GetAllowedLineRoles() []string  { return AppConfig.Binding.AllowedLineRoles }
-func GetAllowedNodeRoles() []string  { return AppConfig.Binding.AllowedNodeRoles }
+func GetAllowedSalesRoles() []string   { return AppConfig.Binding.AllowedSalesRoles }
+func GetAllowedLineRoles() []string    { return AppConfig.Binding.AllowedLineRoles }
+func GetAllowedNodeRoles() []string    { return AppConfig.Binding.AllowedNodeRoles }
+func GetAllowedChannelRoles() []string { return AppConfig.Binding.AllowedChannelRoles }
 
 // GetOwnerRoles returns allowed role names for a specific owner type on rates page
 // t: "customer_fee" | "network_line_fee"

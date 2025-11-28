@@ -7,6 +7,7 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"nfa-dashboard/internal/model"
@@ -18,11 +19,26 @@ import (
 type SettlementResultService interface {
 	CalculateResults(filter model.SettlementResultFilter) ([]model.SettlementResultItem, int64, error)
 	DeleteResult(id uint64) error
+	CalculateChannelResults(filter model.ChannelResultFilter) ([]model.ChannelSettlementResultItem, int64, error)
 }
 
 type settlementResultService struct {
 	resultsRepo repository.SettlementResultRepository
 	formulaRepo repository.SettlementFormulaRepository
+}
+
+// breakdownEntry 用于渠道维度聚合时的分项明细
+// amount 为该分项对应的金额，explain 为可选的计算说明
+type breakdownEntry struct {
+	Amount  float64 `json:"amount"`
+	Explain string  `json:"explain,omitempty"`
+}
+
+// channelAgg 用于渠道聚合时的临时容器
+type channelAgg struct {
+	name      string
+	amount    float64
+	breakdown map[string]breakdownEntry
 }
 
 func NewSettlementResultService(resultsRepo repository.SettlementResultRepository, formulaRepo repository.SettlementFormulaRepository) SettlementResultService {
@@ -217,6 +233,210 @@ func (s *settlementResultService) DeleteResult(id uint64) error {
 		return errors.New("无效的结算结果ID")
 	}
 	return s.resultsRepo.DeleteByID(id)
+}
+
+func (s *settlementResultService) CalculateChannelResults(filter model.ChannelResultFilter) ([]model.ChannelSettlementResultItem, int64, error) {
+	if filter.StartDate.IsZero() || filter.EndDate.IsZero() {
+		return nil, 0, errors.New("必须提供开始和结束日期")
+	}
+	if filter.EndDate.Before(filter.StartDate) {
+		return nil, 0, errors.New("结束日期不能早于开始日期")
+	}
+
+	var (
+		formula *model.SettlementFormula
+		err    error
+	)
+	if filter.FormulaID > 0 {
+		formula, err = s.formulaRepo.GetByID(filter.FormulaID)
+		if err != nil {
+			return nil, 0, fmt.Errorf("获取公式失败: %w", err)
+		}
+	} else {
+		formula, err = s.formulaRepo.GetFirstEnabled()
+		if err != nil {
+			return nil, 0, fmt.Errorf("获取默认启用公式失败: %w", err)
+		}
+	}
+	if formula == nil {
+		return nil, 0, errors.New("未找到可用的结算公式")
+	}
+	var tokens []model.SettlementFormulaToken
+	if err := json.Unmarshal([]byte(formula.Tokens), &tokens); err != nil {
+		return nil, 0, fmt.Errorf("解析公式Token失败: %w", err)
+	}
+
+	rows, _, err := s.resultsRepo.ListAggregatedFlowsWithOwners(model.SettlementResultFilter{
+		StartDate: filter.StartDate,
+		EndDate:   filter.EndDate,
+		Limit:     1000000, // 大范围，后续在聚合后再分页
+		Offset:    0,
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+
+	aggMap := map[uint64]*channelAgg{}
+
+	expectedDays := int(filter.EndDate.Sub(filter.StartDate).Hours()/24) + 1
+	samplingSeconds := 60.0
+
+	for _, row := range rows {
+		averageFlow := 0.0
+		if expectedDays > 0 {
+			averageFlow = row.TotalFlow / float64(expectedDays)
+		}
+		avgGbps := (averageFlow * 8.0) / samplingSeconds / 1e9
+		totalGbps := (row.TotalFlow * 8.0) / samplingSeconds / 1e9
+
+		baseEnv := map[string]float64{
+			"settlement_flow_95":    avgGbps,
+			"settlement_flow_total": totalGbps,
+			"customer_fee":          valueOrZero(row.CustomerFee),
+			"network_line_fee":      valueOrZero(row.NetworkLineFee),
+			"node_deduction_fee":    valueOrZero(row.NodeDeductionFee),
+			"final_fee":             valueOrZero(row.FinalFee),
+			"discount_rate":         1,
+			"tax_rate":              0,
+			"service_fee":           0,
+		}
+
+		if row.CustOwnerID != nil && *row.CustOwnerID > 0 {
+			env := cloneEnv(baseEnv)
+			env["network_line_fee"], env["node_deduction_fee"], env["final_fee"] = 0, 0, 0
+			amount, _, evalErr := evaluateFormula(tokens, env)
+			if evalErr != nil {
+				return nil, 0, fmt.Errorf("公式计算失败: %w", evalErr)
+			}
+			if amount != 0 {
+				feeRate := env["customer_fee"]
+				explain := fmt.Sprintf("金额 = 结算95(%.4f Gbps) × 客户费率(%.4f)", avgGbps, feeRate)
+				addAgg(aggMap, *row.CustOwnerID, "customer_fee", amount, explain)
+			}
+		}
+		if row.NetOwnerID != nil && *row.NetOwnerID > 0 {
+			env := cloneEnv(baseEnv)
+			env["customer_fee"], env["node_deduction_fee"], env["final_fee"] = 0, 0, 0
+			amount, _, evalErr := evaluateFormula(tokens, env)
+			if evalErr != nil {
+				return nil, 0, fmt.Errorf("公式计算失败: %w", evalErr)
+			}
+			if amount != 0 {
+				feeRate := env["network_line_fee"]
+				explain := fmt.Sprintf("金额 = 结算95(%.4f Gbps) × 线路费率(%.4f)", avgGbps, feeRate)
+				addAgg(aggMap, *row.NetOwnerID, "network_line_fee", amount, explain)
+			}
+		}
+		if row.NodeOwnerID != nil && *row.NodeOwnerID > 0 {
+			env := cloneEnv(baseEnv)
+			env["customer_fee"], env["network_line_fee"], env["final_fee"] = 0, 0, 0
+			amount, _, evalErr := evaluateFormula(tokens, env)
+			if evalErr != nil {
+				return nil, 0, fmt.Errorf("公式计算失败: %w", evalErr)
+			}
+			if amount != 0 {
+				feeRate := env["node_deduction_fee"]
+				explain := fmt.Sprintf("金额 = 结算95(%.4f Gbps) × 节点扣减率(%.4f)", avgGbps, feeRate)
+				addAgg(aggMap, *row.NodeOwnerID, "node_deduction_fee", amount, explain)
+			}
+		}
+	}
+
+	ownerIDs := make([]uint64, 0, len(aggMap))
+	for id := range aggMap {
+		ownerIDs = append(ownerIDs, id)
+	}
+	names := loadUserNames(ownerIDs)
+	for id, a := range aggMap {
+		if name, ok := names[id]; ok && name != "" {
+			a.name = name
+		}
+	}
+
+	list := make([]model.ChannelSettlementResultItem, 0, len(aggMap))
+	nameFilter := strings.TrimSpace(filter.UserName)
+	if nameFilter == "" { nameFilter = strings.TrimSpace(filter.ChannelName) }
+	for id, a := range aggMap {
+		if nameFilter != "" && a.name != "" && !strings.Contains(a.name, nameFilter) {
+			continue
+		}
+		        bjson, _ := json.Marshal(a.breakdown)
+        item := model.ChannelSettlementResultItem{
+            UserID:      id,
+            UserName:    a.name,
+            Amount:      math.Round(a.amount*100) / 100,
+            Currency:    "CNY",
+            StartDate:   filter.StartDate,
+            EndDate:     filter.EndDate,
+            FormulaID:   formula.ID,
+            FormulaName: formula.Name,
+            Breakdown:   string(bjson),
+            UpdatedAt:   time.Now(),
+        }
+        list = append(list, item)
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].Amount > list[j].Amount })
+	total := int64(len(list))
+	if filter.Offset < 0 {
+		filter.Offset = 0
+	}
+	if filter.Limit <= 0 {
+		filter.Limit = 50
+	}
+	start := filter.Offset
+	if start > len(list) {
+		start = len(list)
+	}
+	end := start + filter.Limit
+	if end > len(list) {
+		end = len(list)
+	}
+	page := list[start:end]
+
+	return page, total, nil
+}
+
+func cloneEnv(m map[string]float64) map[string]float64 {
+	nm := make(map[string]float64, len(m))
+	for k, v := range m {
+		nm[k] = v
+	}
+	return nm
+}
+
+func addAgg(aggMap map[uint64]*channelAgg, id uint64, key string, val float64, explain string) {
+	a, ok := aggMap[id]
+	if !ok {
+		a = &channelAgg{name: "", amount: 0, breakdown: map[string]breakdownEntry{}}
+		aggMap[id] = a
+	}
+	a.amount += val
+	entry := a.breakdown[key]
+	entry.Amount += val
+	if explain != "" {
+		entry.Explain = explain
+	}
+	a.breakdown[key] = entry
+}
+
+func loadUserNames(ids []uint64) map[uint64]string {
+	res := map[uint64]string{}
+	if len(ids) == 0 {
+		return res
+	}
+	type row struct {
+		ID   uint64
+		Name string
+	}
+	var rows []row
+	if err := model.DB.Table("users").Select("id as id, COALESCE(NULLIF(alias, ''), username) as name").Where("id IN ?", ids).Scan(&rows).Error; err != nil {
+		return res
+	}
+	for _, r := range rows {
+		res[r.ID] = r.Name
+	}
+	return res
 }
 
 func recordToItem(record model.SettlementResultRecord) model.SettlementResultItem {

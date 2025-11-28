@@ -21,19 +21,29 @@
           :model="config"
           label-width="120px"
         >
+          <el-form-item label="每日自动结算">
+            <el-switch v-model="config.daily_enabled" :disabled="!isEditing" />
+            <div class="time-description">开启后，将在“日结算时间”每日触发日结算任务（计算前一天）。</div>
+          </el-form-item>
+
           <el-form-item label="日结算时间">
             <el-time-picker
               v-model="config.daily_time"
               format="HH:mm"
               value-format="HH:mm"
               placeholder="选择时间"
-              :disabled="!isEditing"
+              :disabled="!isEditing || !config.daily_enabled"
             />
             <div class="time-description">每天在此时间执行日结算任务，计算前一天的日95值</div>
           </el-form-item>
 
+          <el-form-item label="每周自动结算">
+            <el-switch v-model="config.weekly_enabled" :disabled="!isEditing" />
+            <div class="time-description">开启后，将在“周结算日/时间”每周触发周结算任务（计算上一周）。</div>
+          </el-form-item>
+
           <el-form-item label="周结算日">
-            <el-select v-model="config.weekly_day" placeholder="选择星期" :disabled="!isEditing">
+            <el-select v-model="config.weekly_day" placeholder="选择星期" :disabled="!isEditing || !config.weekly_enabled">
               <el-option label="周一" :value="1" />
               <el-option label="周二" :value="2" />
               <el-option label="周三" :value="3" />
@@ -51,9 +61,19 @@
               format="HH:mm"
               value-format="HH:mm"
               placeholder="选择时间"
-              :disabled="!isEditing"
+              :disabled="!isEditing || !config.weekly_enabled"
             />
             <div class="time-description">在周结算日的此时间执行周结算任务</div>
+          </el-form-item>
+
+          <el-form-item label="初算：日后自动触发">
+            <el-switch v-model="config.recalc_after_daily" :disabled="!isEditing" />
+            <div class="time-description">开启后，日结算任务完成将自动创建并执行“初算任务”（仅回填/计算，不标记复算）。</div>
+          </el-form-item>
+
+          <el-form-item label="初算：周后自动触发">
+            <el-switch v-model="config.recalc_after_weekly" :disabled="!isEditing" />
+            <div class="time-description">开启后，周结算任务完成将自动创建并执行“初算任务”（仅回填/计算，不标记复算）。</div>
           </el-form-item>
 
           <el-form-item label="上次执行时间">
@@ -103,6 +123,10 @@ const config = reactive<SettlementConfig>({
   weekly_day: 1,
   weekly_time: '02:00',
   enabled: true,
+  daily_enabled: true,
+  weekly_enabled: true,
+  recalc_after_daily: true,
+  recalc_after_weekly: true,
   last_execute_time: '',
   update_time: ''
 })

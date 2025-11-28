@@ -7,6 +7,8 @@ import (
 	"nfa-dashboard/internal/model"
 	"nfa-dashboard/internal/repository"
 	"regexp"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -126,7 +128,7 @@ func (s *ratesSyncService) ExecuteSync() (int64, error) {
 							rc = model.RateCustomer{Region: sch.Region, CP: sch.CP, SchoolName: &name}
 						}
 
-						updated, fieldUpdates, err := s.applyRuleToCustomer(&rc, rule, whitelist, setMap)
+						updated, fieldUpdates, err := s.applyRuleToCustomer(&rc, rule, whitelist, setMap, sch.Region, sch.CP, sch.SchoolName)
 						if err != nil {
 							return totalAffected, err
 						}
@@ -173,8 +175,7 @@ func (s *ratesSyncService) ExecuteSync() (int64, error) {
 }
 
 // 将规则应用到单个客户费率，返回是否发生更新以及需要持久化到 DB 的字段集合
-func (s *ratesSyncService) applyRuleToCustomer(rc *model.RateCustomer, rule model.RateCustomerSyncRule, whitelist []string, setMap map[string]interface{}) (bool, map[string]interface{}, error) {
-	// 条件表达式暂未实现，如需后续扩展，在此处处理 rule.ConditionExpr
+func (s *ratesSyncService) applyRuleToCustomer(rc *model.RateCustomer, rule model.RateCustomerSyncRule, whitelist []string, setMap map[string]interface{}, region, cp, schoolName string) (bool, map[string]interface{}, error) {
 
 	// 解析现有 extra
 	cur := map[string]interface{}{}
@@ -185,8 +186,50 @@ func (s *ratesSyncService) applyRuleToCustomer(rc *model.RateCustomer, rule mode
 		}
 	}
 
-	// 生成允许更新的字段集合
-	allowed := map[string]struct{}{}
+    // 如果配置了条件表达式，则先进行条件判断（与范围条件为 AND 关系；范围为空即全量时，相当于仅用表达式过滤）
+    if rule.ConditionExpr != nil {
+        expr := strings.TrimSpace(*rule.ConditionExpr)
+        if expr != "" {
+            // 构建上下文
+            ctx := map[string]string{
+                "region":      region,
+                "cp":          cp,
+                "school_name": schoolName,
+                "fee_mode":    rc.FeeMode,
+            }
+            if rc.CustomerFee != nil { ctx["customer_fee"] = strconv.FormatFloat(*rc.CustomerFee, 'f', -1, 64) }
+            if rc.NetworkLineFee != nil { ctx["network_line_fee"] = strconv.FormatFloat(*rc.NetworkLineFee, 'f', -1, 64) }
+            if rc.GeneralFee != nil { ctx["general_fee"] = strconv.FormatFloat(*rc.GeneralFee, 'f', -1, 64) }
+            // 将 extra 展平为 extra.<key>
+            for k, v := range cur {
+                key := "extra." + k
+                switch vv := v.(type) {
+                case string:
+                    ctx[key] = vv
+                case float64:
+                    ctx[key] = strconv.FormatFloat(vv, 'f', -1, 64)
+                case bool:
+                    if vv { ctx[key] = "true" } else { ctx[key] = "false" }
+                default:
+                    // 其他类型粗略转字符串
+                    bs, _ := json.Marshal(v)
+                    if len(bs) > 0 { ctx[key] = string(bs) }
+                }
+            }
+            ok, err := evalConditionExpr(expr, ctx)
+            if err != nil {
+                // 解析错误时选择跳过（不应用该规则）
+                log.Printf("[rates-sync] condition parse error: id=%d name=%s expr=%q err=%v", rule.ID, rule.Name, expr, err)
+                return false, nil, nil
+            }
+            if !ok {
+                return false, nil, nil
+            }
+        }
+    }
+
+    // 生成允许更新的字段集合
+    allowed := map[string]struct{}{}
 	if len(whitelist) > 0 {
 		for _, k := range whitelist {
 			if isValidFieldKeyLocal(k) {
@@ -394,8 +437,221 @@ func jsonEqual(a, b interface{}) bool {
 
 // derefString returns pointer value or empty string
 func derefString(p *string) string {
-	if p == nil {
-		return ""
-	}
-	return *p
+    if p == nil {
+        return ""
+    }
+    return *p
+}
+
+// -------------------- 条件表达式解析与评估 --------------------
+// 受限布尔表达式，支持：
+// - 比较：field == value, field != value
+// - 集合：field in [a,b,...], field not in [a,b,...]
+// - 逻辑：&&, ||，以及括号 ()
+// - 值：字符串（'..' 或 ".."）或裸值（按字符串比较）
+// 安全性：仅基于传入的上下文字段做字符串比较，不执行任意代码。
+func evalConditionExpr(expr string, ctx map[string]string) (bool, error) {
+    expr = strings.TrimSpace(expr)
+    if expr == "" {
+        return true, nil
+    }
+
+    // 折叠最内层括号
+    for {
+        start := -1
+        depth := 0
+        replaced := false
+        for i := 0; i < len(expr); i++ {
+            ch := expr[i]
+            if ch == '(' {
+                if depth == 0 { start = i }
+                depth++
+            } else if ch == ')' {
+                depth--
+                if depth < 0 { return false, errors.New("unbalanced parentheses") }
+                if depth == 0 && start >= 0 {
+                    inner := expr[start+1 : i]
+                    v, err := evalNoParen(inner, ctx)
+                    if err != nil { return false, err }
+                    repl := "false"
+                    if v { repl = "true" }
+                    expr = expr[:start] + repl + expr[i+1:]
+                    replaced = true
+                    break
+                }
+            }
+        }
+        if !replaced { break }
+    }
+
+    return evalNoParen(expr, ctx)
+}
+
+// 无括号表达式求值，支持 || 与 && 的短路逻辑
+func evalNoParen(expr string, ctx map[string]string) (bool, error) {
+    expr = strings.TrimSpace(expr)
+    if expr == "" { return true, nil }
+    // OR 层
+    orParts := splitTopLevel(expr, "||")
+    if len(orParts) > 1 {
+        for _, p := range orParts {
+            b, err := evalNoParen(p, ctx)
+            if err != nil { return false, err }
+            if b { return true, nil }
+        }
+        return false, nil
+    }
+    // AND 层
+    andParts := splitTopLevel(expr, "&&")
+    for _, p := range andParts {
+        b, err := evalAtom(strings.TrimSpace(p), ctx)
+        if err != nil { return false, err }
+        if !b { return false, nil }
+    }
+    return true, nil
+}
+
+// 评估原子谓词
+func evalAtom(atom string, ctx map[string]string) (bool, error) {
+    s := strings.TrimSpace(atom)
+    if s == "" { return true, nil }
+    if s == "true" { return true, nil }
+    if s == "false" { return false, nil }
+
+    // not in
+    if idx := indexTopLevelOp(s, " not in "); idx >= 0 {
+        left := strings.TrimSpace(s[:idx])
+        right := strings.TrimSpace(s[idx+len(" not in "):])
+        vals, err := parseListLiteral(right)
+        if err != nil { return false, err }
+        lv := ctx[left]
+        for _, v := range vals { if lv == v { return false, nil } }
+        return true, nil
+    }
+    // in
+    if idx := indexTopLevelOp(s, " in "); idx >= 0 {
+        left := strings.TrimSpace(s[:idx])
+        right := strings.TrimSpace(s[idx+len(" in "):])
+        vals, err := parseListLiteral(right)
+        if err != nil { return false, err }
+        lv := ctx[left]
+        for _, v := range vals { if lv == v { return true, nil } }
+        return false, nil
+    }
+    // ==
+    if idx := indexTopLevelOp(s, "=="); idx >= 0 {
+        left := strings.TrimSpace(s[:idx])
+        right := strings.TrimSpace(s[idx+2:])
+        rv := trimQuotes(right)
+        return ctx[left] == rv, nil
+    }
+    // !=
+    if idx := indexTopLevelOp(s, "!="); idx >= 0 {
+        left := strings.TrimSpace(s[:idx])
+        right := strings.TrimSpace(s[idx+2:])
+        rv := trimQuotes(right)
+        return ctx[left] != rv, nil
+    }
+    // 单字段存在性：非空为真
+    if v, ok := ctx[s]; ok { return v != "", nil }
+    return false, nil
+}
+
+// 在不考虑括号/中括号与引号内部的情况下，查找运算符位置
+func indexTopLevelOp(s, op string) int {
+    depthParen, depthBracket := 0, 0
+    inSingle, inDouble := false, false
+    for i := 0; i+len(op) <= len(s); i++ {
+        ch := s[i]
+        if ch == '\'' && !inDouble { inSingle = !inSingle }
+        if ch == '"' && !inSingle { inDouble = !inDouble }
+        if inSingle || inDouble { continue }
+        switch ch {
+        case '(':
+            depthParen++
+        case ')':
+            if depthParen > 0 { depthParen-- }
+        case '[':
+            depthBracket++
+        case ']':
+            if depthBracket > 0 { depthBracket-- }
+        }
+        if depthParen == 0 && depthBracket == 0 {
+            if s[i:i+len(op)] == op { return i }
+        }
+    }
+    return -1
+}
+
+// 顶层拆分（不在括号/中括号/引号内）
+func splitTopLevel(s, sep string) []string {
+    parts := []string{}
+    depthParen, depthBracket := 0, 0
+    inSingle, inDouble := false, false
+    last := 0
+    for i := 0; i+len(sep) <= len(s); i++ {
+        ch := s[i]
+        if ch == '\'' && !inDouble { inSingle = !inSingle }
+        if ch == '"' && !inSingle { inDouble = !inDouble }
+        if inSingle || inDouble { continue }
+        switch ch {
+        case '(':
+            depthParen++
+        case ')':
+            if depthParen > 0 { depthParen-- }
+        case '[':
+            depthBracket++
+        case ']':
+            if depthBracket > 0 { depthBracket-- }
+        }
+        if depthParen == 0 && depthBracket == 0 && s[i:i+len(sep)] == sep {
+            parts = append(parts, strings.TrimSpace(s[last:i]))
+            last = i + len(sep)
+        }
+    }
+    parts = append(parts, strings.TrimSpace(s[last:]))
+    out := make([]string, 0, len(parts))
+    for _, p := range parts { if p != "" { out = append(out, p) } }
+    if len(out) == 0 { return []string{s} }
+    return out
+}
+
+// 解析列表字面量，如 ["CT", 'CM']
+func parseListLiteral(s string) ([]string, error) {
+    s = strings.TrimSpace(s)
+    if len(s) < 2 || s[0] != '[' || s[len(s)-1] != ']' {
+        return nil, errors.New("list literal must be in [...]")
+    }
+    body := strings.TrimSpace(s[1:len(s)-1])
+    if body == "" { return []string{}, nil }
+    parts := []string{}
+    inSingle, inDouble := false, false
+    last := 0
+    for i := 0; i < len(body); i++ {
+        ch := body[i]
+        if ch == '\'' && !inDouble { inSingle = !inSingle }
+        if ch == '"' && !inSingle { inDouble = !inDouble }
+        if inSingle || inDouble { continue }
+        if ch == ',' {
+            parts = append(parts, strings.TrimSpace(body[last:i]))
+            last = i + 1
+        }
+    }
+    parts = append(parts, strings.TrimSpace(body[last:]))
+    out := make([]string, 0, len(parts))
+    for _, p := range parts {
+        if p == "" { continue }
+        out = append(out, trimQuotes(p))
+    }
+    return out, nil
+}
+
+func trimQuotes(s string) string {
+    s = strings.TrimSpace(s)
+    if len(s) >= 2 {
+        if (s[0] == '\'' && s[len(s)-1] == '\'') || (s[0] == '"' && s[len(s)-1] == '"') {
+            return s[1:len(s)-1]
+        }
+    }
+    return s
 }

@@ -8,6 +8,7 @@
           <div>
             <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
             <el-button @click="onReset">重置</el-button>
+            <el-button type="info" :loading="exporting" @click="onExport">导出</el-button>
             <el-button v-if="canWrite" type="success" @click="openDialog()">新增/更新</el-button>
             <el-button v-if="canWrite" type="warning" :loading="refreshing" @click="onRefresh">初始化并刷新最终费率</el-button>
             <el-button v-if="canWrite" type="danger" :loading="cleaning" @click="onCleanupInvalid">清理无效数据</el-button>
@@ -25,6 +26,15 @@
         <el-form-item label="学校">
           <el-input v-model="query.school_name" clearable placeholder="学校名称" style="width: 220px" />
         </el-form-item>
+        <el-form-item label="服务日期">
+          <el-date-picker
+            v-model="query.service_date"
+            type="date"
+            value-format="YYYY-MM-DD"
+            placeholder="选择服务日期"
+            style="width: 160px"
+          />
+        </el-form-item>
         <!-- 费率类型筛选暂时隐藏 -->
       </el-form>
     </el-card>
@@ -34,13 +44,15 @@
         <div class="card-header"><span class="card-title">费率列表</span></div>
       </template>
 
-      <el-table :data="items" border stripe height="600px" v-loading="loading">
+      <el-table :data="itemsCombined" border stripe height="600px" v-loading="loading">
         <el-table-column prop="region" label="区域" width="120" />
         <el-table-column prop="cp" label="运营商" width="120" />
         <el-table-column prop="school_name" label="学校" min-width="160" show-overflow-tooltip />
-        <!-- 费率类型列暂时隐藏 -->
-        <el-table-column prop="final_fee" label="毛利" width="120" />
+        <el-table-column prop="service_date" label="服务日期" width="140" />
         <el-table-column prop="customer_fee" label="客户费" width="120" />
+        <el-table-column prop="customer_fee_discount" label="客户费(折后)" width="140" />
+        <el-table-column prop="network_line_fee" label="线路费" width="120" />
+        <el-table-column prop="channel_rate" label="渠道费率" width="140" />
         <el-table-column label="客户费归属" min-width="160">
           <template #default="{ row }">
             <el-tooltip placement="top" :content="`ID: ${row.customer_fee_owner_id ?? '-'}`">
@@ -48,23 +60,20 @@
             </el-tooltip>
           </template>
         </el-table-column>
-        <el-table-column prop="network_line_fee" label="专线费" width="120" />
-        <el-table-column label="专线费归属" min-width="160">
+        <el-table-column label="线路费归属" min-width="160">
           <template #default="{ row }">
             <el-tooltip placement="top" :content="`ID: ${row.network_line_fee_owner_id ?? '-'}`">
               <span>{{ displayOwner(row.network_line_fee_owner_id) }}</span>
             </el-tooltip>
           </template>
         </el-table-column>
-        <el-table-column prop="node_deduction_fee" label="节点扣减" width="120" />
-        <el-table-column label="扣减归属" min-width="160">
+        <el-table-column label="渠道费归属" min-width="160">
           <template #default="{ row }">
-            <el-tooltip placement="top" :content="`ID: ${row.node_deduction_fee_owner_id ?? '-'}`">
-              <span>{{ displayOwner(row.node_deduction_fee_owner_id) }}</span>
+            <el-tooltip placement="top" :content="`ID: ${row.channel_owner_user_id ?? '-'}`">
+              <span>{{ displayOwner(row.channel_owner_user_id) }}</span>
             </el-tooltip>
           </template>
         </el-table-column>
-        <el-table-column prop="updated_at" label="更新时间" min-width="180" />
       </el-table>
 
       <div class="pagination">
@@ -81,8 +90,8 @@
       </div>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" title="新增/更新 最终客户费率" width="620px">
-      <el-form :model="form" label-width="170px">
+    <el-dialog v-model="dialogVisible" title="新增/更新 最终客户费率" width="720px">
+      <el-form :model="form" label-width="140px">
         <el-form-item label="区域" required>
           <el-input v-model="form.region" />
         </el-form-item>
@@ -92,28 +101,44 @@
         <el-form-item label="学校" required>
           <el-input v-model="form.school_name" />
         </el-form-item>
-        <!-- 费率类型表单项暂时隐藏 -->
-        <el-form-item label="毛利">
-          <el-input-number v-model="form.final_fee" :min="0" :step="0.01" :precision="2" />
-        </el-form-item>
-        <el-form-item label="客户费">
-          <el-input-number v-model="form.customer_fee" :min="0" :step="0.01" :precision="2" />
-        </el-form-item>
-        <el-form-item label="客户费归属用户ID">
-          <el-input-number v-model="form.customer_fee_owner_id" :min="1" />
-        </el-form-item>
-        <el-form-item label="专线费">
-          <el-input-number v-model="form.network_line_fee" :min="0" :step="0.01" :precision="2" />
-        </el-form-item>
-        <el-form-item label="专线费归属用户ID">
-          <el-input-number v-model="form.network_line_fee_owner_id" :min="1" />
-        </el-form-item>
-        <el-form-item label="节点扣减费">
-          <el-input-number v-model="form.node_deduction_fee" :min="0" :step="0.01" :precision="2" />
-        </el-form-item>
-        <el-form-item label="节点扣减费归属用户ID">
-          <el-input-number v-model="form.node_deduction_fee_owner_id" :min="1" />
-        </el-form-item>
+
+        <el-divider content-position="left">费率</el-divider>
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <el-form-item label="客户费">
+              <el-input-number v-model="form.customer_fee" :min="0" :step="0.01" :precision="2" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="专线费">
+              <el-input-number v-model="form.network_line_fee" :min="0" :step="0.01" :precision="2" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="渠道费率">
+              <el-input-number v-model="form.channel_rate" :min="0" :step="0.01" :precision="2" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+
+        <el-divider content-position="left">归属</el-divider>
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <el-form-item label="客户费归属用户ID">
+              <el-input-number v-model="form.customer_fee_owner_id" :min="1" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="专线费归属用户ID">
+              <el-input-number v-model="form.network_line_fee_owner_id" :min="1" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="渠道费归属用户ID">
+              <el-input-number v-model="form.channel_owner_user_id" :min="1" />
+            </el-form-item>
+          </el-col>
+        </el-row>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible=false">取消</el-button>
@@ -127,7 +152,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api'
-import type { RateFinalCustomer, PaginatedData, UpsertRateFinalCustomerRequest, BusinessEntity } from '@/types/api'
+import type { DiscountedFinalCustomerRate, PaginatedData, UpsertRateFinalCustomerRequest, BusinessEntity, RateFinalCustomer } from '@/types/api'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
@@ -136,18 +161,20 @@ const canWrite = computed(() => auth.hasPermission('rates.final.write'))
 const loading = ref(false)
 const refreshing = ref(false)
 const cleaning = ref(false)
-const items = ref<RateFinalCustomer[]>([])
+const exporting = ref(false)
+const itemsCombined = ref<Array<RateFinalCustomer & { service_date?: string; customer_fee_discount?: number | null }>>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
 
-const query = reactive<{ region?: string; cp?: string; school_name?: string }>({})
+const query = reactive<{ region?: string; cp?: string; school_name?: string; service_date?: string }>({})
 
 function buildParams() {
   const p: any = { page: page.value, page_size: pageSize.value }
   if (query.region) p.region = query.region
   if (query.cp) p.cp = query.cp
   if (query.school_name) p.school_name = query.school_name
+  if (query.service_date) p.service_date = query.service_date
   // fee_type 暂不作为筛选参数
   return p
 }
@@ -155,10 +182,35 @@ function buildParams() {
 async function fetchData() {
   loading.value = true
   try {
-    const res: PaginatedData<RateFinalCustomer> = await api.settlementRates.final.list(buildParams())
-    items.value = res.items || []
-    total.value = res.total || 0
-    // 加载系统用户映射，优先用于显示 owner 名称
+    // 默认服务日期为今天（用于折损计算）
+    if (!query.service_date) {
+      const d = new Date()
+      const mm = `${d.getMonth() + 1}`.padStart(2, '0')
+      const dd = `${d.getDate()}`.padStart(2, '0')
+      query.service_date = `${d.getFullYear()}-${mm}-${dd}`
+    }
+    const [origRes, discRes]: [PaginatedData<RateFinalCustomer>, PaginatedData<DiscountedFinalCustomerRate>] = await Promise.all([
+      api.settlementRates.final.list(buildParams()),
+      api.settlementRates.final.listDiscounted(buildParams()),
+    ])
+    const orig = (origRes?.items || []) as RateFinalCustomer[]
+    total.value = Number(origRes?.total || 0)
+    const discList = (discRes?.items || []) as DiscountedFinalCustomerRate[]
+    const discMap = new Map<string, DiscountedFinalCustomerRate>()
+    for (const d of discList) {
+      const key = `${d.region}|${d.cp}|${d.school_name ?? ''}`
+      discMap.set(key, d)
+    }
+    const merged = orig.map(r => {
+      const key = `${r.region}|${r.cp}|${r.school_name ?? ''}`
+      const d = discMap.get(key)
+      return {
+        ...r,
+        service_date: d?.service_date || query.service_date,
+        customer_fee_discount: (d?.customer_fee_discount as any) ?? null,
+      }
+    })
+    itemsCombined.value = merged
     await loadUsersForItems()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '加载失败')
@@ -168,7 +220,7 @@ async function fetchData() {
 }
 
 function onSearch() { page.value = 1; fetchData() }
-function onReset() { Object.assign(query, { region: undefined, cp: undefined, school_name: undefined }); page.value=1; pageSize.value=10; fetchData() }
+function onReset() { Object.assign(query, { region: undefined, cp: undefined, school_name: undefined, service_date: undefined }); page.value=1; pageSize.value=10; fetchData() }
 function onPageChange(p: number) { page.value = p; fetchData() }
 function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; fetchData() }
 
@@ -209,16 +261,10 @@ const userMap = ref<Record<number, { id: number; alias?: string; display_name?: 
 // 批量按 items 中出现的 owner_id 拉取系统用户，填充 userMap
 async function loadUsersForItems() {
   const ids = new Set<number>()
-  for (const r of items.value) {
-    if (r?.customer_fee_owner_id != null) {
-      const n = Number(r.customer_fee_owner_id); if (!Number.isNaN(n) && n > 0) ids.add(n)
-    }
-    if (r?.network_line_fee_owner_id != null) {
-      const n = Number(r.network_line_fee_owner_id); if (!Number.isNaN(n) && n > 0) ids.add(n)
-    }
-    if (r?.node_deduction_fee_owner_id != null) {
-      const n = Number(r.node_deduction_fee_owner_id); if (!Number.isNaN(n) && n > 0) ids.add(n)
-    }
+  for (const r of itemsCombined.value) {
+    if (r?.customer_fee_owner_id != null) { const n = Number(r.customer_fee_owner_id); if (!Number.isNaN(n) && n > 0) ids.add(n) }
+    if (r?.network_line_fee_owner_id != null) { const n = Number(r.network_line_fee_owner_id); if (!Number.isNaN(n) && n > 0) ids.add(n) }
+    if (r?.channel_owner_user_id != null) { const n = Number(r.channel_owner_user_id); if (!Number.isNaN(n) && n > 0) ids.add(n) }
   }
   if (ids.size === 0) { userMap.value = {}; return }
   try {
@@ -254,7 +300,7 @@ const DEFAULT_FEE_TYPE = 'auto'
 const form = reactive<UpsertRateFinalCustomerRequest>({ region: '', cp: '', school_name: '', fee_type: DEFAULT_FEE_TYPE })
 
 function openDialog() {
-  Object.assign(form, { region: '', cp: '', school_name: '', fee_type: DEFAULT_FEE_TYPE, final_fee: undefined, customer_fee: undefined, customer_fee_owner_id: undefined, network_line_fee: undefined, network_line_fee_owner_id: undefined, node_deduction_fee: undefined, node_deduction_fee_owner_id: undefined })
+  Object.assign(form, { region: '', cp: '', school_name: '', fee_type: DEFAULT_FEE_TYPE, customer_fee: undefined, customer_fee_owner_id: undefined, network_line_fee: undefined, network_line_fee_owner_id: undefined, channel_rate: undefined, channel_owner_user_id: undefined })
   dialogVisible.value = true
 }
 
@@ -308,6 +354,60 @@ async function onCleanupInvalid() {
 }
 
 onMounted(() => { fetchEntitiesAll(); fetchData() })
+
+// 导出当前页为 CSV（根据视图类型导出对应列）
+async function onExport() {
+  try {
+    exporting.value = true
+    const rows: any[] = itemsCombined.value || []
+    const header = [
+      '区域','运营商','学校','服务日期',
+      '客户费','客户费(折后)','线路费','渠道费率',
+      '客户费归属','线路费归属','渠道费归属'
+    ]
+    const lines: string[] = []
+    lines.push(header.join(','))
+    const esc = (v: any) => {
+      if (v == null) return ''
+      const s = String(v)
+      if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'
+      return s
+    }
+    const ownerName = (id?: number | null) => {
+      if (!id) return ''
+      const key = Number(id)
+      const u = userMap.value[key]
+      if (u) {
+        const alias = (u.alias && String(u.alias).trim()) ? String(u.alias).trim() : ''
+        const dn = (u.display_name && String(u.display_name).trim()) ? String(u.display_name).trim() : ''
+        const un = (u.username && String(u.username).trim()) ? String(u.username).trim() : ''
+        return alias || dn || un || `用户#${key}`
+      }
+      return `#${key}`
+    }
+    for (const r of rows) {
+      lines.push([
+        esc(r.region), esc(r.cp), esc(r.school_name ?? ''), esc(r.service_date ?? ''),
+        esc(r.customer_fee ?? ''), esc(r.customer_fee_discount ?? ''), esc(r.network_line_fee ?? ''), esc(r.channel_rate ?? ''),
+        esc(ownerName(r.customer_fee_owner_id)), esc(ownerName(r.network_line_fee_owner_id)), esc(ownerName(r.channel_owner_user_id)),
+      ].join(','))
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const dateStr = (query.service_date || '').replaceAll('-', '') || 'today'
+    a.download = `final_customer_rates_${dateStr}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch (e: any) {
+    ElMessage.error(e?.message || '导出失败')
+  } finally {
+    exporting.value = false
+  }
+}
 </script>
 
 <style scoped>

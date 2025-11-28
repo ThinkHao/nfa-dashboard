@@ -81,7 +81,7 @@ func (s *SettlementScheduler) checkAndExecuteTasks() {
 		return
 	}
 
-	// 如果未启用，则不执行任务
+	// 如果总开关未启用，则不执行任务
 	if !config.Enabled {
 		return
 	}
@@ -99,14 +99,14 @@ func (s *SettlementScheduler) checkAndExecuteTasks() {
 		return
 	}
 
-	// 检查是否需要执行每日结算任务
-	if currentHour == dailyHour && currentMinute == dailyMinute {
+	// 检查是否需要执行每日结算任务（需 daily_enabled=true）
+	if config.DailyEnabled && currentHour == dailyHour && currentMinute == dailyMinute {
 		// 计算前一天的日期
 		yesterday := now.AddDate(0, 0, -1)
 		date := time.Date(yesterday.Year(), yesterday.Month(), yesterday.Day(), 0, 0, 0, 0, now.Location())
 
 		log.Printf("开始执行每日结算任务，计算日期: %s", date.Format("2006-01-02"))
-		
+
 		// 创建并执行每日结算任务
 		task, err := s.settlementService.CreateSettlementTask("daily", date)
 		if err != nil {
@@ -129,8 +129,8 @@ func (s *SettlementScheduler) checkAndExecuteTasks() {
 		}
 	}
 
-	// 检查是否需要执行每周结算任务
-	if currentWeekday == config.WeeklyDay && currentHour == weeklyHour && currentMinute == weeklyMinute {
+	// 检查是否需要执行每周结算任务（需 weekly_enabled=true）
+	if config.WeeklyEnabled && currentWeekday == config.WeeklyDay && currentHour == weeklyHour && currentMinute == weeklyMinute {
 		// 计算上一周的开始日期（上周一）
 		daysToLastMonday := (int(now.Weekday()) + 6) % 7
 		if daysToLastMonday == 0 {
@@ -140,7 +140,7 @@ func (s *SettlementScheduler) checkAndExecuteTasks() {
 		startDate := time.Date(lastMonday.Year(), lastMonday.Month(), lastMonday.Day(), 0, 0, 0, 0, now.Location())
 
 		log.Printf("开始执行每周结算任务，计算开始日期: %s", startDate.Format("2006-01-02"))
-		
+
 		// 创建并执行每周结算任务
 		task, err := s.settlementService.CreateSettlementTask("weekly", startDate)
 		if err != nil {

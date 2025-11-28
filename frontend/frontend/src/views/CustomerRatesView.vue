@@ -9,6 +9,7 @@
             <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
             <el-button @click="onReset">重置</el-button>
             <el-button v-if="canManageSyncRules" @click="goSyncRules">同步规则管理</el-button>
+            <el-button v-if="canManageDiscountRules" @click="goDiscountRules">折损规则管理</el-button>
             <el-button v-if="canSync" type="warning" :loading="syncing" @click="onExecuteSync">执行规则同步</el-button>
             <el-button v-if="canWrite" type="success" @click="openDialog()">新增/更新</el-button>
           </div>
@@ -46,13 +47,46 @@
     <el-card shadow="never" class="box-card" style="margin-top: 16px">
       <template #header>
         <div class="card-header">
-          <span class="card-title">费率列表</span>
-          <div>
+          <div class="header-left">
+            <span class="card-title">费率列表</span>
             <el-radio-group v-model="settlementTab" size="small" @change="onSettlementTabChange">
               <el-radio-button label="all">全部</el-radio-button>
               <el-radio-button label="ready">参与</el-radio-button>
               <el-radio-button label="not_ready">不参与</el-radio-button>
             </el-radio-group>
+          </div>
+          <div class="header-right">
+            <el-popover placement="bottom" trigger="click" width="360">
+              <template #reference>
+                <el-button size="small" style="margin-left:8px">显示开关</el-button>
+              </template>
+              <div style="display:flex; gap:16px">
+                <div>
+                  <div style="font-weight:600; margin-bottom:4px">费率列</div>
+                  <el-checkbox v-model="colVisible.customer_fee">客户费</el-checkbox>
+                  <el-checkbox v-model="colVisible.network_line_fee">线路费</el-checkbox>
+                  <el-checkbox v-model="colVisible.general_fee">节点通用费</el-checkbox>
+                  <el-checkbox v-model="colVisible.channel_rate">渠道费率</el-checkbox>
+                </div>
+                <div>
+                  <div style="font-weight:600; margin-bottom:4px">归属/其它</div>
+                  <el-checkbox v-model="colVisible.general_fee_owner">节点通用费归属</el-checkbox>
+                  <el-checkbox v-model="colVisible.customer_fee_owner">客户费归属</el-checkbox>
+                  <el-checkbox v-model="colVisible.network_line_fee_owner">线路费归属</el-checkbox>
+                  <el-checkbox v-model="colVisible.channel_owner">渠道费归属</el-checkbox>
+                  <el-checkbox v-model="colVisible.start_at">起算日期</el-checkbox>
+                  <el-checkbox v-model="colVisible.extra">扩展</el-checkbox>
+                  <el-checkbox v-model="colVisible.updated_at">更新时间</el-checkbox>
+                </div>
+              </div>
+            </el-popover>
+            <el-button v-if="canExport" size="small" @click="onExport" style="margin-left:8px">导出</el-button>
+            <el-button v-if="canExport" size="small" @click="onExportXlsx" style="margin-left:4px">导出Excel</el-button>
+            <el-button v-if="canExport" size="small" @click="onDownloadTemplate" style="margin-left:4px">下载模板</el-button>
+            <el-button v-if="canImport" size="small" type="primary" @click="onImportClick" :loading="importing" style="margin-left:4px">导入</el-button>
+            <el-checkbox v-if="canImport" v-model="importValidateOnly" style="margin-left:8px">仅校验</el-checkbox>
+            <el-button v-if="lastImportErrors.length>0" size="small" type="danger" plain @click="onExportImportErrors" style="margin-left:4px">导出错误明细</el-button>
+            <input ref="fileInput" type="file" accept=".csv, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none" @change="onFileChange" />
           </div>
         </div>
       </template>
@@ -82,7 +116,7 @@
           </template>
         </el-table-column>
         <el-table-column prop="last_sync_rule_id" label="规则ID" width="100" />
-        <el-table-column label="扩展" min-width="120">
+        <el-table-column v-if="colVisible.extra" label="扩展" min-width="120">
           <template #default="{ row }">
             <el-button v-if="row.extra" type="primary" link @click="openExtra(row)">
               查看 ({{ extraCount(row.extra) }})
@@ -90,28 +124,36 @@
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="customer_fee" label="客户费" width="120" />
-        <el-table-column prop="network_line_fee" label="线路费" width="120" />
-        <el-table-column prop="general_fee" label="节点通用费" width="120" />
-        <el-table-column label="节点通用费归属" width="200">
+        <el-table-column v-if="colVisible.customer_fee" prop="customer_fee" label="客户费" width="120" />
+        <el-table-column v-if="colVisible.network_line_fee" prop="network_line_fee" label="线路费" width="120" />
+        <el-table-column v-if="colVisible.general_fee" prop="general_fee" label="节点通用费" width="120" />
+        <el-table-column v-if="colVisible.channel_rate" prop="channel_rate" label="渠道费率" width="120" />
+        <el-table-column v-if="colVisible.general_fee_owner" label="节点通用费归属" width="200">
           <template #default="{ row }">
             <span v-if="row.general_fee_owner_id">{{ displayOwner(row.general_fee_owner_id) }}</span>
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column label="客户费归属" width="200">
+        <el-table-column v-if="colVisible.customer_fee_owner" label="客户费归属" width="200">
           <template #default="{ row }">
             <span v-if="row.customer_fee_owner_id">{{ displayOwner(row.customer_fee_owner_id) }}</span>
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column label="线路费归属" width="200">
+        <el-table-column v-if="colVisible.network_line_fee_owner" label="线路费归属" width="200">
           <template #default="{ row }">
             <span v-if="row.network_line_fee_owner_id">{{ displayOwner(row.network_line_fee_owner_id) }}</span>
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="updated_at" label="更新时间" min-width="180" />
+        <el-table-column v-if="colVisible.channel_owner" label="渠道费归属" width="200">
+          <template #default="{ row }">
+            <span v-if="row.channel_owner_user_id">{{ displayOwner(row.channel_owner_user_id) }}</span>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="colVisible.start_at" prop="start_at" label="起算日期" width="140" />
+        <el-table-column v-if="colVisible.updated_at" prop="updated_at" label="更新时间" min-width="180" />
         <el-table-column v-if="canWrite" label="操作" fixed="right" width="100">
           <template #default="{ row }">
             <el-button type="primary" link @click="openDialog(row)">编辑</el-button>
@@ -133,7 +175,7 @@
       </div>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" title="新增/更新 客户业务费率" width="560px">
+    <el-dialog v-model="dialogVisible" title="新增/更新 客户业务费率" width="720px">
       <el-form :model="form" label-width="140px">
         <el-form-item label="区域" required>
           <el-select v-model="form.region" filterable placeholder="选择区域" style="width: 240px">
@@ -159,76 +201,121 @@
             <el-option v-for="s in schoolOptions" :key="s" :label="s" :value="s" />
           </el-select>
         </el-form-item>
-        <el-form-item label="客户费">
-          <el-input-number v-model="form.customer_fee" :min="0" :step="0.01" :precision="2" />
+        <el-form-item label="起算日期">
+          <el-date-picker v-model="(form as any).start_at" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" />
         </el-form-item>
-        <el-form-item label="线路费">
-          <el-input-number v-model="form.network_line_fee" :min="0" :step="0.01" :precision="2" />
-        </el-form-item>
-        <el-form-item label="节点通用费">
-          <el-input-number v-model="form.general_fee" :min="0" :step="0.01" :precision="2" />
-        </el-form-item>
-        <el-form-item label="节点通用费归属（节点供应商）">
-          <el-select
-            v-model="form.general_fee_owner_id"
-            filterable
-            remote
-            clearable
-            :remote-method="remoteSearchSystemUsersNode"
-            :loading="ownerUserNodeLoading"
-            placeholder="搜索节点供应商（按配置的节点角色过滤）"
-            style="width: 300px"
-            @visible-change="(v) => v && remoteSearchSystemUsersNode('')"
-          >
-            <el-option
-              v-for="u in ownerUserNodeOptions"
-              :key="u.id"
-              :label="u.label"
-              :value="u.id"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="客户费归属（销售）">
-          <el-select
-            v-model="form.customer_fee_owner_id"
-            filterable
-            remote
-            clearable
-            :remote-method="remoteSearchSystemUsers"
-            :loading="ownerUserLoading"
-            placeholder="搜索销售用户（系统用户，受角色配置过滤）"
-            style="width: 300px"
-            @visible-change="(v) => v && remoteSearchSystemUsers('')"
-          >
-            <el-option
-              v-for="u in ownerUserOptions"
-              :key="u.id"
-              :label="u.label"
-              :value="u.id"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="线路费归属（线路用户）">
-          <el-select
-            v-model="form.network_line_fee_owner_id"
-            filterable
-            remote
-            clearable
-            :remote-method="remoteSearchSystemUsersLine"
-            :loading="ownerUserLineLoading"
-            placeholder="搜索线路相关用户（按配置的线路角色过滤）"
-            style="width: 300px"
-            @visible-change="(v) => v && remoteSearchSystemUsersLine('')"
-          >
-            <el-option
-              v-for="u in ownerUserLineOptions"
-              :key="u.id"
-              :label="u.label"
-              :value="u.id"
-            />
-          </el-select>
-        </el-form-item>
-        
+
+        <el-divider content-position="left">费率</el-divider>
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <el-form-item label="客户费">
+              <el-input-number v-model="form.customer_fee" :min="0" :step="0.01" :precision="2" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="线路费">
+              <el-input-number v-model="form.network_line_fee" :min="0" :step="0.01" :precision="2" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="节点通用费">
+              <el-input-number v-model="form.general_fee" :min="0" :step="0.01" :precision="2" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="渠道费率">
+              <el-input-number v-model="form.channel_rate" :min="0" :step="0.01" :precision="4" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+
+        <el-divider content-position="left">归属</el-divider>
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <el-form-item label="客户费归属">
+              <el-select
+                v-model="form.customer_fee_owner_id"
+                filterable
+                remote
+                clearable
+                :remote-method="remoteSearchSystemUsers"
+                :loading="ownerUserLoading"
+                placeholder="搜索销售用户（系统用户，受角色配置过滤）"
+                style="width: 300px"
+                @visible-change="(v) => v && remoteSearchSystemUsers('')"
+              >
+                <el-option
+                  v-for="u in ownerUserOptions"
+                  :key="u.id"
+                  :label="u.label"
+                  :value="u.id"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="线路费归属">
+              <el-select
+                v-model="form.network_line_fee_owner_id"
+                filterable
+                remote
+                clearable
+                :remote-method="remoteSearchSystemUsersLine"
+                :loading="ownerUserLineLoading"
+                placeholder="搜索线路相关用户（按配置的线路角色过滤）"
+                style="width: 300px"
+                @visible-change="(v) => v && remoteSearchSystemUsersLine('')"
+              >
+                <el-option
+                  v-for="u in ownerUserLineOptions"
+                  :key="u.id"
+                  :label="u.label"
+                  :value="u.id"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="节点通用费归属">
+              <el-select
+                v-model="form.general_fee_owner_id"
+                filterable
+                remote
+                clearable
+                :remote-method="remoteSearchSystemUsersNode"
+                :loading="ownerUserNodeLoading"
+                placeholder="搜索节点供应商（按配置的节点角色过滤）"
+                style="width: 300px"
+                @visible-change="(v) => v && remoteSearchSystemUsersNode('')"
+              >
+                <el-option
+                  v-for="u in ownerUserNodeOptions"
+                  :key="u.id"
+                  :label="u.label"
+                  :value="u.id"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="渠道费归属">
+              <el-select
+                v-model="form.channel_owner_user_id"
+                filterable
+                remote
+                clearable
+                :remote-method="remoteSearchSystemUsersAny"
+                :loading="ownerUserAnyLoading"
+                placeholder="搜索系统用户"
+                style="width: 300px"
+                @visible-change="(v) => v && remoteSearchSystemUsersAny('')"
+              >
+                <el-option v-for="u in ownerUserAnyOptions" :key="u.id" :label="u.label" :value="u.id" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+
         <el-form-item label="扩展JSON">
           <el-input
             v-model="extraEditorText"
@@ -267,6 +354,9 @@ const router = useRouter()
 const canWrite = computed(() => auth.hasPermission('rates.customer.write'))
 const canSync = computed(() => auth.hasPermission('rates.sync.execute'))
 const canManageSyncRules = computed(() => auth.hasPermission('rates.sync_rules.read'))
+const canManageDiscountRules = computed(() => auth.hasPermission('rates.discount_rule.read'))
+const canExport = computed(() => auth.hasPermission('rates.customer.export'))
+const canImport = computed(() => auth.hasPermission('rates.customer.import'))
 
 const loading = ref(false)
 const syncing = ref(false)
@@ -304,10 +394,29 @@ const allowedLineRoles = ref<string[]>([])
 const ownerUserNodeOptions = ref<{ id: number; label: string }[]>([])
 const ownerUserNodeLoading = ref(false)
 const allowedNodeRoles = ref<string[]>([])
+const allowedChannelRoles = ref<string[]>([])
+// 通用系统用户（用于渠道费归属）
+const ownerUserAnyOptions = ref<{ id: number; label: string }[]>([])
+const ownerUserAnyLoading = ref(false)
 
 // 扩展字段弹窗
 const extraDialogVisible = ref(false)
 const extraDialogContent = ref<any>(null)
+
+// 显示开关
+const colVisible = reactive({
+  customer_fee: true,
+  network_line_fee: true,
+  general_fee: true,
+  channel_rate: true,
+  general_fee_owner: true,
+  customer_fee_owner: true,
+  network_line_fee_owner: true,
+  channel_owner: true,
+  start_at: true,
+  extra: true,
+  updated_at: true,
+})
 
 function buildParams() {
   const p: any = { page: page.value, page_size: pageSize.value }
@@ -370,6 +479,10 @@ async function loadUsersForItems() {
       const n = Number(r.general_fee_owner_id)
       if (!Number.isNaN(n) && n > 0) ids.add(n)
     }
+    if (r?.channel_owner_user_id != null) {
+      const n = Number(r.channel_owner_user_id)
+      if (!Number.isNaN(n) && n > 0) ids.add(n)
+    }
   }
   if (ids.size === 0) { userMap.value = {}; return }
   try {
@@ -414,6 +527,7 @@ async function preloadSelectedUsersIntoOptions(idsOverride?: number[]) {
     addIf((form.customer_fee_owner_id as any))
     addIf((form.network_line_fee_owner_id as any))
     addIf((form.general_fee_owner_id as any))
+    addIf((form.channel_owner_user_id as any))
   }
   if (ids.length === 0) return
   try {
@@ -430,6 +544,9 @@ async function preloadSelectedUsersIntoOptions(idsOverride?: number[]) {
       const nIdx = ownerUserNodeOptions.value.findIndex(x => x.id === u.id)
       if (nIdx >= 0) ownerUserNodeOptions.value[nIdx] = opt
       else ownerUserNodeOptions.value.push(opt)
+      const aIdx = ownerUserAnyOptions.value.findIndex(x => x.id === u.id)
+      if (aIdx >= 0) ownerUserAnyOptions.value[aIdx] = opt
+      else ownerUserAnyOptions.value.push(opt)
     }
     // 如果选中的ID不在系统用户返回结果中（历史上可能是业务对象ID），清空以避免显示纯数字
     const returnedIds = new Set<number>(list.map((u: any) => Number(u.id)))
@@ -447,6 +564,11 @@ async function preloadSelectedUsersIntoOptions(idsOverride?: number[]) {
     if (nodeSel > 0 && !returnedIds.has(nodeSel)) {
       form.general_fee_owner_id = undefined as any
       try { ElMessage?.warning?.('检测到历史数据不是系统用户，请重新选择“节点通用费归属（节点供应商）”。') } catch {}
+    }
+    const channelSel = Number((form.channel_owner_user_id as any) || 0)
+    if (channelSel > 0 && !returnedIds.has(channelSel)) {
+      form.channel_owner_user_id = undefined as any
+      try { ElMessage?.warning?.('检测到历史数据不是系统用户，请重新选择“渠道费归属（渠道用户）”。') } catch {}
     }
   } catch {}
 }
@@ -500,6 +622,111 @@ function onPageChange(p: number) { page.value = p; fetchData() }
 function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; fetchData() }
 
 function goSyncRules() { router.push({ name: 'settlement-rates-sync-rules' }) }
+function goDiscountRules() { router.push({ name: 'settlement-rates-discount-rules' }) }
+
+// 导出 / 导入
+const importing = ref(false)
+const fileInput = ref<HTMLInputElement | null>(null)
+const lastImportErrors = ref<{ line: number; message: string }[]>([])
+const importValidateOnly = ref(false)
+async function onExport() {
+  try {
+    const blob = await api.settlementRates.customer.export(buildParams())
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'customer_rates.csv'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '导出失败')
+  }
+}
+async function onExportXlsx() {
+  try {
+    const blob = await api.settlementRates.customer.exportXlsx(buildParams())
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'customer_rates.xlsx'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '导出Excel失败')
+  }
+}
+async function onDownloadTemplate() {
+  try {
+    const blob = await api.settlementRates.customer.template()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'customer_rates_template.csv'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '模板下载失败')
+  }
+}
+function onImportClick() { fileInput.value?.click() }
+async function onFileChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  const f = input.files && input.files[0]
+  if (!f) return
+  importing.value = true
+  try {
+    const fd = new FormData()
+    fd.append('file', f)
+    if (importValidateOnly.value) fd.append('validate_only', '1')
+    const res = await api.settlementRates.customer.import(fd, { validateOnly: importValidateOnly.value })
+    const affected = Number(res?.affected || 0)
+    const errors = Array.isArray((res as any)?.errors) ? (res as any).errors as Array<{ line: number; message: string }> : []
+    const validateOnly = !!(res as any)?.validate_only
+    if (errors.length > 0) {
+      const preview = errors.slice(0, 20).map((e: any) => `第${e.line}行：${e.message}`).join('\n')
+      const more = errors.length > 20 ? `\n... 其余 ${errors.length - 20} 条未展示` : ''
+      const title = validateOnly ? '仅校验完成（存在错误）' : '导入完成（存在错误）'
+      ElMessageBox.alert(`成功 ${affected} 行，失败 ${errors.length} 行。\n\n${preview}${more}`.replace(/\n/g, '<br/>'), title, { dangerouslyUseHTMLString: true })
+      lastImportErrors.value = errors
+    } else {
+      if (validateOnly) ElMessage.success(`仅校验完成，无错误，校验行数：${affected}`)
+      else ElMessage.success(`已导入，受影响行数：${affected}`)
+      lastImportErrors.value = []
+    }
+    fetchData()
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.message || err?.message || '导入失败')
+  } finally {
+    importing.value = false
+    if (fileInput.value) fileInput.value.value = ''
+  }
+}
+
+function onExportImportErrors() {
+  const rows = lastImportErrors.value || []
+  if (rows.length === 0) { ElMessage.info('暂无可导出的错误明细'); return }
+  const esc = (s: string) => '"' + String(s).replace(/"/g, '""') + '"'
+  const header = ['line','message']
+  const lines = [header.join(',')]
+  for (const r of rows) {
+    lines.push([String(r.line), esc(r.message ?? '')].join(','))
+  }
+  const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'customer_rates_import_errors.csv'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
 
 // 切换“参与结算”分类（表头标签）
 function onSettlementTabChange(val: 'all'|'ready'|'not_ready') {
@@ -522,6 +749,7 @@ async function openDialog(row?: RateCustomer) {
     const salesId = (row.customer_fee_owner_id != null ? Number(row.customer_fee_owner_id) : undefined) as any
     const lineId = (row.network_line_fee_owner_id != null ? Number(row.network_line_fee_owner_id) : undefined) as any
     const nodeId = (row.general_fee_owner_id != null ? Number(row.general_fee_owner_id) : undefined) as any
+    const channelId = (row.channel_owner_user_id != null ? Number(row.channel_owner_user_id) : undefined) as any
     // 其他字段先设置；owner_id 先置空，待预加载完 options 后再赋值
     Object.assign(form, {
       region: row.region,
@@ -530,18 +758,22 @@ async function openDialog(row?: RateCustomer) {
       customer_fee: row.customer_fee ?? undefined,
       network_line_fee: row.network_line_fee ?? undefined,
       general_fee: row.general_fee ?? undefined,
+      channel_rate: row.channel_rate ?? undefined,
       customer_fee_owner_id: undefined as any,
       network_line_fee_owner_id: undefined as any,
       general_fee_owner_id: undefined as any,
+      channel_owner_user_id: undefined as any,
+      start_at: row.start_at ?? undefined,
     })
     extraEditorText.value = stringify(row.extra ?? {})
     // 先加载 options 再赋值，确保下拉能显示 label
-    try { await preloadSelectedUsersIntoOptions([Number(salesId||0), Number(lineId||0), Number(nodeId||0)].filter(n => n>0)) } catch {}
+    try { await preloadSelectedUsersIntoOptions([Number(salesId||0), Number(lineId||0), Number(nodeId||0), Number(channelId||0)].filter(n => n>0)) } catch {}
     form.customer_fee_owner_id = salesId
     form.network_line_fee_owner_id = lineId
     form.general_fee_owner_id = nodeId
+    form.channel_owner_user_id = channelId
   } else {
-    Object.assign(form, { region: '', cp: '', school_name: undefined, customer_fee: undefined, network_line_fee: undefined, general_fee: undefined, customer_fee_owner_id: undefined, network_line_fee_owner_id: undefined, general_fee_owner_id: undefined })
+    Object.assign(form, { region: '', cp: '', school_name: undefined, customer_fee: undefined, network_line_fee: undefined, general_fee: undefined, channel_rate: undefined, customer_fee_owner_id: undefined, network_line_fee_owner_id: undefined, general_fee_owner_id: undefined, channel_owner_user_id: undefined, start_at: undefined as any })
     extraEditorText.value = ''
   }
   // 显示弹窗
@@ -551,6 +783,7 @@ async function openDialog(row?: RateCustomer) {
   try { remoteSearchSystemUsers('') } catch {}
   try { remoteSearchSystemUsersLine('') } catch {}
   try { remoteSearchSystemUsersNode('') } catch {}
+  try { remoteSearchSystemUsersAny('') } catch {}
 }
 
 async function onSave() {
@@ -739,6 +972,31 @@ async function remoteSearchSystemUsersNode(q: string) {
   }
 }
 
+// 远程搜索系统用户（通用，用于渠道费归属）
+async function remoteSearchSystemUsersAny(q: string) {
+  ownerUserAnyLoading.value = true
+  try {
+    // 确保已加载允许的渠道角色列表
+    if (!allowedChannelRoles.value || allowedChannelRoles.value.length === 0) {
+      try { allowedChannelRoles.value = await api.system.binding.getAllowedUserRoles('channel') } catch { allowedChannelRoles.value = [] }
+    }
+    const rolesParam = (allowedChannelRoles.value && allowedChannelRoles.value.length > 0) ? allowedChannelRoles.value.join(',') : undefined
+    const res: any = await api.system.users.list({ page: 1, page_size: 20, username: q || undefined, roles: rolesParam })
+    const list: any[] = Array.isArray(res?.items) ? res.items : []
+    const newOptions = list.map((u: any) => ({ id: u.id, label: buildUserLabel(u) }))
+    const selectedId = Number((form.channel_owner_user_id as any) || 0)
+    if (selectedId > 0 && !newOptions.some(o => o.id === selectedId)) {
+      const existing = ownerUserAnyOptions.value.find(o => o.id === selectedId)
+      if (existing) newOptions.unshift(existing)
+    }
+    ownerUserAnyOptions.value = newOptions
+  } catch {
+    ownerUserAnyOptions.value = []
+  } finally {
+    ownerUserAnyLoading.value = false
+  }
+}
+
 onMounted(async () => {
   loadRegionsAndCPs();
   fetchData();
@@ -754,6 +1012,10 @@ onMounted(async () => {
   try {
     allowedNodeRoles.value = await api.system.binding.getAllowedUserRoles('node')
   } catch { allowedNodeRoles.value = [] }
+  // 预加载渠道用户角色
+  try {
+    allowedChannelRoles.value = await api.system.binding.getAllowedUserRoles('channel')
+  } catch { allowedChannelRoles.value = [] }
 })
 
 // 监听两个归属字段：若为数字但对应选项缺失，则预加载该用户到选项，避免显示为纯数字
@@ -783,6 +1045,7 @@ watch(() => form.general_fee_owner_id as any, async (val) => {
 <style scoped>
 .box-card { margin-bottom: 12px; }
 .card-header { display: flex; justify-content: space-between; align-items: center; }
+.header-left { display: flex; flex-direction: column; align-items: flex-start; row-gap: 8px; }
 .filter-form { row-gap: var(--form-item-gap); }
 .pagination { display: flex; justify-content: flex-end; margin-top: 12px; }
 </style>

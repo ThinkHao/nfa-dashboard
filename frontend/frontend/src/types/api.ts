@@ -230,6 +230,9 @@ export interface RateCustomer {
   customer_fee_owner_id?: number | null;
   network_line_fee_owner_id?: number | null;
   general_fee_owner_id?: number | null;
+  channel_rate?: number | null;
+  channel_owner_user_id?: number | null;
+  start_at?: string | null;
   fee_mode?: 'auto' | 'configed';
   last_sync_time?: string | null;
   last_sync_rule_id?: number | null;
@@ -251,6 +254,9 @@ export interface UpsertRateCustomerRequest {
   customer_fee_owner_id?: number | null;
   network_line_fee_owner_id?: number | null;
   general_fee_owner_id?: number | null;
+  channel_rate?: number | null;
+  channel_owner_user_id?: number | null;
+  start_at?: string | null;
   extra?: any;
 }
 
@@ -300,6 +306,8 @@ export interface RateFinalCustomer {
   network_line_fee_owner_id?: number | null;
   node_deduction_fee?: number | null;
   node_deduction_fee_owner_id?: number | null;
+  channel_rate?: number | null;
+  channel_owner_user_id?: number | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -314,8 +322,31 @@ export interface UpsertRateFinalCustomerRequest {
   customer_fee_owner_id?: number | null;
   network_line_fee?: number | null;
   network_line_fee_owner_id?: number | null;
+  // 节点扣减费相关字段保留以兼容后端，但前端页面不再使用
   node_deduction_fee?: number | null;
   node_deduction_fee_owner_id?: number | null;
+  // 新增：渠道费率与渠道归属
+  channel_rate?: number | null;
+  channel_owner_user_id?: number | null;
+}
+
+// 指定服务日期下、按折损规则计算的最终客户费率视图
+export interface DiscountedFinalCustomerRate {
+  region: string;
+  cp: string;
+  school_name?: string | null;
+  service_date: string; // YYYY-MM-DD
+  customer_fee_base?: number | null;
+  customer_fee_discount?: number | null;
+  channel_rate_base?: number | null;
+  channel_rate_discount?: number | null;
+  network_line_fee_base?: number | null;
+  general_fee_base?: number | null;
+  customer_fee_owner_id?: number | null;
+  channel_owner_user_id?: number | null;
+  discount_rule_id?: number | null;
+  discount_rule_name?: string | null;
+  service_year_index?: number | null;
 }
 
 // ------------------------------

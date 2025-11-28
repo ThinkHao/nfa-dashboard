@@ -33,7 +33,7 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="日期范围" style="min-width: 400px;">
+        <el-form-item label="服务时间" style="min-width: 400px;">
           <el-date-picker
             v-model="dateRange"
             type="daterange"
@@ -57,7 +57,10 @@
     <el-card class="table-section" shadow="hover">
       <div class="table-header">
         <h3>结算数据列表</h3>
-        <el-button type="success" @click="exportData">导出数据</el-button>
+        <div style="display:flex; gap:8px;">
+          <el-button type="success" @click="exportData">导出数据</el-button>
+          <el-button v-if="canRecalc" type="warning" @click="onRecalculate">复算</el-button>
+        </div>
       </div>
       
       <el-table
@@ -76,30 +79,37 @@
             <p v-else>数据项为空</p>
           </div>
         </template>
-        <el-table-column prop="school_name" label="学校名称" min-width="180" />
-        <el-table-column prop="region" label="地区" width="120" />
-        <el-table-column prop="cp" label="运营商" width="120" />
-        <el-table-column label="95值(Mbps)" width="150">
-          <template #default="scope">
-            {{ scope.row.settlement_value ? formatBitRate(convertToBitsPerSecond(scope.row.settlement_value), false) : '0.00' }}
+        <el-table-column prop="school_name" label="学校名称" min-width="160" />
+        <el-table-column prop="region" label="地区" width="100" />
+        <el-table-column prop="cp" label="运营商" width="100" />
+        <el-table-column prop="service_date" label="服务日期" width="120">
+          <template #default="{ row }">{{ row.service_date ? formatDateDisplay(row.service_date) : '-' }}</template>
+        </el-table-column>
+        <el-table-column label="日95值(Mbps)" width="150">
+          <template #default="{ row }">
+            {{ row.settlement_value != null ? formatBitRate(convertToBitsPerSecond(row.settlement_value), false) : '0.00' }}
           </template>
         </el-table-column>
-        <el-table-column label="时间范围" width="200">
-          <template #default="scope">
-            <span v-if="scope.row.settlement_date && typeof scope.row.settlement_date === 'string' && (!dateRange || dateRange[0] === dateRange[1])">
-              {{ formatDateDisplay(scope.row.settlement_date) }}
-            </span>
-            <span v-else-if="scope.row.settlement_date && typeof scope.row.settlement_date === 'string' && dateRange && dateRange[0] !== dateRange[1]">
-              {{ dateRange[0] }} 至 {{ dateRange[1] }}
-            </span>
-            <span v-else-if="dateRange && dateRange[0] === dateRange[1]">
-              {{ dateRange[0] }}
-            </span>
-            <span v-else-if="dateRange">
-              {{ dateRange[0] }} 至 {{ dateRange[1] }}
-            </span>
-            <span v-else>-</span>
-          </template>
+        <el-table-column prop="customer_fee" label="客户费率" width="110" />
+        <el-table-column prop="customer_bill" label="客户金额" width="110" />
+        <el-table-column label="客户费归属" min-width="160">
+          <template #default="{ row }">{{ displayEntity(row.customer_fee_owner_id) }}</template>
+        </el-table-column>
+        <el-table-column prop="network_line_fee" label="线路费率" width="110" />
+        <el-table-column prop="network_line_bill" label="线路金额" width="110" />
+        <el-table-column label="线路费归属" min-width="160">
+          <template #default="{ row }">{{ displayEntity(row.network_line_fee_owner_id) }}</template>
+        </el-table-column>
+        <el-table-column prop="channel_rate" label="渠道费率" width="110" />
+        <el-table-column prop="channel_bill" label="渠道金额" width="110" />
+        <el-table-column label="渠道费归属" min-width="160">
+          <template #default="{ row }">{{ displayUser(row.channel_owner_user_id) }}</template>
+        </el-table-column>
+        <el-table-column prop="recalculated" label="是否复算" width="100">
+          <template #default="{ row }">{{ row.recalculated ? '是' : '否' }}</template>
+        </el-table-column>
+        <el-table-column prop="last_recalc_time" label="最近复算时间" width="160">
+          <template #default="{ row }">{{ row.last_recalc_time ? row.last_recalc_time : '-' }}</template>
         </el-table-column>
       </el-table>
 
@@ -120,11 +130,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import api from '../../api'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { useAuthStore } from '@/stores/auth'
 import type { SettlementListResponse } from '../../types/settlement'
-import type { School, PaginationParams } from '../../types/api'
+import type { School, PaginationParams, BusinessEntity } from '../../types/api'
 
 // 学校、地区和运营商数据
 
@@ -137,20 +148,18 @@ interface FilterForm {
   school_id: string;
   region: string;
   cp: string;
-  start_date: string;
-  end_date: string;
+  start_service_date: string;
+  end_service_date: string;
   page: number;
   page_size: number;
-  limit?: number;
-  offset?: number;
 }
 
 const filterForm = reactive<FilterForm>({
   school_id: '',
   region: '',
   cp: '',
-  start_date: '',
-  end_date: '',
+  start_service_date: '',
+  end_service_date: '',
   page: 1,
   page_size: 10
 })
@@ -332,12 +341,12 @@ const handleSchoolChange = (schoolId: string): void => {
 // 处理日期范围变化
 const handleDateRangeChange = (val: [string, string] | null) => {
   if (val) {
-    filterForm.start_date = val[0]
-    filterForm.end_date = val[1]
+    filterForm.start_service_date = val[0]
+    filterForm.end_service_date = val[1]
     console.log('设置日期范围:', val[0], '至', val[1])
   } else {
-    filterForm.start_date = ''
-    filterForm.end_date = ''
+    filterForm.start_service_date = ''
+    filterForm.end_service_date = ''
     console.log('清除日期范围')
   }
   
@@ -355,24 +364,28 @@ const fetchData = async () => {
   
   try {
     // 计算分页参数
-    const params: PaginationParams & { 
-      school_id?: string;
+    // 新接口使用 page/page_size 与服务时间
+    const params: { 
       region?: string;
       cp?: string;
-      start_date?: string;
-      end_date?: string;
+      school_name?: string;
+      start_service_date?: string;
+      end_service_date?: string;
+      page?: number;
+      page_size?: number;
     } = {
-      limit: pageSize.value,
-      offset: (currentPage.value - 1) * pageSize.value,
-      start_date: filterForm.start_date,
-      end_date: filterForm.end_date
+      page: currentPage.value,
+      page_size: pageSize.value,
+      start_service_date: filterForm.start_service_date,
+      end_service_date: filterForm.end_service_date,
     }
     
     console.log('分页参数:', { 页码: currentPage.value, 每页条数: pageSize.value, offset: (currentPage.value - 1) * pageSize.value })
     
     // 添加可选参数
     if (filterForm.school_id) {
-      params.school_id = filterForm.school_id
+      const s = (schools.value || []).find(x => x.school_id === filterForm.school_id)
+      if (s && s.school_name) params.school_name = s.school_name
     }
     
     if (filterForm.region) {
@@ -386,7 +399,7 @@ const fetchData = async () => {
     console.log('最终请求参数:', params)
     
     // 发送请求并解析已解包的数据
-    const response = await (api as any).v2.settlement.getSettlements(params) as any
+    const response = await (api as any).settlementData.list(params) as any
     console.log('结算数据响应:', response)
     if (Array.isArray(response)) {
       settlementData.value = { items: response, total: response.length }
@@ -399,6 +412,11 @@ const fetchData = async () => {
     } else {
       settlementData.value = { items: [], total: 0 }
     }
+    // 加载映射用于归属显示
+    if (!entityMap.value || Object.keys(entityMap.value).length === 0) {
+      await loadEntityMap()
+    }
+    await loadUsersForItems()
     
     // 检查数据结构
     if (settlementData.value.items && Array.isArray(settlementData.value.items)) {
@@ -427,8 +445,8 @@ const resetFilter = () => {
   filterForm.school_id = ''
   filterForm.region = ''
   filterForm.cp = ''
-  filterForm.start_date = ''
-  filterForm.end_date = ''
+  filterForm.start_service_date = ''
+  filterForm.end_service_date = ''
   dateRange.value = null
   currentPage.value = 1
   pageSize.value = 10
@@ -449,9 +467,63 @@ const handleSizeChange = (size: number) => {
 }
 
 // 导出数据
-const exportData = () => {
-  ElMessage.info('导出功能待实现')
-  // 这里可以调用导出API或者使用前端导出库如xlsx.js
+const exportData = async () => {
+  try {
+    const noFilters = !filterForm.region && !filterForm.cp && !filterForm.school_id && !filterForm.start_service_date && !filterForm.end_service_date
+    if (noFilters) {
+      try {
+        await ElMessageBox.confirm('未选择任何筛选条件，将导出全量数据，可能耗时较长。是否继续？', '确认导出', { type: 'warning', confirmButtonText: '继续导出', cancelButtonText: '取消' })
+      } catch { return }
+    }
+
+    const params: any = {}
+    if (filterForm.region) params.region = filterForm.region
+    if (filterForm.cp) params.cp = filterForm.cp
+    if (filterForm.school_id) {
+      const s = (schools.value || []).find(x => x.school_id === filterForm.school_id)
+      if (s && s.school_name) params.school_name = s.school_name
+    }
+    if (filterForm.start_service_date) params.start_service_date = filterForm.start_service_date
+    if (filterForm.end_service_date) params.end_service_date = filterForm.end_service_date
+    const blob = await (api as any).settlementData.export(params)
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'settlement_customer.csv'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch (e: any) {
+    ElMessage.error(e?.message || '导出失败')
+  }
+}
+
+const auth = useAuthStore()
+const canRecalc = computed(() => auth.hasPermission('settlement.data.recalculate'))
+
+const onRecalculate = async () => {
+  try {
+    await ElMessageBox.confirm('将按筛选条件与服务时间范围触发复算，并覆盖既有数据。是否继续？', '确认复算', { type: 'warning', confirmButtonText: '复算', cancelButtonText: '取消' })
+  } catch { return }
+  if (!dateRange.value) { ElMessage.warning('请先选择服务时间范围'); return }
+  try {
+    const body: any = {
+      start_service_date: dateRange.value[0],
+      end_service_date: dateRange.value[1],
+    }
+    if (filterForm.region) body.region = filterForm.region
+    if (filterForm.cp) body.cp = filterForm.cp
+    if (filterForm.school_id) {
+      const s = (schools.value || []).find(x => x.school_id === filterForm.school_id)
+      if (s && s.school_name) body.school_name = s.school_name
+    }
+    await (api as any).settlementData.recalculate(body)
+    ElMessage.success('已触发复算')
+    fetchData()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '复算失败')
+  }
 }
 
 // 组件挂载时获取数据
@@ -459,6 +531,58 @@ onMounted(() => {
   fetchBaseData()
   fetchData()
 })
+
+// 业务对象/系统用户映射，用于归属显示
+const entityMap = ref<Record<number, string>>({})
+const userMap = ref<Record<number, { id:number; alias?:string; display_name?:string; username:string }>>({})
+
+const loadEntityMap = async () => {
+  try {
+    const pageSize = 1000
+    let page = 1
+    const map: Record<number, string> = {}
+    while (true) {
+      const res = await (api as any).settlementEntities.list({ page, page_size: pageSize })
+      const list = (res?.items || []) as BusinessEntity[]
+      for (const e of list) { if (e && typeof e.id === 'number') map[e.id] = e.entity_name }
+      const total = Number(res?.total || 0)
+      if (page * pageSize >= total || list.length === 0) break
+      page += 1
+    }
+    entityMap.value = map
+  } catch {}
+}
+
+const loadUsersForItems = async () => {
+  const ids = new Set<number>()
+  for (const r of settlementData.value.items as any[]) {
+    if (r?.channel_owner_user_id != null) { const n = Number(r.channel_owner_user_id); if (!Number.isNaN(n) && n>0) ids.add(n) }
+  }
+  if (ids.size === 0) { userMap.value = {}; return }
+  try {
+    const res: any = await (api as any).system.users.list({ ids: Array.from(ids).join(',') })
+    const list: any[] = Array.isArray(res?.items) ? res.items : []
+    const m: Record<number, { id:number; alias?:string; display_name?:string; username:string }> = {}
+    for (const u of list) { if (u && typeof u.id === 'number') m[u.id] = { id:u.id, alias:u.alias, display_name:u.display_name, username:u.username } }
+    userMap.value = m
+  } catch { userMap.value = {} }
+}
+
+function displayEntity(id?: number | null): string {
+  if (id == null) return '-'
+  const key = Number(id)
+  return entityMap.value[key] || `#${key}`
+}
+function displayUser(id?: number | null): string {
+  if (!id) return '-'
+  const key = Number(id)
+  const u = userMap.value[key]
+  if (!u) return `#${key}`
+  const alias = (u.alias && String(u.alias).trim()) ? String(u.alias).trim() : ''
+  const dn = (u.display_name && String(u.display_name).trim()) ? String(u.display_name).trim() : ''
+  const un = (u.username && String(u.username).trim()) ? String(u.username).trim() : ''
+  return alias || dn || un || `用户#${key}`
+}
 </script>
 
 <style scoped>

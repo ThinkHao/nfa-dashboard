@@ -38,13 +38,17 @@ type SettlementFilter struct {
 
 // SettlementConfig 结算配置
 type SettlementConfig struct {
-	ID              int64     `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
-	DailyTime       string    `gorm:"column:daily_time;not null" json:"daily_time"`         // 每日结算时间，格式为"02:00"
-	WeeklyDay       int       `gorm:"column:weekly_day;not null" json:"weekly_day"`         // 每周结算日，1-7表示周一到周日
-	WeeklyTime      string    `gorm:"column:weekly_time;not null" json:"weekly_time"`       // 每周结算时间，格式为"02:00"
-	Enabled         bool      `gorm:"column:enabled;not null;default:true" json:"enabled"`  // 是否启用
-	LastExecuteTime time.Time `gorm:"column:last_execute_time" json:"last_execute_time"`    // 上次执行时间
-	UpdateTime      time.Time `gorm:"column:update_time;autoUpdateTime" json:"update_time"` // 更新时间
+	ID                int64     `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+	DailyTime         string    `gorm:"column:daily_time;not null" json:"daily_time"`                                // 每日结算时间，格式为"02:00"
+	WeeklyDay         int       `gorm:"column:weekly_day;not null" json:"weekly_day"`                                // 每周结算日，1-7表示周一到周日
+	WeeklyTime        string    `gorm:"column:weekly_time;not null" json:"weekly_time"`                              // 每周结算时间，格式为"02:00"
+	Enabled           bool      `gorm:"column:enabled;not null;default:true" json:"enabled"`                         // 是否启用
+	DailyEnabled      bool      `gorm:"column:daily_enabled;not null;default:true" json:"daily_enabled"`             // 是否启用每日自动结算
+	WeeklyEnabled     bool      `gorm:"column:weekly_enabled;not null;default:true" json:"weekly_enabled"`           // 是否启用每周自动结算
+	RecalcAfterDaily  bool      `gorm:"column:recalc_after_daily;not null;default:true" json:"recalc_after_daily"`   // 日结算完成后自动复算
+	RecalcAfterWeekly bool      `gorm:"column:recalc_after_weekly;not null;default:true" json:"recalc_after_weekly"` // 周结算完成后自动复算
+	LastExecuteTime   time.Time `gorm:"column:last_execute_time" json:"last_execute_time"`                           // 上次执行时间
+	UpdateTime        time.Time `gorm:"column:update_time;autoUpdateTime" json:"update_time"`                        // 更新时间
 }
 
 // TableName 设置表名
@@ -54,16 +58,16 @@ func (SettlementConfig) TableName() string {
 
 // SettlementTask 结算任务记录
 type SettlementTask struct {
-	ID             int64     `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
-	TaskType       string    `gorm:"column:task_type;not null" json:"task_type"`              // 任务计算周期：daily(每日计算前一天)、weekly(每周计算前一周每天)
-	TaskDate       time.Time `gorm:"column:task_date;not null;type:date" json:"task_date"`    // 任务日期
-	Status         string    `gorm:"column:status;not null" json:"status"`                    // 状态：pending、running、success、failed
-	StartTime      *time.Time `gorm:"column:start_time" json:"start_time"`                    // 开始时间
-	EndTime        *time.Time `gorm:"column:end_time" json:"end_time"`                        // 结束时间
-	ProcessedCount int       `gorm:"column:processed_count;default:0" json:"processed_count"` // 处理记录数
-	ErrorMessage   string    `gorm:"column:error_message" json:"error_message"`               // 错误信息
-	CreateTime     time.Time `gorm:"column:create_time;not null;default:CURRENT_TIMESTAMP" json:"create_time"`
-	UpdateTime     time.Time `gorm:"column:update_time;not null;default:CURRENT_TIMESTAMP;autoUpdateTime" json:"update_time"`
+	ID             int64      `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+	TaskType       string     `gorm:"column:task_type;not null" json:"task_type"`              // 任务计算周期：daily(每日计算前一天)、weekly(每周计算前一周每天)
+	TaskDate       time.Time  `gorm:"column:task_date;not null;type:date" json:"task_date"`    // 任务日期
+	Status         string     `gorm:"column:status;not null" json:"status"`                    // 状态：pending、running、success、failed
+	StartTime      *time.Time `gorm:"column:start_time" json:"start_time"`                     // 开始时间
+	EndTime        *time.Time `gorm:"column:end_time" json:"end_time"`                         // 结束时间
+	ProcessedCount int        `gorm:"column:processed_count;default:0" json:"processed_count"` // 处理记录数
+	ErrorMessage   string     `gorm:"column:error_message" json:"error_message"`               // 错误信息
+	CreateTime     time.Time  `gorm:"column:create_time;not null;default:CURRENT_TIMESTAMP" json:"create_time"`
+	UpdateTime     time.Time  `gorm:"column:update_time;not null;default:CURRENT_TIMESTAMP;autoUpdateTime" json:"update_time"`
 }
 
 // TableName 设置表名
@@ -101,14 +105,14 @@ type SettlementResponse struct {
 // DailySettlementDetail 对应日95明细数据，可能来自 nfa_school_settlement 或类似表
 // 假设它与 SchoolSettlement 结构相似，但代表单日数据
 type DailySettlementDetail struct {
-	ID             int64     `gorm:"column:id;primaryKey;autoIncrement" json:"id,omitempty"`
-	DailyDate      time.Time `gorm:"column:settlement_date;not null;type:date" json:"daily_date"`
-	SchoolID       string    `gorm:"column:school_id;not null" json:"school_id"`
-	SchoolName     string    `gorm:"column:school_name;not null" json:"school_name"`
-	Region         string    `gorm:"column:region;not null" json:"region"`
-	CP             string    `gorm:"column:cp;not null" json:"cp"`
-	Daily95Value   int64     `gorm:"column:settlement_value;not null;default:0" json:"daily_95_value"` // 对应原始的 settlement_value
-	CreateTime     time.Time `gorm:"column:create_time;not null;default:CURRENT_TIMESTAMP" json:"create_time,omitempty"`
+	ID           int64     `gorm:"column:id;primaryKey;autoIncrement" json:"id,omitempty"`
+	DailyDate    time.Time `gorm:"column:settlement_date;not null;type:date" json:"daily_date"`
+	SchoolID     string    `gorm:"column:school_id;not null" json:"school_id"`
+	SchoolName   string    `gorm:"column:school_name;not null" json:"school_name"`
+	Region       string    `gorm:"column:region;not null" json:"region"`
+	CP           string    `gorm:"column:cp;not null" json:"cp"`
+	Daily95Value int64     `gorm:"column:settlement_value;not null;default:0" json:"daily_95_value"` // 对应原始的 settlement_value
+	CreateTime   time.Time `gorm:"column:create_time;not null;default:CURRENT_TIMESTAMP" json:"create_time,omitempty"`
 	// UpdateTime  time.Time `gorm:"column:update_time;not null;default:CURRENT_TIMESTAMP;autoUpdateTime" json:"update_time,omitempty"` // 可选
 }
 
@@ -116,4 +120,3 @@ type DailySettlementDetail struct {
 // func (DailySettlementDetail) TableName() string {
 // 	 return "nfa_school_settlement" // 或者其他表名
 // }
-

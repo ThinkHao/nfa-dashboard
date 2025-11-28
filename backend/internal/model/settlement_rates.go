@@ -32,6 +32,9 @@ type RateCustomer struct {
 	CustomerFeeOwnerID    *uint64        `gorm:"column:customer_fee_owner_id" json:"customer_fee_owner_id,omitempty"`
 	NetworkLineFeeOwnerID *uint64        `gorm:"column:network_line_fee_owner_id" json:"network_line_fee_owner_id,omitempty"`
 	GeneralFeeOwnerID     *uint64        `gorm:"column:general_fee_owner_id" json:"general_fee_owner_id,omitempty"`
+	ChannelRate           *float64       `gorm:"column:channel_rate" json:"channel_rate,omitempty"`
+	ChannelOwnerUserID    *uint64        `gorm:"column:channel_owner_user_id" json:"channel_owner_user_id,omitempty"`
+	StartAt               *time.Time     `gorm:"column:start_at" json:"start_at,omitempty"`
 	FeeMode               string         `gorm:"column:fee_mode;size:16;not null;default:auto" json:"fee_mode"`
 	Extra                 datatypes.JSON `gorm:"column:extra" json:"extra,omitempty"`
 	LastSyncTime          *time.Time     `gorm:"column:last_sync_time" json:"last_sync_time,omitempty"`
@@ -78,6 +81,8 @@ type RateFinalCustomer struct {
 	NetworkLineFeeOwnerID   *uint64    `gorm:"column:network_line_fee_owner_id" json:"network_line_fee_owner_id,omitempty"`
 	NodeDeductionFee        *float64   `gorm:"column:node_deduction_fee" json:"node_deduction_fee,omitempty"`
 	NodeDeductionFeeOwnerID *uint64    `gorm:"column:node_deduction_fee_owner_id" json:"node_deduction_fee_owner_id,omitempty"`
+	ChannelRate             *float64   `gorm:"column:channel_rate" json:"channel_rate,omitempty"`
+	ChannelOwnerUserID      *uint64    `gorm:"column:channel_owner_user_id" json:"channel_owner_user_id,omitempty"`
 	LastSyncTime            *time.Time `gorm:"column:last_sync_time" json:"last_sync_time,omitempty"`
 	LastSyncRuleID          *uint64    `gorm:"column:last_sync_rule_id" json:"last_sync_rule_id,omitempty"`
 	CreatedAt               time.Time  `gorm:"column:created_at;autoCreateTime" json:"created_at"`
@@ -89,23 +94,32 @@ func (RateFinalCustomer) TableName() string { return "rate_final_customer" }
 // SettlementCustomer 对应 settlement_customer 表
 // 客户结算金额
 type SettlementCustomer struct {
-	ID                      uint64    `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
-	Region                  string    `gorm:"column:region;size:32;not null" json:"region"`
-	CP                      string    `gorm:"column:cp;size:32;not null" json:"cp"`
-	SchoolName              string    `gorm:"column:school_name;size:128;not null" json:"school_name"`
-	SettlementValue         float64   `gorm:"column:settlement_value;not null" json:"settlement_value"`
-	SettlementTime          time.Time `gorm:"column:settlement_time;not null" json:"settlement_time"`
-	CustomerFee             *float64  `gorm:"column:customer_fee" json:"customer_fee,omitempty"`
-	CustomerBill            *float64  `gorm:"column:customer_bill" json:"customer_bill,omitempty"`
-	CustomerFeeOwnerID      *uint64   `gorm:"column:customer_fee_owner_id" json:"customer_fee_owner_id,omitempty"`
-	NetworkLineFee          *float64  `gorm:"column:network_line_fee" json:"network_line_fee,omitempty"`
-	NetworkLineBill         *float64  `gorm:"column:network_line_bill" json:"network_line_bill,omitempty"`
-	NetworkLineFeeOwnerID   *uint64   `gorm:"column:network_line_fee_owner_id" json:"network_line_fee_owner_id,omitempty"`
-	NodeDeductionFee        *float64  `gorm:"column:node_deduction_fee" json:"node_deduction_fee,omitempty"`
-	NodeDeductionBill       *float64  `gorm:"column:node_deduction_bill" json:"node_deduction_bill,omitempty"`
-	NodeDeductionFeeOwnerID *uint64   `gorm:"column:node_deduction_fee_owner_id" json:"node_deduction_fee_owner_id,omitempty"`
-	CreatedAt               time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at"`
-	UpdatedAt               time.Time `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
+	ID                      uint64     `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+	Region                  string     `gorm:"column:region;size:32;not null" json:"region"`
+	CP                      string     `gorm:"column:cp;size:32;not null" json:"cp"`
+	SchoolName              string     `gorm:"column:school_name;size:128;not null" json:"school_name"`
+	SettlementValue         float64    `gorm:"column:settlement_value;not null" json:"settlement_value"`
+	SettlementTime          time.Time  `gorm:"column:settlement_time;not null" json:"settlement_time"`
+	ServiceDate             *time.Time `gorm:"column:service_date" json:"service_date,omitempty"`
+	Recalculated            bool       `gorm:"column:recalculated" json:"recalculated"`
+	LastRecalcTime          *time.Time `gorm:"column:last_recalc_time" json:"last_recalc_time,omitempty"`
+	CustomerFee             *float64   `gorm:"column:customer_fee" json:"customer_fee,omitempty"`
+	CustomerBill            *float64   `gorm:"column:customer_bill" json:"customer_bill,omitempty"`
+	CustomerFeeOwnerID      *uint64    `gorm:"column:customer_fee_owner_id" json:"customer_fee_owner_id,omitempty"`
+	NetworkLineFee          *float64   `gorm:"column:network_line_fee" json:"network_line_fee,omitempty"`
+	NetworkLineBill         *float64   `gorm:"column:network_line_bill" json:"network_line_bill,omitempty"`
+	NetworkLineFeeOwnerID   *uint64    `gorm:"column:network_line_fee_owner_id" json:"network_line_fee_owner_id,omitempty"`
+	NodeDeductionFee        *float64   `gorm:"column:node_deduction_fee" json:"node_deduction_fee,omitempty"`
+	NodeDeductionBill       *float64   `gorm:"column:node_deduction_bill" json:"node_deduction_bill,omitempty"`
+	NodeDeductionFeeOwnerID *uint64    `gorm:"column:node_deduction_fee_owner_id" json:"node_deduction_fee_owner_id,omitempty"`
+	// 新增渠道及折损追踪字段
+	ChannelRate        *float64  `gorm:"column:channel_rate" json:"channel_rate,omitempty"`
+	ChannelBill        *float64  `gorm:"column:channel_bill" json:"channel_bill,omitempty"`
+	ChannelOwnerUserID *uint64   `gorm:"column:channel_owner_user_id" json:"channel_owner_user_id,omitempty"`
+	DiscountRuleID     *uint64   `gorm:"column:discount_rule_id" json:"discount_rule_id,omitempty"`
+	ServiceYearIndex   *int      `gorm:"column:service_year_index" json:"service_year_index,omitempty"`
+	CreatedAt          time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at"`
+	UpdatedAt          time.Time `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
 }
 
 func (SettlementCustomer) TableName() string { return "settlement_customer" }
@@ -208,3 +222,33 @@ type RateCustomerSyncRule struct {
 }
 
 func (RateCustomerSyncRule) TableName() string { return "rate_customer_sync_rules" }
+
+// RateDiscountRule 对应 rate_discount_rule 表
+// 客户费率折损规则主表
+type RateDiscountRule struct {
+	ID        uint64         `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+	Name      string         `gorm:"column:name;size:128;not null" json:"name"`
+	ScopeType string         `gorm:"column:scope_type;size:32;not null" json:"scope_type"`
+	ScopeKey  *string        `gorm:"column:scope_key;size:128" json:"scope_key,omitempty"`
+	Fields    datatypes.JSON `gorm:"column:fields" json:"fields,omitempty"`
+	Enabled   bool           `gorm:"column:enabled;not null" json:"enabled"`
+	Priority  int            `gorm:"column:priority;not null" json:"priority"`
+	CreatedAt time.Time      `gorm:"column:created_at;autoCreateTime" json:"created_at"`
+	UpdatedAt time.Time      `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
+}
+
+func (RateDiscountRule) TableName() string { return "rate_discount_rule" }
+
+// RateDiscountRuleItem 对应 rate_discount_rule_item 表
+// 客户费率折损规则明细
+type RateDiscountRuleItem struct {
+	ID           uint64    `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+	RuleID       uint64    `gorm:"column:rule_id" json:"rule_id"`
+	FromYear     int       `gorm:"column:from_year" json:"from_year"`
+	ToYear       *int      `gorm:"column:to_year" json:"to_year,omitempty"`
+	DiscountRate float64   `gorm:"column:discount_rate" json:"discount_rate"`
+	CreatedAt    time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at"`
+	UpdatedAt    time.Time `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
+}
+
+func (RateDiscountRuleItem) TableName() string { return "rate_discount_rule_item" }

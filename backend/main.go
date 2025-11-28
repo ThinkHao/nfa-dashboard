@@ -53,9 +53,15 @@ func main() {
 
 	settlementController := controller.NewSettlementController(settlementService, settlementResultService)
 
+	// 结算数据明细（customer）依赖
+	settlementDataRepo := repository.NewSettlementDataRepository()
+	settlementDataService := service.NewSettlementDataService(settlementDataRepo)
+	settlementDataController := controller.NewSettlementDataController(settlementDataService)
+
 	// 结算子模块：费率与业务对象依赖与控制器
 	ratesRepo := repository.NewRatesRepository()
-	ratesSvc := service.NewRatesService(ratesRepo)
+	rateDiscountRepo := repository.NewRateDiscountRepository()
+	ratesSvc := service.NewRatesService(ratesRepo, rateDiscountRepo)
 	ratesController := controller.NewSettlementRatesController(ratesSvc)
 
 	// 客户费率-自定义字段定义依赖与控制器
@@ -71,6 +77,10 @@ func main() {
 	// 客户费率-执行同步服务与控制器
 	ratesSyncSvc := service.NewRatesSyncService(syncRulesRepo, ratesRepo, schoolRepo)
 	ratesSyncController := controller.NewRatesSyncController(ratesSyncSvc)
+
+	// 客户费率-折损规则依赖与控制器
+	rateDiscountSvc := service.NewRateDiscountService(rateDiscountRepo)
+	rateDiscountController := controller.NewRateDiscountController(rateDiscountSvc)
 
 	entitiesRepo := repository.NewEntitiesRepository()
 	// 业务类型依赖（供实体类型校验与单独管理）
@@ -169,6 +179,12 @@ func main() {
 			settlement.GET("/data", authMW.PermissionRequired("settlement.read"), settlementController.GetSettlements)
 			settlement.GET("/daily-details", authMW.PermissionRequired("settlement.read"), settlementController.GetDailySettlementDetails)
 			settlement.GET("/results", authMW.PermissionRequired("settlement.results.read"), settlementController.GetSettlementResults)
+			settlement.GET("/results/channels", authMW.PermissionRequired("settlement.results.read"), settlementController.GetChannelSettlementResults)
+
+			// 结算数据明细（客户维度）
+			settlement.GET("/data/customer", authMW.PermissionRequired("settlement.data.read"), settlementDataController.ListCustomerData)
+			settlement.GET("/data/customer/export", authMW.PermissionRequired("settlement.data.export"), settlementDataController.ExportCustomerData)
+			settlement.POST("/data/customer/recalculate", authMW.PermissionRequired("settlement.data.recalculate"), settlementDataController.RecalculateCustomerData)
 
 			// 结算公式 CRUD
 			formulas := settlement.Group("/formulas")
@@ -186,11 +202,18 @@ func main() {
 				// 客户业务费率
 				rates.GET("/customer", authMW.PermissionRequired("rates.customer.read"), ratesController.ListCustomerRates)
 				rates.POST("/customer", authMW.PermissionRequired("rates.customer.write"), ratesController.UpsertCustomerRate)
+				// 客户业务费率导出/导入（细化权限）
+				rates.GET("/customer/export", authMW.PermissionRequired("rates.customer.export"), ratesController.ExportCustomerRates)
+				rates.GET("/customer/export-xlsx", authMW.PermissionRequired("rates.customer.export"), ratesController.ExportCustomerRatesXLSX)
+				rates.GET("/customer/import-template", authMW.PermissionRequired("rates.customer.export"), ratesController.CustomerRatesImportTemplate)
+				rates.POST("/customer/import", authMW.PermissionRequired("rates.customer.import"), ratesController.ImportCustomerRates)
 				// 节点业务费率
 				rates.GET("/node", authMW.PermissionRequired("rates.node.read"), ratesController.ListNodeRates)
 				rates.POST("/node", authMW.PermissionRequired("rates.node.write"), ratesController.UpsertNodeRate)
 				// 最终客户费率
 				rates.GET("/final", authMW.PermissionRequired("rates.final.read"), ratesController.ListFinalCustomerRates)
+				// 指定服务日期下折损后的最终客户费率视图（基于 rate_customer + 折损规则动态计算）
+				rates.GET("/final-discounted", authMW.PermissionRequired("rates.final.read"), ratesController.ListFinalCustomerRatesDiscounted)
 				rates.POST("/final", authMW.PermissionRequired("rates.final.write"), ratesController.UpsertFinalCustomerRate)
 				rates.POST("/final/init-from-customer", authMW.PermissionRequired("rates.final.write"), ratesController.InitFinalCustomerRatesFromCustomer)
 				rates.POST("/final/refresh", authMW.PermissionRequired("rates.final.write"), ratesController.RefreshFinalCustomerRates)
@@ -215,6 +238,17 @@ func main() {
 					rules.DELETE("/:id", authMW.PermissionRequired("rates.sync_rules.write"), syncRulesController.Delete)
 					rules.PUT("/:id/priority", authMW.PermissionRequired("rates.sync_rules.write"), syncRulesController.UpdatePriority)
 					rules.PUT("/:id/enabled", authMW.PermissionRequired("rates.sync_rules.write"), syncRulesController.SetEnabled)
+				}
+
+				// 客户费率-折损规则管理
+				discountRules := rates.Group("/discount-rules")
+				{
+					discountRules.GET("", authMW.PermissionRequired("rates.discount_rule.read"), rateDiscountController.List)
+					discountRules.GET("/:id", authMW.PermissionRequired("rates.discount_rule.read"), rateDiscountController.Get)
+					discountRules.POST("", authMW.PermissionRequired("rates.discount_rule.manage"), rateDiscountController.Create)
+					discountRules.PUT("/:id", authMW.PermissionRequired("rates.discount_rule.manage"), rateDiscountController.Update)
+					discountRules.DELETE("/:id", authMW.PermissionRequired("rates.discount_rule.manage"), rateDiscountController.Delete)
+					discountRules.PUT("/:id/items", authMW.PermissionRequired("rates.discount_rule.manage"), rateDiscountController.ReplaceItems)
 				}
 
 				// 客户费率-执行同步

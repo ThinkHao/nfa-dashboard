@@ -7,6 +7,8 @@
           <el-select v-model="filterForm.task_type" placeholder="选择任务类型" clearable>
             <el-option label="日结算" value="daily" />
             <el-option label="周结算" value="weekly" />
+            <el-option label="初算" value="customer_init" />
+            <el-option label="复算" value="customer_recalc" />
           </el-select>
         </el-form-item>
         <el-form-item label="任务状态">
@@ -56,9 +58,9 @@
         style="width: 100%"
       >
         <el-table-column prop="id" label="任务ID" width="80" />
-        <el-table-column prop="task_type" label="任务类型" width="100">
+        <el-table-column prop="task_type" label="任务类型" width="120">
           <template #default="scope">
-            {{ scope.row.task_type === 'daily' ? '日结算' : '周结算' }}
+            {{ scope.row.task_type === 'daily' ? '日结算' : (scope.row.task_type === 'weekly' ? '周结算' : (scope.row.task_type === 'customer_init' ? '初算' : (scope.row.task_type === 'customer_recalc' ? '复算' : scope.row.task_type))) }}
           </template>
         </el-table-column>
         <el-table-column prop="task_date" label="任务日期" width="180">
@@ -138,7 +140,7 @@
         </div>
         <div class="detail-item">
           <span class="label">任务类型:</span>
-          <span class="value">{{ currentTask.task_type === 'daily' ? '日结算' : '周结算' }}</span>
+          <span class="value">{{ currentTask.task_type === 'daily' ? '日结算' : (currentTask.task_type === 'weekly' ? '周结算' : (currentTask.task_type === 'customer_init' ? '初算' : (currentTask.task_type === 'customer_recalc' ? '复算' : currentTask.task_type))) }}</span>
         </div>
         <div class="detail-item">
           <span class="label">任务日期:</span>

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"nfa-dashboard/internal/model"
-	
+
 	"gorm.io/gorm"
 )
 
@@ -58,6 +58,26 @@ func (r *settlementRepository) GetSettlementConfig() (*model.SettlementConfig, e
 	var config model.SettlementConfig
 	result := model.DB.First(&config)
 	if result.Error != nil {
+		if result.Error == gorm.ErrRecordNotFound {
+			// 创建一条默认配置并返回
+			now := time.Now()
+			def := model.SettlementConfig{
+				DailyTime:         "02:00",
+				WeeklyDay:         1,
+				WeeklyTime:        "02:00",
+				Enabled:           true,
+				DailyEnabled:      true,
+				WeeklyEnabled:     true,
+				RecalcAfterDaily:  true,
+				RecalcAfterWeekly: true,
+				LastExecuteTime:   time.Time{},
+				UpdateTime:        now,
+			}
+			if err := model.DB.Create(&def).Error; err != nil {
+				return nil, err
+			}
+			return &def, nil
+		}
 		return nil, result.Error
 	}
 	return &config, nil
@@ -65,42 +85,74 @@ func (r *settlementRepository) GetSettlementConfig() (*model.SettlementConfig, e
 
 // UpdateSettlementConfig 更新结算配置
 func (r *settlementRepository) UpdateSettlementConfig(config *model.SettlementConfig) error {
-    // 确保有有效的ID（前端可能未传递ID）
-    if config.ID == 0 {
-        var existing model.SettlementConfig
-        if err := model.DB.First(&existing).Error; err != nil {
-            if err == gorm.ErrRecordNotFound {
-                // 如果不存在记录，则创建一条新配置
-                toCreate := model.SettlementConfig{
-                    DailyTime:  config.DailyTime,
-                    WeeklyDay:  config.WeeklyDay,
-                    WeeklyTime: config.WeeklyTime,
-                    Enabled:    config.Enabled,
-                }
-                if !config.LastExecuteTime.IsZero() {
-                    toCreate.LastExecuteTime = config.LastExecuteTime
-                }
-                return model.DB.Create(&toCreate).Error
-            }
-            return err
-        }
-        config.ID = existing.ID
-    }
+	// 确保有有效的ID（前端可能未传递ID）
+	if config.ID == 0 {
+		var existing model.SettlementConfig
+		if err := model.DB.First(&existing).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				// 如果不存在记录，则创建一条新配置
+				toCreate := model.SettlementConfig{
+					DailyTime:         config.DailyTime,
+					WeeklyDay:         config.WeeklyDay,
+					WeeklyTime:        config.WeeklyTime,
+					Enabled:           config.Enabled,
+					DailyEnabled:      config.DailyEnabled,
+					WeeklyEnabled:     config.WeeklyEnabled,
+					RecalcAfterDaily:  config.RecalcAfterDaily,
+					RecalcAfterWeekly: config.RecalcAfterWeekly,
+				}
+				if !config.LastExecuteTime.IsZero() {
+					toCreate.LastExecuteTime = config.LastExecuteTime
+				}
+				return model.DB.Create(&toCreate).Error
+			}
+			return err
+		}
+		config.ID = existing.ID
+	}
+	if config.ID == 0 {
+		var existing model.SettlementConfig
+		if err := model.DB.First(&existing).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				// 如果不存在记录，则创建一条新配置
+				toCreate := model.SettlementConfig{
+					DailyTime:         config.DailyTime,
+					WeeklyDay:         config.WeeklyDay,
+					WeeklyTime:        config.WeeklyTime,
+					Enabled:           config.Enabled,
+					DailyEnabled:      config.DailyEnabled,
+					WeeklyEnabled:     config.WeeklyEnabled,
+					RecalcAfterDaily:  config.RecalcAfterDaily,
+					RecalcAfterWeekly: config.RecalcAfterWeekly,
+				}
+				if !config.LastExecuteTime.IsZero() {
+					toCreate.LastExecuteTime = config.LastExecuteTime
+				}
+				return model.DB.Create(&toCreate).Error
+			}
+			return err
+		}
+		config.ID = existing.ID
+	}
 
-    // 只更新业务字段；若 LastExecuteTime 为零值则跳过更新该列，避免写入非法时间
-    updates := map[string]interface{}{
-        "daily_time":  config.DailyTime,
-        "weekly_day":  config.WeeklyDay,
-        "weekly_time": config.WeeklyTime,
-        "enabled":     config.Enabled,
-    }
+	// 只更新业务字段；若 LastExecuteTime 为零值则跳过更新该列，避免写入非法时间
+	updates := map[string]interface{}{
+		"daily_time":          config.DailyTime,
+		"weekly_day":          config.WeeklyDay,
+		"weekly_time":         config.WeeklyTime,
+		"enabled":             config.Enabled,
+		"daily_enabled":       config.DailyEnabled,
+		"weekly_enabled":      config.WeeklyEnabled,
+		"recalc_after_daily":  config.RecalcAfterDaily,
+		"recalc_after_weekly": config.RecalcAfterWeekly,
+	}
 
-    if !config.LastExecuteTime.IsZero() {
-        updates["last_execute_time"] = config.LastExecuteTime
-    }
+	if !config.LastExecuteTime.IsZero() {
+		updates["last_execute_time"] = config.LastExecuteTime
+	}
 
-    result := model.DB.Model(&model.SettlementConfig{}).Where("id = ?", config.ID).Updates(updates)
-    return result.Error
+	result := model.DB.Model(&model.SettlementConfig{}).Where("id = ?", config.ID).Updates(updates)
+	return result.Error
 }
 
 // CreateSettlementTask 创建结算任务
@@ -148,10 +200,10 @@ func (r *settlementRepository) GetSettlementTasks(filter map[string]interface{},
 		}
 	}
 
-    // v2：按用户过滤可见院校范围
-    if filter["user_id"] != nil && filter["user_id"].(int64) > 0 {
-        query = query.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", filter["user_id"].(int64))
-    }
+	// v2：按用户过滤可见院校范围
+	if filter["user_id"] != nil && filter["user_id"].(int64) > 0 {
+		query = query.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", filter["user_id"].(int64))
+	}
 
 	// 获取总数
 	err := query.Count(&count).Error
@@ -182,22 +234,22 @@ func (r *settlementRepository) GetSettlementTaskByID(id int64) (*model.Settlemen
 func (r *settlementRepository) CreateSettlement(settlement *model.SchoolSettlement) error {
 	// 打印详细的结算数据信息
 	log.Printf("尝试创建结算数据: 学校ID=%s, 学校名=%s, 省份=%s, 运营商=%s, 日期=%s, 值=%d",
-		settlement.SchoolID, settlement.SchoolName, settlement.Region, settlement.CP, 
+		settlement.SchoolID, settlement.SchoolName, settlement.Region, settlement.CP,
 		settlement.SettlementDate.Format("2006-01-02"), settlement.SettlementValue)
-	
+
 	// 检查必要字段是否为空
 	if settlement.SchoolID == "" || settlement.Region == "" || settlement.CP == "" {
 		log.Printf("结算数据缺少必要字段: 学校ID=%s, 省份=%s, 运营商=%s",
 			settlement.SchoolID, settlement.Region, settlement.CP)
 		return fmt.Errorf("结算数据缺少必要字段")
 	}
-	
+
 	// 先查询是否已存在相同省份、运营商、学校和相同日期的结算数据
 	var existingSettlement model.SchoolSettlement
 	query := "region = ? AND cp = ? AND school_id = ? AND DATE(settlement_date) = ?"
 	queryParams := []interface{}{settlement.Region, settlement.CP, settlement.SchoolID, settlement.SettlementDate.Format("2006-01-02")}
 	log.Printf("查询条件: %s, 参数: %v", query, queryParams)
-	
+
 	result := model.DB.Where(query, queryParams...).First(&existingSettlement)
 
 	// 如果已存在，则更新该数据
@@ -237,7 +289,7 @@ func (r *settlementRepository) CreateSettlement(settlement *model.SchoolSettleme
 // BatchCreateSettlements 批量创建结算数据
 func (r *settlementRepository) BatchCreateSettlements(settlements []model.SchoolSettlement) error {
 	log.Printf("开始批量创建结算数据，总数量: %d", len(settlements))
-	
+
 	if len(settlements) == 0 {
 		log.Printf("没有结算数据需要保存")
 		return nil
@@ -300,10 +352,10 @@ func (r *settlementRepository) BatchCreateSettlements(settlements []model.School
 
 		// 将现有记录添加到map中
 		for _, existing := range existingSettlements {
-			key := fmt.Sprintf("%s_%s_%s_%s", 
-				existing.Region, 
-				existing.CP, 
-				existing.SchoolID, 
+			key := fmt.Sprintf("%s_%s_%s_%s",
+				existing.Region,
+				existing.CP,
+				existing.SchoolID,
 				existing.SettlementDate.Format("2006-01-02"))
 			existingMap[key] = existing
 		}
@@ -316,10 +368,10 @@ func (r *settlementRepository) BatchCreateSettlements(settlements []model.School
 	var toInsert []model.SchoolSettlement
 
 	for _, settlement := range settlements {
-		key := fmt.Sprintf("%s_%s_%s_%s", 
-			settlement.Region, 
-			settlement.CP, 
-			settlement.SchoolID, 
+		key := fmt.Sprintf("%s_%s_%s_%s",
+			settlement.Region,
+			settlement.CP,
+			settlement.SchoolID,
 			settlement.SettlementDate.Format("2006-01-02"))
 
 		if existing, found := existingMap[key]; found {
@@ -336,7 +388,7 @@ func (r *settlementRepository) BatchCreateSettlements(settlements []model.School
 	// 4. 批量更新现有记录
 	if len(toUpdate) > 0 {
 		log.Printf("开始批量更新 %d 条结算数据", len(toUpdate))
-		
+
 		// 分批更新
 		updateBatchSize := 100
 		for i := 0; i < len(toUpdate); i += updateBatchSize {
@@ -344,14 +396,14 @@ func (r *settlementRepository) BatchCreateSettlements(settlements []model.School
 			if end > len(toUpdate) {
 				end = len(toUpdate)
 			}
-			
+
 			batch := toUpdate[i:end]
 			for _, item := range batch {
 				result := model.DB.Model(&model.SchoolSettlement{}).Where("id = ?", item.ID).Updates(map[string]interface{}{
 					"settlement_value": item.SettlementValue,
-					"settlement_time": item.SettlementTime,
+					"settlement_time":  item.SettlementTime,
 				})
-				
+
 				if result.Error != nil {
 					log.Printf("更新结算数据失败 ID=%d: %v", item.ID, result.Error)
 					return result.Error
@@ -364,7 +416,7 @@ func (r *settlementRepository) BatchCreateSettlements(settlements []model.School
 	// 5. 批量插入新记录
 	if len(toInsert) > 0 {
 		log.Printf("开始批量插入 %d 条新结算数据", len(toInsert))
-		
+
 		// 分批插入
 		insertBatchSize := 100
 		for i := 0; i < len(toInsert); i += insertBatchSize {
@@ -372,7 +424,7 @@ func (r *settlementRepository) BatchCreateSettlements(settlements []model.School
 			if end > len(toInsert) {
 				end = len(toInsert)
 			}
-			
+
 			batch := toInsert[i:end]
 			result := model.DB.CreateInBatches(batch, len(batch))
 			if result.Error != nil {
@@ -382,7 +434,7 @@ func (r *settlementRepository) BatchCreateSettlements(settlements []model.School
 			log.Printf("已插入 %d/%d 条新结算数据", end, len(toInsert))
 		}
 	}
-	
+
 	log.Printf("批量处理结算数据完成: 更新 %d 条, 新增 %d 条", len(toUpdate), len(toInsert))
 	return nil
 }
@@ -413,7 +465,7 @@ func (r *settlementRepository) GetSettlements(filter model.SettlementFilter) ([]
 	// 如果不是按月查询，使用原来的日结算查询逻辑
 	var settlements []model.SchoolSettlement
 	query := model.DB.Model(&model.SchoolSettlement{})
-	
+
 	// 应用过滤条件
 	if !filter.StartDate.IsZero() {
 		// 将时间转换为当天的开始时间，使用本地时区
@@ -455,10 +507,10 @@ func (r *settlementRepository) GetSettlements(filter model.SettlementFilter) ([]
 		log.Printf("应用运营商过滤: %s", filter.CP)
 	}
 
-    // v2：按用户过滤可见院校范围
-    if filter.UserID != nil && *filter.UserID > 0 {
-        query = query.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", *filter.UserID)
-    }
+	// v2：按用户过滤可见院校范围
+	if filter.UserID != nil && *filter.UserID > 0 {
+		query = query.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", *filter.UserID)
+	}
 
 	// 获取总数
 	err := query.Count(&count).Error
@@ -530,10 +582,10 @@ func (r *settlementRepository) GetDailySettlementDetails(filter model.Settlement
 		query = query.Where("cp = ?", filter.CP)
 	}
 
-    // v2：按用户过滤可见院校范围
-    if filter.UserID != nil && *filter.UserID > 0 {
-        query = query.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", *filter.UserID)
-    }
+	// v2：按用户过滤可见院校范围
+	if filter.UserID != nil && *filter.UserID > 0 {
+		query = query.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", *filter.UserID)
+	}
 
 	// 获取总数
 	err := query.Count(&count).Error
@@ -560,10 +612,10 @@ func (r *settlementRepository) GetDailySettlementDetails(filter model.Settlement
 
 func (r *settlementRepository) getAggregatedSettlements(filter model.SettlementFilter) ([]model.SettlementResponse, int64, error) {
 	log.Printf("开始聚合查询结算数据")
-	
+
 	// 构建基本查询
 	query := model.DB.Model(&model.SchoolSettlement{})
-	
+
 	// 应用过滤条件
 	if !filter.StartDate.IsZero() {
 		loc, _ := time.LoadLocation("Asia/Shanghai")
@@ -571,34 +623,34 @@ func (r *settlementRepository) getAggregatedSettlements(filter model.SettlementF
 		startDateStr := startDate.Format("2006-01-02")
 		query = query.Where("DATE(settlement_date) >= ?", startDateStr)
 	}
-	
+
 	if !filter.EndDate.IsZero() {
 		loc, _ := time.LoadLocation("Asia/Shanghai")
 		endDate := time.Date(filter.EndDate.Year(), filter.EndDate.Month(), filter.EndDate.Day(), 23, 59, 59, 999999999, loc)
 		endDateStr := endDate.Format("2006-01-02")
 		query = query.Where("DATE(settlement_date) <= ?", endDateStr)
 	}
-	
+
 	if filter.SchoolID != "" {
 		query = query.Where("school_id = ?", filter.SchoolID)
 	}
-	
+
 	if filter.SchoolName != "" {
 		query = query.Where("school_name LIKE ?", "%"+filter.SchoolName+"%")
 	}
-	
+
 	if filter.Region != "" {
 		query = query.Where("region = ?", filter.Region)
 	}
-	
+
 	if filter.CP != "" {
 		query = query.Where("cp = ?", filter.CP)
 	}
 
-    // v2：按用户过滤可见院校范围
-    if filter.UserID != nil && *filter.UserID > 0 {
-        query = query.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", *filter.UserID)
-    }
+	// v2：按用户过滤可见院校范围
+	if filter.UserID != nil && *filter.UserID > 0 {
+		query = query.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", *filter.UserID)
+	}
 
 	// 使用原生SQL来聚合数据
 	// 我们需要将结算数据按学校、地区、运营商进行分组
@@ -618,50 +670,50 @@ func (r *settlementRepository) getAggregatedSettlements(filter model.SettlementF
 		FROM nfa_school_settlement
 		WHERE 1=1
 	`
-	
+
 	// 添加过滤条件
 	args := []interface{}{}
-	
+
 	if !filter.StartDate.IsZero() {
 		sql += " AND DATE(settlement_date) >= ?"
 		args = append(args, filter.StartDate.Format("2006-01-02"))
 	}
-	
+
 	if !filter.EndDate.IsZero() {
 		sql += " AND DATE(settlement_date) <= ?"
 		args = append(args, filter.EndDate.Format("2006-01-02"))
 	}
-	
+
 	if filter.SchoolID != "" {
 		sql += " AND school_id = ?"
 		args = append(args, filter.SchoolID)
 	}
-	
+
 	if filter.SchoolName != "" {
 		sql += " AND school_name LIKE ?"
 		args = append(args, "%"+filter.SchoolName+"%")
 	}
-	
+
 	if filter.Region != "" {
 		sql += " AND region = ?"
 		args = append(args, filter.Region)
 	}
-	
+
 	if filter.CP != "" {
 		sql += " AND cp = ?"
 		args = append(args, filter.CP)
 	}
 
-    // v2：按用户过滤可见院校范围
-    if filter.UserID != nil && *filter.UserID > 0 {
-        sql += " AND school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)"
-        args = append(args, *filter.UserID)
-    }
+	// v2：按用户过滤可见院校范围
+	if filter.UserID != nil && *filter.UserID > 0 {
+		sql += " AND school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)"
+		args = append(args, *filter.UserID)
+	}
 
 	// 添加分组和排序
 	sql += " GROUP BY school_id, school_name, region, cp"
 	sql += " ORDER BY settlement_date DESC"
-	
+
 	// 添加分页
 	countSql := "SELECT COUNT(*) FROM (" + sql + ") as t"
 	var totalCount int64
@@ -670,17 +722,17 @@ func (r *settlementRepository) getAggregatedSettlements(filter model.SettlementF
 		log.Printf("获取按月聚合的结算数据总数失败: %v", err)
 		return nil, 0, err
 	}
-	
+
 	// 如果没有数据，直接返回空列表
 	if totalCount == 0 {
 		log.Printf("没有找到符合条件的按月聚合的结算数据")
 		return []model.SettlementResponse{}, 0, nil
 	}
-	
+
 	// 添加分页限制
 	sql += " LIMIT ? OFFSET ?"
 	args = append(args, filter.Limit, filter.Offset)
-	
+
 	// 执行查询
 	type MonthlySettlement struct {
 		ID              int64     `gorm:"column:id"`
@@ -694,22 +746,22 @@ func (r *settlementRepository) getAggregatedSettlements(filter model.SettlementF
 		CreateTime      time.Time `gorm:"column:create_time"`
 		RecordsCount    int       `gorm:"column:records_count"`
 	}
-	
+
 	var monthlySettlements []MonthlySettlement
 	err = model.DB.Raw(sql, args...).Scan(&monthlySettlements).Error
 	if err != nil {
 		log.Printf("查询按月聚合的结算数据失败: %v", err)
 		return nil, 0, err
 	}
-	
+
 	log.Printf("查询到 %d 条按月聚合的结算数据记录", len(monthlySettlements))
-	
+
 	// 转换为响应结构
 	responses := make([]model.SettlementResponse, 0, len(monthlySettlements))
 	for _, ms := range monthlySettlements {
 		// 将浮点数四舍五入为整数
 		settlementValue := int64(math.Round(ms.SettlementValue))
-		
+
 		responses = append(responses, model.SettlementResponse{
 			ID:              ms.ID,
 			SchoolID:        ms.SchoolID,
@@ -722,7 +774,7 @@ func (r *settlementRepository) getAggregatedSettlements(filter model.SettlementF
 			CreateTime:      ms.CreateTime,
 		})
 	}
-	
+
 	log.Printf("返回 %d 条按月聚合的结算数据响应", len(responses))
 	return responses, totalCount, nil
 }
@@ -742,17 +794,17 @@ func (r *settlementRepository) CalculateDaily95WithRegionAndCP(date time.Time, s
 	// 获取学校信息
 	var school model.School
 	query := model.DB.Where("school_id = ?", schoolID)
-	
+
 	// 如果指定了省份，添加到查询条件
 	if region != "" {
 		query = query.Where("region = ?", region)
 	}
-	
+
 	// 如果指定了运营商，添加到查询条件
 	if cp != "" {
 		query = query.Where("cp = ?", cp)
 	}
-	
+
 	err := query.First(&school).Error
 	if err != nil {
 		log.Printf("没有找到匹配的学校信息: schoolID=%s, region=%s, cp=%s, error=%v", schoolID, region, cp, err)
@@ -761,17 +813,17 @@ func (r *settlementRepository) CalculateDaily95WithRegionAndCP(date time.Time, s
 
 	// 构建流量数据查询
 	trafficQuery := model.DB.Where("school_id = ? AND create_time BETWEEN ? AND ?", schoolID, startTime, endTime)
-	
+
 	// 如果指定了省份，添加到查询条件
 	if region != "" {
 		trafficQuery = trafficQuery.Where("region = ?", region)
 	}
-	
+
 	// 如果指定了运营商，添加到查询条件
 	if cp != "" {
 		trafficQuery = trafficQuery.Where("cp = ?", cp)
 	}
-	
+
 	// 获取指定日期的流量数据
 	var trafficData []model.SchoolTraffic
 	err = trafficQuery.Find(&trafficData).Error
@@ -830,12 +882,12 @@ func (r *settlementRepository) CalculateDaily95WithRegionAndCP(date time.Time, s
 	if region != "" {
 		settlementRegion = region
 	}
-	
+
 	settlementCP := school.CP
 	if cp != "" {
 		settlementCP = cp
 	}
-	
+
 	settlement := &model.SchoolSettlement{
 		SchoolID:        school.SchoolID,
 		SchoolName:      school.SchoolName,
@@ -860,33 +912,33 @@ func (r *settlementRepository) CalculateDaily95WithRegionAndCPForAllRegionsAndCP
 		log.Printf("获取学校信息失败: schoolID=%s, 错误=%v", schoolID, err)
 		return nil, fmt.Errorf("获取学校信息失败: %v", err)
 	}
-	log.Printf("获取学校信息成功: schoolID=%s, 学校名=%s, 区域=%s, CP=%s", 
+	log.Printf("获取学校信息成功: schoolID=%s, 学校名=%s, 区域=%s, CP=%s",
 		school.SchoolID, school.SchoolName, school.Region, school.CP)
-	
+
 	// 获取指定日期的开始和结束时间
 	startTime := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
 	endTime := time.Date(date.Year(), date.Month(), date.Day(), 23, 59, 59, 999999999, date.Location())
 	log.Printf("查询时间范围: %s 至 %s", startTime.Format("2006-01-02 15:04:05"), endTime.Format("2006-01-02 15:04:05"))
-	
+
 	// 使用DISTINCT查询获取所有不同的区域和运营商组合
 	type RegionCPPair struct {
 		Region string
 		CP     string
 	}
-	
+
 	var regionCPPairs []RegionCPPair
 	query := "school_id = ? AND create_time BETWEEN ? AND ?"
 	queryParams := []interface{}{schoolID, startTime, endTime}
 	log.Printf("查询区域和运营商组合: 条件=%s, 参数=%v", query, queryParams)
-	
+
 	rows, err := model.DB.Table("nfa_school_traffic").Select("DISTINCT region, cp").Where(query, queryParams...).Rows()
-	
+
 	if err != nil {
 		log.Printf("获取区域和运营商组合失败: %v", err)
 		return nil, fmt.Errorf("获取区域和运营商组合失败: %v", err)
 	}
 	defer rows.Close()
-	
+
 	for rows.Next() {
 		var pair RegionCPPair
 		if err := model.DB.ScanRows(rows, &pair); err != nil {
@@ -896,18 +948,18 @@ func (r *settlementRepository) CalculateDaily95WithRegionAndCPForAllRegionsAndCP
 		log.Printf("找到区域和运营商组合: 区域=%s, CP=%s", pair.Region, pair.CP)
 		regionCPPairs = append(regionCPPairs, pair)
 	}
-	
+
 	// 如果没有找到有效的区域和运营商组合，尝试使用学校的默认区域和运营商
 	if len(regionCPPairs) == 0 {
-		log.Printf("没有找到区域和运营商组合，将使用学校默认值: 区域=%s, CP=%s", 
+		log.Printf("没有找到区域和运营商组合，将使用学校默认值: 区域=%s, CP=%s",
 			school.Region, school.CP)
-		
+
 		// 检查学校的区域和运营商是否有效
 		if school.Region == "" || school.CP == "" {
 			log.Printf("学校的默认区域或运营商为空，无法计算结算数据: schoolID=%s", schoolID)
 			return nil, fmt.Errorf("学校的默认区域或运营商为空")
 		}
-		
+
 		regionCPPairs = append(regionCPPairs, RegionCPPair{
 			Region: school.Region,
 			CP:     school.CP,
@@ -915,7 +967,7 @@ func (r *settlementRepository) CalculateDaily95WithRegionAndCPForAllRegionsAndCP
 	} else {
 		log.Printf("找到 %d 个区域和运营商组合", len(regionCPPairs))
 	}
-	
+
 	// 一次性获取所有流量数据，避免重复查询
 	var allTrafficData []model.SchoolTraffic
 	log.Printf("获取学校流量数据: schoolID=%s, 日期=%s", schoolID, date.Format("2006-01-02"))
@@ -925,35 +977,35 @@ func (r *settlementRepository) CalculateDaily95WithRegionAndCPForAllRegionsAndCP
 		return nil, fmt.Errorf("获取流量数据失败: %v", err)
 	}
 	log.Printf("获取到 %d 条流量数据记录", len(allTrafficData))
-	
+
 	// 按区域和运营商分组流量数据
 	trafficMap := make(map[string][]model.SchoolTraffic)
 	for _, traffic := range allTrafficData {
 		key := traffic.Region + "-" + traffic.CP
 		trafficMap[key] = append(trafficMap[key], traffic)
 	}
-	
+
 	// 打印分组结果
 	for key, trafficList := range trafficMap {
 		log.Printf("区域-运营商组合 %s 有 %d 条流量数据", key, len(trafficList))
 	}
-	
+
 	// 为每个区域和运营商组合计算95值
 	var settlements []model.SchoolSettlement
 	log.Printf("开始为每个区域和运营商组合计算95值, 共 %d 个组合", len(regionCPPairs))
-	
+
 	for i, pair := range regionCPPairs {
 		log.Printf("处理第 %d 个区域和运营商组合: 区域=%s, CP=%s", i+1, pair.Region, pair.CP)
 		key := pair.Region + "-" + pair.CP
 		trafficData, exists := trafficMap[key]
-		
+
 		// 如果没有该组合的流量数据，跳过
 		if !exists || len(trafficData) == 0 {
 			log.Printf("没有找到流量数据: schoolID=%s, region=%s, cp=%s", schoolID, pair.Region, pair.CP)
 			continue
 		}
 		log.Printf("找到 %d 条流量数据记录: schoolID=%s, region=%s, cp=%s", len(trafficData), schoolID, pair.Region, pair.CP)
-		
+
 		// 计算每个时间点的总流量 (bits/s)
 		type TrafficPoint struct {
 			Time  time.Time
@@ -969,10 +1021,10 @@ func (r *settlementRepository) CalculateDaily95WithRegionAndCPForAllRegionsAndCP
 				Time:  data.CreateTime,
 				Value: bitsPerSecond,
 			})
-			
+
 			// 打印前5条流量数据作为示例
 			if j < 5 {
-				log.Printf("流量数据示例[%d]: 时间=%s, 接收=%d, 发送=%d, 总比特=%d, 比特每秒=%d", 
+				log.Printf("流量数据示例[%d]: 时间=%s, 接收=%d, 发送=%d, 总比特=%d, 比特每秒=%d",
 					j, data.CreateTime.Format("2006-01-02 15:04:05"), data.TotalRecv, data.TotalSend, totalBits, bitsPerSecond)
 			}
 		}
@@ -986,7 +1038,7 @@ func (r *settlementRepository) CalculateDaily95WithRegionAndCPForAllRegionsAndCP
 
 		// 打印排序后的前5个流量数据点
 		for j := 0; j < 5 && j < len(trafficPoints); j++ {
-			log.Printf("排序后数据点[%d]: 时间=%s, 值=%d", 
+			log.Printf("排序后数据点[%d]: 时间=%s, 值=%d",
 				j, trafficPoints[j].Time.Format("2006-01-02 15:04:05"), trafficPoints[j].Value)
 		}
 
@@ -1011,7 +1063,7 @@ func (r *settlementRepository) CalculateDaily95WithRegionAndCPForAllRegionsAndCP
 		}
 		settlement95Value := trafficPoints[index95].Value
 		settlement95Time := trafficPoints[index95].Time
-		log.Printf("计算得到日95值: 值=%d, 时间=%s", 
+		log.Printf("计算得到日95值: 值=%d, 时间=%s",
 			settlement95Value, settlement95Time.Format("2006-01-02 15:04:05"))
 
 		// 创建结算数据
@@ -1024,18 +1076,18 @@ func (r *settlementRepository) CalculateDaily95WithRegionAndCPForAllRegionsAndCP
 			SettlementTime:  settlement95Time,
 			SettlementDate:  date,
 		}
-		log.Printf("创建结算数据: 学校ID=%s, 学校名=%s, 区域=%s, CP=%s, 日期=%s, 值=%d", 
-			settlement.SchoolID, settlement.SchoolName, settlement.Region, settlement.CP, 
+		log.Printf("创建结算数据: 学校ID=%s, 学校名=%s, 区域=%s, CP=%s, 日期=%s, 值=%d",
+			settlement.SchoolID, settlement.SchoolName, settlement.Region, settlement.CP,
 			settlement.SettlementDate.Format("2006-01-02"), settlement.SettlementValue)
 
 		settlements = append(settlements, settlement)
 	}
-	
+
 	log.Printf("计算完成，共生成 %d 条结算数据", len(settlements))
 	if len(settlements) > 0 {
 		for i := 0; i < 5 && i < len(settlements); i++ {
-			log.Printf("结算数据示例[%d]: 学校ID=%s, 学校名=%s, 区域=%s, CP=%s, 日期=%s, 值=%d", 
-				i, settlements[i].SchoolID, settlements[i].SchoolName, settlements[i].Region, settlements[i].CP, 
+			log.Printf("结算数据示例[%d]: 学校ID=%s, 学校名=%s, 区域=%s, CP=%s, 日期=%s, 值=%d",
+				i, settlements[i].SchoolID, settlements[i].SchoolName, settlements[i].Region, settlements[i].CP,
 				settlements[i].SettlementDate.Format("2006-01-02"), settlements[i].SettlementValue)
 		}
 	} else {

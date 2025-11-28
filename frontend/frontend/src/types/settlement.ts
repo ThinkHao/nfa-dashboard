@@ -8,6 +8,10 @@ export interface SettlementConfig {
   weekly_day: number; // 每周结算日，1-7 代表周一到周日
   weekly_time: string; // 每周结算时间，格式: "HH:MM"
   enabled: boolean; // 是否启用自动结算
+  daily_enabled?: boolean; // 是否启用每日自动结算
+  weekly_enabled?: boolean; // 是否启用每周自动结算
+  recalc_after_daily?: boolean; // 日结算完成后自动复算
+  recalc_after_weekly?: boolean; // 周结算完成后自动复算
   last_execute_time: string; // 上次执行时间
   update_time: string; // 更新时间
 }
@@ -15,7 +19,7 @@ export interface SettlementConfig {
 // 结算任务接口
 export interface SettlementTask {
   id: number;
-  task_type: 'daily' | 'weekly'; // 任务类型：日结算或周结算
+  task_type: 'daily' | 'weekly' | 'customer_init' | 'customer_recalc'; // 任务类型：日结算/周结算/初算/复算
   task_date: string; // 任务日期
   status: TaskStatus; // 任务状态
   start_time: string; // 开始时间
@@ -95,6 +99,36 @@ export interface SettlementResultFilter {
   offset?: number;
   formula_id?: number;
   unit_base?: number; // 1000=SI(GB), 1024=IEC(GiB)
+}
+
+// 渠道维度结算结果条目
+export interface ChannelSettlementResultItem {
+  user_id: number;
+  user_name: string;
+  amount: number;
+  currency: string;
+  start_date: string;
+  end_date: string;
+  formula_id: number;
+  formula_name: string;
+  // 聚合分项明细（JSON 字符串，tooltip 展示）
+  breakdown_detail?: string; // e.g. { "customer_fee": 123, "network_line_fee": 45, "node_deduction_fee": 6, "final_fee": 72 }
+  updated_at?: string;
+}
+
+export interface ChannelSettlementResultResponse {
+  items: ChannelSettlementResultItem[];
+  total: number;
+}
+
+export interface ChannelSettlementResultFilter {
+  channel_name?: string;
+  user_name?: string;
+  start_date: string;
+  end_date: string;
+  limit?: number;
+  offset?: number;
+  formula_id?: number;
 }
 
 // 结算数据筛选条件
