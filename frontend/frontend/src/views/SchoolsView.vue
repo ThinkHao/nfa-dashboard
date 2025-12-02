@@ -195,8 +195,8 @@ function goTraffic(row: any) {
           </ElSelect>
         </ElFormItem>
         
-        <ElFormItem label="运营商">
-          <ElSelect v-model="queryForm.cp" placeholder="选择运营商" clearable @change="handleCPChange">
+        <ElFormItem label="CP">
+          <ElSelect v-model="queryForm.cp" placeholder="选择 CP" clearable @change="handleCPChange">
             <ElOption 
               v-for="cp in cps" 
               :key="cp" 
@@ -223,7 +223,7 @@ function goTraffic(row: any) {
         <ElTableColumn prop="school_id" label="学校ID" width="100" />
         <ElTableColumn prop="school_name" label="学校名称" />
         <ElTableColumn prop="region" label="地区" />
-        <ElTableColumn prop="cp" label="运营商" />
+        <ElTableColumn prop="cp" label="CP" />
         <ElTableColumn prop="hash_count" label="Hash数量" width="100" />
         <ElTableColumn prop="update_time" label="更新时间" width="180">
           <template #default="scope">

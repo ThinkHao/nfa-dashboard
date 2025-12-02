@@ -107,7 +107,7 @@ const navigateTo = (path: string) => {
         <ElCard shadow="hover" @click="navigateTo('/traffic')" class="feature-card">
           <div class="feature-content">
             <h3>流量监控</h3>
-            <p>实时监控学校网络流量数据，支持按时间、学校、地区和运营商筛选</p>
+            <p>实时监控学校网络流量数据，支持按时间、学校、地区和 CP 筛选</p>
             <div class="feature-icon">
               <i class="el-icon-monitor"></i>
             </div>

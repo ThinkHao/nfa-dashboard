@@ -13,8 +13,8 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="运营商" style="min-width: 200px;">
-          <el-select v-model="filterForm.cp" placeholder="选择运营商" clearable style="width: 180px;" @change="handleCPChange">
+        <el-form-item label="CP" style="min-width: 200px;">
+          <el-select v-model="filterForm.cp" placeholder="选择 CP" clearable style="width: 180px;" @change="handleCPChange">
             <el-option
               v-for="cp in cps"
               :key="cp"
@@ -77,7 +77,7 @@
         </el-table-column>
         <el-table-column prop="school_name" label="学校名称" min-width="180" />
         <el-table-column prop="region" label="地区" width="120" />
-        <el-table-column prop="cp" label="运营商" width="120" />
+        <el-table-column prop="cp" label="CP" width="120" />
         <el-table-column label="95值(Mbps)" width="150">
           <template #default="scope">
             {{ scope.row.daily_95_value ? formatBitRate(convertToBitsPerSecond(scope.row.daily_95_value), false) : '0.00' }}

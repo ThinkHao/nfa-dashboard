@@ -4,7 +4,7 @@
     <el-card class="filter-section">
       <el-form :model="filterForm" inline>
         <el-form-item label="任务类型">
-          <el-select v-model="filterForm.task_type" placeholder="选择任务类型" clearable>
+          <el-select v-model="filterForm.task_type" placeholder="选择任务类型" clearable style="width: 180px">
             <el-option label="日结算" value="daily" />
             <el-option label="周结算" value="weekly" />
             <el-option label="初算" value="customer_init" />
@@ -12,7 +12,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="任务状态">
-          <el-select v-model="filterForm.status" placeholder="选择任务状态" clearable>
+          <el-select v-model="filterForm.status" placeholder="选择任务状态" clearable style="width: 160px">
             <el-option label="等待中" value="pending" />
             <el-option label="执行中" value="running" />
             <el-option label="已完成" value="success" />

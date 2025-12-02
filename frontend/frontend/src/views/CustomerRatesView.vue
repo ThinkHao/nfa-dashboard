@@ -22,8 +22,8 @@
             <el-option v-for="r in regionOptions" :key="r" :label="r" :value="r" />
           </el-select>
         </el-form-item>
-        <el-form-item label="运营商">
-          <el-select v-model="query.cp" clearable filterable placeholder="选择运营商" style="width: 180px">
+        <el-form-item label="CP">
+          <el-select v-model="query.cp" clearable filterable placeholder="选择 CP" style="width: 180px">
             <el-option v-for="c in cpOptions" :key="c" :label="c" :value="c" />
           </el-select>
         </el-form-item>
@@ -93,7 +93,7 @@
 
       <el-table :data="items" border stripe height="600px" v-loading="loading">
         <el-table-column prop="region" label="区域" width="120" />
-        <el-table-column prop="cp" label="运营商" width="120" />
+        <el-table-column prop="cp" label="CP" width="120" />
         <el-table-column prop="school_name" label="学校" min-width="160" show-overflow-tooltip />
         <el-table-column label="模式" width="100">
           <template #default="{ row }">
@@ -182,8 +182,8 @@
             <el-option v-for="r in regionOptions" :key="r" :label="r" :value="r" />
           </el-select>
         </el-form-item>
-        <el-form-item label="运营商" required>
-          <el-select v-model="form.cp" filterable placeholder="选择运营商" style="width: 240px">
+        <el-form-item label="CP" required>
+          <el-select v-model="form.cp" filterable placeholder="选择 CP" style="width: 240px">
             <el-option v-for="c in cpOptions" :key="c" :label="c" :value="c" />
           </el-select>
         </el-form-item>
@@ -787,7 +787,7 @@ async function openDialog(row?: RateCustomer) {
 }
 
 async function onSave() {
-  if (!form.region || !form.cp) { ElMessage.warning('区域与运营商为必填'); return }
+  if (!form.region || !form.cp) { ElMessage.warning('区域与 CP 为必填'); return }
   saving.value = true
   try {
     // 解析扩展 JSON（可选）

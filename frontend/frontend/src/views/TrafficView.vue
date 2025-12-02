@@ -879,8 +879,8 @@ function formatDate(date: Date | string, granularity: string) {
           </ElSelect>
         </ElFormItem>
         
-        <ElFormItem label="内容方">
-          <ElSelect v-model="queryForm.cp" placeholder="选择内容方" clearable @change="handleCPChange">
+        <ElFormItem label="CP">
+          <ElSelect v-model="queryForm.cp" placeholder="选择 CP" clearable @change="handleCPChange">
             <ElOption 
               v-for="cp in cps" 
               :key="cp" 

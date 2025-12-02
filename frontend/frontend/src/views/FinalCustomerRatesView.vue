@@ -20,7 +20,7 @@
         <el-form-item label="区域">
           <el-input v-model="query.region" clearable placeholder="如 华东" style="width: 160px" />
         </el-form-item>
-        <el-form-item label="运营商">
+        <el-form-item label="CP">
           <el-input v-model="query.cp" clearable placeholder="如 CMCC" style="width: 160px" />
         </el-form-item>
         <el-form-item label="学校">
@@ -46,7 +46,7 @@
 
       <el-table :data="itemsCombined" border stripe height="600px" v-loading="loading">
         <el-table-column prop="region" label="区域" width="120" />
-        <el-table-column prop="cp" label="运营商" width="120" />
+        <el-table-column prop="cp" label="CP" width="120" />
         <el-table-column prop="school_name" label="学校" min-width="160" show-overflow-tooltip />
         <el-table-column prop="service_date" label="服务日期" width="140" />
         <el-table-column prop="customer_fee" label="客户费" width="120" />
@@ -95,7 +95,7 @@
         <el-form-item label="区域" required>
           <el-input v-model="form.region" />
         </el-form-item>
-        <el-form-item label="运营商" required>
+        <el-form-item label="CP" required>
           <el-input v-model="form.cp" />
         </el-form-item>
         <el-form-item label="学校" required>
@@ -305,7 +305,7 @@ function openDialog() {
 }
 
 async function onSave() {
-  if (!form.region || !form.cp || !form.school_name) { ElMessage.warning('区域/运营商/学校为必填'); return }
+  if (!form.region || !form.cp || !form.school_name) { ElMessage.warning('区域/CP/学校为必填'); return }
   saving.value = true
   try {
     await api.settlementRates.final.upsert(form)
@@ -361,7 +361,7 @@ async function onExport() {
     exporting.value = true
     const rows: any[] = itemsCombined.value || []
     const header = [
-      '区域','运营商','学校','服务日期',
+      '区域','CP','学校','服务日期',
       '客户费','客户费(折后)','线路费','渠道费率',
       '客户费归属','线路费归属','渠道费归属'
     ]

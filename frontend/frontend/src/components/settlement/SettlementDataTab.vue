@@ -13,8 +13,8 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="运营商" style="min-width: 200px;">
-          <el-select v-model="filterForm.cp" placeholder="选择运营商" clearable style="width: 180px;" @change="handleCPChange">
+        <el-form-item label="CP" style="min-width: 200px;">
+          <el-select v-model="filterForm.cp" placeholder="选择 CP" clearable style="width: 180px;" @change="handleCPChange">
             <el-option
               v-for="cp in cps"
               :key="cp"
@@ -81,7 +81,7 @@
         </template>
         <el-table-column prop="school_name" label="学校名称" min-width="160" />
         <el-table-column prop="region" label="地区" width="100" />
-        <el-table-column prop="cp" label="运营商" width="100" />
+        <el-table-column prop="cp" label="CP" width="100" />
         <el-table-column prop="service_date" label="服务日期" width="120">
           <template #default="{ row }">{{ row.service_date ? formatDateDisplay(row.service_date) : '-' }}</template>
         </el-table-column>

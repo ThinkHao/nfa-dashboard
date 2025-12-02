@@ -17,7 +17,7 @@
         <el-form-item label="区域">
           <el-input v-model="query.region" clearable placeholder="如 华东" style="width: 160px" />
         </el-form-item>
-        <el-form-item label="运营商">
+        <el-form-item label="CP">
           <el-input v-model="query.cp" clearable placeholder="如 CMCC" style="width: 160px" />
         </el-form-item>
         <el-form-item label="结算类型">
@@ -33,7 +33,7 @@
 
       <el-table :data="items" border stripe height="600px" v-loading="loading">
         <el-table-column prop="region" label="区域" width="120" />
-        <el-table-column prop="cp" label="运营商" width="120" />
+        <el-table-column prop="cp" label="CP" width="120" />
         <el-table-column prop="settlement_type" label="结算类型" width="120" />
         <el-table-column prop="cp_fee" label="CP费" width="120" />
         <el-table-column prop="cp_fee_owner_id" label="CP费归属" width="120" />
@@ -65,7 +65,7 @@
         <el-form-item label="区域" required>
           <el-input v-model="form.region" />
         </el-form-item>
-        <el-form-item label="运营商" required>
+        <el-form-item label="CP" required>
           <el-input v-model="form.cp" />
         </el-form-item>
         <el-form-item label="结算类型" required>
@@ -159,7 +159,7 @@ function openDialog() {
 }
 
 async function onSave() {
-  if (!form.region || !form.cp || !form.settlement_type) { ElMessage.warning('区域/运营商/结算类型为必填'); return }
+  if (!form.region || !form.cp || !form.settlement_type) { ElMessage.warning('区域/CP/结算类型为必填'); return }
   saving.value = true
   try {
     await api.settlementRates.node.upsert(form)

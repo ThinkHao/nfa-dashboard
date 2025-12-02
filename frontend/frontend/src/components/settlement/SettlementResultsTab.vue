@@ -5,8 +5,8 @@
         <el-form-item label="地区">
           <el-input v-model="filterForm.region" placeholder="输入地区" clearable style="width: 180px" />
         </el-form-item>
-        <el-form-item label="运营商">
-          <el-input v-model="filterForm.cp" placeholder="输入运营商" clearable style="width: 180px" />
+        <el-form-item label="CP">
+          <el-input v-model="filterForm.cp" placeholder="输入 CP" clearable style="width: 180px" />
         </el-form-item>
         <el-form-item label="学校">
           <el-input v-model="filterForm.school_name" placeholder="按名称搜索" clearable style="width: 200px" />
@@ -66,7 +66,7 @@
       >
         <el-table-column prop="school_name" label="学校" min-width="180" />
         <el-table-column prop="region" label="地区" width="120" />
-        <el-table-column prop="cp" label="运营商" width="120" />
+        <el-table-column prop="cp" label="CP" width="120" />
         <el-table-column label="周期" min-width="170">
           <template #default="{ row }">
             {{ formatDate(row.start_date) }} 至 {{ formatDate(row.end_date) }}

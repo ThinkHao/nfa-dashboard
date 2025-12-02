@@ -99,8 +99,8 @@
             <el-option v-for="r in regionOptions" :key="r" :label="r" :value="r" />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="editForm.scope_type === 'cp'" label="运营商">
-          <el-select v-model="editForm.scope_key" filterable placeholder="选择运营商" style="width: 240px">
+        <el-form-item v-if="editForm.scope_type === 'cp'" label="CP">
+          <el-select v-model="editForm.scope_key" filterable placeholder="选择 CP" style="width: 240px">
             <el-option v-for="c in cpOptions" :key="c" :label="c" :value="c" />
           </el-select>
         </el-form-item>
