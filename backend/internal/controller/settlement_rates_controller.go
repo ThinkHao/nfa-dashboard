@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"nfa-dashboard/internal/model"
+	"nfa-dashboard/internal/repository"
 	"nfa-dashboard/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -34,14 +35,70 @@ func (ctl *SettlementRatesController) ExportCustomerRatesXLSX(c *gin.Context) {
 
 	f := excelize.NewFile()
 	sheet := f.GetSheetName(0)
-	header := []string{"region", "cp", "school_name", "customer_fee", "network_line_fee", "general_fee", "channel_rate", "customer_fee_owner_id", "network_line_fee_owner_id", "general_fee_owner_id", "channel_owner_user_id", "start_at"}
+	// 可见列：将归属导出为“用户名”列；同时保留隐藏的 *_owner_id 列用于导入兼容
+	header := []string{
+		"region", "cp", "school_name",
+		"customer_fee", "network_line_fee", "general_fee", "channel_rate",
+		// 可见的姓名列
+		"customer_fee_owner", "network_line_fee_owner", "general_fee_owner", "channel_owner_user",
+		"start_at",
+		// 隐藏的ID列（用于导入与公式映射）
+		"customer_fee_owner_id", "network_line_fee_owner_id", "general_fee_owner_id", "channel_owner_user_id",
+	}
 	for i, h := range header {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
 		_ = f.SetCellValue(sheet, cell, h)
 	}
 	row := 2
+	// 预加载系统用户，用于姓名显示与下拉来源
+	userRepo := repository.NewUserRepository()
+	// 拉取全部启用用户（分页一次取较大数量，通常足够；若超出仍可按 total 分批扩展）
+	st := int8(1)
+	users, _, uErr := userRepo.List("", &st, nil, 1, 100000)
+	if uErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"message": uErr.Error()})
+		return
+	}
+	// 构建 ID -> 显示名 映射与下拉数据
+	idToName := map[uint64]string{}
+	names := make([]string, 0, len(users))
+	ids := make([]uint64, 0, len(users))
+	for _, u := range users {
+		dn := strings.TrimSpace(u.Username)
+		if u.Alias != nil && strings.TrimSpace(*u.Alias) != "" {
+			dn = strings.TrimSpace(*u.Alias)
+		}
+		idToName[u.ID] = dn
+		names = append(names, dn)
+		ids = append(ids, u.ID)
+	}
+	// 创建隐藏工作表 Users 作为下拉与 VLOOKUP 数据源：A: display_name, B: id
+	if idx, err2 := f.NewSheet("Users"); err2 == nil && idx > 0 {
+		for i := 0; i < len(names); i++ {
+			cellA, _ := excelize.CoordinatesToCellName(1, i+1) // A1...
+			cellB, _ := excelize.CoordinatesToCellName(2, i+1) // B1...
+			_ = f.SetCellValue("Users", cellA, names[i])
+			_ = f.SetCellValue("Users", cellB, strconv.FormatUint(ids[i], 10))
+		}
+		// 隐藏 Users 工作表
+		_ = f.SetSheetVisible("Users", false)
+	}
+	// 计算 Users!$A$1:$B$N 与名单区域（去表头，因我们从A1开始，无表头，直接全量）
+	usersLastRow := len(names)
+	hasUsers := usersLastRow > 0
+	usersNameRange := ""
+	usersLookupRange := ""
+	if hasUsers {
+		usersNameRange = "Users!$A$1:$A$" + strconv.Itoa(usersLastRow)
+		usersLookupRange = "Users!$A$1:$B$" + strconv.Itoa(usersLastRow)
+	}
+	// 主要工作表中四个姓名列与四个ID列的列索引（基于 header 顺序）
+	// 姓名列: 8..11 ；start_at: 12 ；ID列: 13..16
+	nameCols := []int{8, 9, 10, 11}
+	idCols := []int{13, 14, 15, 16}
 	for _, it := range items {
-		vals := []interface{}{
+		// 基本列（到 channel_rate）
+		baseVals := []interface{}{
 			strings.TrimSpace(it.Region),
 			strings.TrimSpace(it.CP),
 			func() string {
@@ -79,48 +136,112 @@ func (ctl *SettlementRatesController) ExportCustomerRatesXLSX(c *gin.Context) {
 					return strconv.FormatFloat(*it.ChannelRate, 'f', 4, 64)
 				}
 			}(),
-			func() interface{} {
-				if it.CustomerFeeOwnerID == nil {
-					return ""
-				} else {
-					return strconv.FormatUint(*it.CustomerFeeOwnerID, 10)
-				}
-			}(),
-			func() interface{} {
-				if it.NetworkLineFeeOwnerID == nil {
-					return ""
-				} else {
-					return strconv.FormatUint(*it.NetworkLineFeeOwnerID, 10)
-				}
-			}(),
-			func() interface{} {
-				if it.GeneralFeeOwnerID == nil {
-					return ""
-				} else {
-					return strconv.FormatUint(*it.GeneralFeeOwnerID, 10)
-				}
-			}(),
-			func() interface{} {
-				if it.ChannelOwnerUserID == nil {
-					return ""
-				} else {
-					return strconv.FormatUint(*it.ChannelOwnerUserID, 10)
-				}
-			}(),
-			func() string {
-				if it.StartAt == nil {
-					return ""
-				} else {
-					return it.StartAt.Format("2006-01-02")
-				}
-			}(),
 		}
-		for i, v := range vals {
+		for i, v := range baseVals {
 			cell, _ := excelize.CoordinatesToCellName(i+1, row)
 			_ = f.SetCellValue(sheet, cell, v)
 		}
+		// 姓名列：由 ID->Name 映射（若无则空）
+		var cfoName, nfoName, gfoName, choName string
+		if it.CustomerFeeOwnerID != nil {
+			if nm, ok := idToName[*it.CustomerFeeOwnerID]; ok {
+				cfoName = nm
+			}
+		}
+		if it.NetworkLineFeeOwnerID != nil {
+			if nm, ok := idToName[*it.NetworkLineFeeOwnerID]; ok {
+				nfoName = nm
+			}
+		}
+		if it.GeneralFeeOwnerID != nil {
+			if nm, ok := idToName[*it.GeneralFeeOwnerID]; ok {
+				gfoName = nm
+			}
+		}
+		if it.ChannelOwnerUserID != nil {
+			if nm, ok := idToName[*it.ChannelOwnerUserID]; ok {
+				choName = nm
+			}
+		}
+		nameVals := []string{cfoName, nfoName, gfoName, choName}
+		for j, v := range nameVals {
+			col := nameCols[j]
+			cell, _ := excelize.CoordinatesToCellName(col, row)
+			_ = f.SetCellValue(sheet, cell, v)
+		}
+		// start_at
+		saCell, _ := excelize.CoordinatesToCellName(12, row)
+		if it.StartAt == nil {
+			_ = f.SetCellValue(sheet, saCell, "")
+		} else {
+			_ = f.SetCellValue(sheet, saCell, it.StartAt.Format("2006-01-02"))
+		}
+		// ID列：若有用户清单，使用 VLOOKUP 公式；否则直接写入原始ID（若存在）
+		if hasUsers {
+			for j := 0; j < len(idCols); j++ {
+				idCol := idCols[j]
+				nameCol := nameCols[j]
+				idCell, _ := excelize.CoordinatesToCellName(idCol, row)
+				nameCell, _ := excelize.CoordinatesToCellName(nameCol, row)
+				formula := "IFERROR(VLOOKUP(" + nameCell + "," + usersLookupRange + ",2,FALSE),\"\")"
+				_ = f.SetCellFormula(sheet, idCell, formula)
+			}
+		} else {
+			// 无用户清单时，直接将当前记录中的 *_id 写入隐藏列
+			rawIDs := []interface{}{
+				func() interface{} {
+					if it.CustomerFeeOwnerID == nil {
+						return ""
+					} else {
+						return strconv.FormatUint(*it.CustomerFeeOwnerID, 10)
+					}
+				}(),
+				func() interface{} {
+					if it.NetworkLineFeeOwnerID == nil {
+						return ""
+					} else {
+						return strconv.FormatUint(*it.NetworkLineFeeOwnerID, 10)
+					}
+				}(),
+				func() interface{} {
+					if it.GeneralFeeOwnerID == nil {
+						return ""
+					} else {
+						return strconv.FormatUint(*it.GeneralFeeOwnerID, 10)
+					}
+				}(),
+				func() interface{} {
+					if it.ChannelOwnerUserID == nil {
+						return ""
+					} else {
+						return strconv.FormatUint(*it.ChannelOwnerUserID, 10)
+					}
+				}(),
+			}
+			for j, v := range rawIDs {
+				col := idCols[j]
+				cell, _ := excelize.CoordinatesToCellName(col, row)
+				_ = f.SetCellValue(sheet, cell, v)
+			}
+		}
 		row++
 	}
+	// 为姓名列添加下拉数据验证（需有用户清单且表内有数据）
+	lastRow := row - 1
+	if hasUsers && lastRow >= 2 {
+		for _, col := range nameCols {
+			startCell, _ := excelize.CoordinatesToCellName(col, 2)
+			endCell, _ := excelize.CoordinatesToCellName(col, lastRow)
+			rng := startCell + ":" + endCell
+			dv := &excelize.DataValidation{Type: "list", AllowBlank: true, Sqref: rng, Formula1: usersNameRange}
+			_ = f.AddDataValidation(sheet, dv)
+		}
+	}
+	// 隐藏 *_owner_id 四个列
+	_ = f.SetColVisible(sheet, "M", false) // 13
+	_ = f.SetColVisible(sheet, "N", false) // 14
+	_ = f.SetColVisible(sheet, "O", false) // 15
+	_ = f.SetColVisible(sheet, "P", false) // 16
 	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 	c.Header("Content-Disposition", "attachment; filename=customer_rates.xlsx")
 	if err := f.Write(c.Writer); err != nil {
