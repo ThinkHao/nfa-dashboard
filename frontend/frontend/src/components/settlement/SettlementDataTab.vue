@@ -58,7 +58,8 @@
       <div class="table-header">
         <h3>结算数据列表</h3>
         <div style="display:flex; gap:8px;">
-          <el-button type="success" @click="exportData">导出数据</el-button>
+          <el-button type="success" @click="exportData">导出原始数据</el-button>
+          <el-button type="primary" @click="exportMonthly95">导出月平均数据</el-button>
           <el-button v-if="canRecalc" type="warning" @click="onRecalculate">复算</el-button>
         </div>
       </div>
@@ -496,6 +497,95 @@ const exportData = async () => {
     URL.revokeObjectURL(url)
   } catch (e: any) {
     ElMessage.error(e?.message || '导出失败')
+  }
+}
+
+function csvEscape(v: any): string {
+  let s = v == null ? '' : String(v)
+  if (s.includes('"')) s = s.replace(/"/g, '""')
+  if (s.search(/[",\n]/) >= 0) s = `"${s}` + `"`
+  return s
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+const exportMonthly95 = async () => {
+  if (!dateRange.value) { ElMessage.warning('请先选择服务时间范围'); return }
+  try {
+    const yStart = Number(String(dateRange.value[0]).slice(0, 4))
+    const yEnd = Number(String(dateRange.value[1]).slice(0, 4))
+    if (!Number.isFinite(yStart)) { ElMessage.warning('无法识别年份，请重新选择日期'); return }
+    if (yEnd && yEnd !== yStart) {
+      try {
+        await ElMessageBox.confirm(`已选择跨年区间，将按 ${yStart} 年整年导出，是否继续？`, '确认', { type: 'warning' })
+      } catch { return }
+    }
+
+    const baseParams: any = {
+      start_date: `${yStart}-01-01`,
+      end_date: `${yStart}-12-31`,
+    }
+    if (filterForm.region) baseParams.region = filterForm.region
+    if (filterForm.cp) baseParams.cp = filterForm.cp
+    if (filterForm.school_id) baseParams.school_id = filterForm.school_id
+
+    const limit = 2000
+    let offset = 0
+    const agg: Record<string, { region: string; school: string; cp: string; sum: number[]; cnt: number[] }> = {}
+    const getMonth = (d: string): number => {
+      if (!d) return 0
+      const m = (d.match(/-(\d{2})-/) || [])[1] || (d.split('T')[0]?.split('-')[1] ?? '')
+      const n = Number(m)
+      return Number.isFinite(n) ? n : 0
+    }
+
+    while (true) {
+      const res: any = await (api as any).v2.settlement.getDailySettlementDetails({ ...baseParams, limit, offset })
+      let items: any[] = []
+      let total = 0
+      if (Array.isArray(res)) { items = res; total = res.length } else if (res && Array.isArray(res.items)) { items = res.items; total = Number(res.total || 0) }
+      for (const r of items) {
+        const key = `${r.region || ''}__${r.school_name || ''}__${r.cp || ''}`
+        if (!agg[key]) agg[key] = { region: r.region || '', school: r.school_name || '', cp: r.cp || '', sum: Array(12).fill(0), cnt: Array(12).fill(0) }
+        const month = getMonth(String(r.daily_date || r.service_date || ''))
+        if (month >= 1 && month <= 12) {
+          const mbps = convertToBitsPerSecond(Number(r.daily_95_value || r.settlement_value || 0)) / 1000000
+          agg[key].sum[month - 1] += mbps
+          agg[key].cnt[month - 1] += 1
+        }
+      }
+      if (items.length < limit) break
+      if (total > 0 && offset + items.length >= total) break
+      offset += limit
+    }
+
+    const header = ['地区', '学校', 'CP', ...Array.from({ length: 12 }, (_, i) => `${i + 1}月`)]
+    const rows: string[] = []
+    const keys = Object.keys(agg).sort()
+    for (const k of keys) {
+      const a = agg[k]
+      const cols: string[] = [csvEscape(a.region), csvEscape(a.school), csvEscape(a.cp)]
+      for (let i = 0; i < 12; i++) {
+        const avg = a.cnt[i] > 0 ? (a.sum[i] / a.cnt[i]) : ''
+        cols.push(avg === '' ? '' : String((avg as number).toFixed(2)))
+      }
+      rows.push(cols.join(','))
+    }
+    const content = ['\uFEFF' + header.join(','), ...rows].join('\n')
+    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
+    downloadBlob(blob, `monthly-avg-${yStart}.csv`)
+    ElMessage.success('导出成功')
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '导出失败')
   }
 }
 
