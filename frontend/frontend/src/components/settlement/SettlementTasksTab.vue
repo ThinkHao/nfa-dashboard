@@ -266,6 +266,8 @@ const filterForm = reactive({
   task_type: '',
   status: '',
   start_date: '',
+  limit: 10,
+  offset: 0,
   end_date: '',
   page: 1,
   page_size: 10
@@ -321,8 +323,16 @@ const fetchTasks = async () => {
   filterForm.page = currentPage.value
   filterForm.page_size = pageSize.value
 
+  // 后端分页参数使用 limit/offset
+  const limit = pageSize.value
+  const offset = (currentPage.value - 1) * pageSize.value
+
   try {
-    const response = await api.settlement.getTasks(filterForm) as any
+    const response = await api.settlement.getTasks({
+      ...filterForm,
+      limit,
+      offset,
+    }) as any
     // 统一仅处理数组或 { items, total }
     if (Array.isArray(response)) {
       taskData.value = { items: response, total: response.length }
