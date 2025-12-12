@@ -25,6 +25,7 @@ export interface SettlementTask {
   start_time: string; // 开始时间
   end_time: string; // 结束时间
   processed_count: number; // 处理的记录数
+  total_count?: number; // 预计总量（用于进度/ETA）
   error_message: string; // 错误信息
   create_time: string; // 创建时间
   update_time: string; // 更新时间

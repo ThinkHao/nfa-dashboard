@@ -58,8 +58,7 @@
       <div class="table-header">
         <h3>结算数据列表</h3>
         <div style="display:flex; gap:8px;">
-          <el-button type="success" @click="exportData">导出原始数据</el-button>
-          <el-button type="primary" @click="exportMonthly95">导出月平均数据</el-button>
+          <el-button type="primary" @click="openExportDialog">导出</el-button>
           <el-button v-if="canRecalc" type="warning" @click="onRecalculate">复算</el-button>
         </div>
       </div>
@@ -101,6 +100,11 @@
         <el-table-column label="线路费归属" min-width="160">
           <template #default="{ row }">{{ displayEntity(row.network_line_fee_owner_id) }}</template>
         </el-table-column>
+        <el-table-column prop="node_deduction_fee" label="节点通用费率" width="110" />
+        <el-table-column prop="node_deduction_bill" label="节点通用金额" width="120" />
+        <el-table-column label="节点通用费归属" min-width="160">
+          <template #default="{ row }">{{ displayEntity(row.node_deduction_fee_owner_id) }}</template>
+        </el-table-column>
         <el-table-column prop="channel_rate" label="渠道费率" width="110" />
         <el-table-column prop="channel_bill" label="渠道金额" width="110" />
         <el-table-column label="渠道费归属" min-width="160">
@@ -127,6 +131,33 @@
         />
       </div>
     </el-card>
+    <!-- 统一导出弹窗 -->
+    <el-dialog v-model="exportDialogVisible" title="导出设置" width="720px">
+      <div style="display:flex; gap:24px; align-items:flex-start;">
+        <div style="flex:1;">
+          <div style="font-weight:600; margin-bottom:8px;">选择字段</div>
+          <el-checkbox-group v-model="exportForm.selectedFields">
+            <div style="margin-bottom:6px;">基础字段</div>
+            <el-checkbox v-for="f in baseFields" :key="f.key" :label="f.key">{{ f.label }}</el-checkbox>
+            <el-divider style="margin:10px 0" />
+            <div style="margin-bottom:6px;">流量/金额字段</div>
+            <el-checkbox v-for="f in numericFields" :key="f.key" :label="f.key">{{ f.label }}</el-checkbox>
+            <el-divider style="margin:10px 0" />
+            <div style="margin-bottom:6px;">归属/其它</div>
+            <el-checkbox v-for="f in otherFields" :key="f.key" :label="f.key">{{ f.label }}</el-checkbox>
+          </el-checkbox-group>
+        </div>
+        <div style="width:220px;">
+          <div style="font-weight:600; margin-bottom:8px;">选项</div>
+          <el-checkbox v-model="exportForm.monthlyAvg" :disabled="monthlyAvgDisabled">按月平均</el-checkbox>
+          <div style="color: var(--text-muted); margin-top:8px; font-size:12px;">仅对已勾选的流量/金额字段生效</div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="exportDialogVisible=false">取消</el-button>
+        <el-button type="primary" @click="doExport">导出</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -135,6 +166,7 @@ import { ref, reactive, onMounted, computed } from 'vue'
 import api from '../../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
+import { useTasksStore } from '@/stores/tasks'
 import type { SettlementListResponse } from '../../types/settlement'
 import type { School, PaginationParams, BusinessEntity } from '../../types/api'
 
@@ -467,39 +499,6 @@ const handleSizeChange = (size: number) => {
   fetchData()
 }
 
-// 导出数据
-const exportData = async () => {
-  try {
-    const noFilters = !filterForm.region && !filterForm.cp && !filterForm.school_id && !filterForm.start_service_date && !filterForm.end_service_date
-    if (noFilters) {
-      try {
-        await ElMessageBox.confirm('未选择任何筛选条件，将导出全量数据，可能耗时较长。是否继续？', '确认导出', { type: 'warning', confirmButtonText: '继续导出', cancelButtonText: '取消' })
-      } catch { return }
-    }
-
-    const params: any = {}
-    if (filterForm.region) params.region = filterForm.region
-    if (filterForm.cp) params.cp = filterForm.cp
-    if (filterForm.school_id) {
-      const s = (schools.value || []).find(x => x.school_id === filterForm.school_id)
-      if (s && s.school_name) params.school_name = s.school_name
-    }
-    if (filterForm.start_service_date) params.start_service_date = filterForm.start_service_date
-    if (filterForm.end_service_date) params.end_service_date = filterForm.end_service_date
-    const blob = await (api as any).settlementData.export(params)
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'settlement_customer.csv'
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-  } catch (e: any) {
-    ElMessage.error(e?.message || '导出失败')
-  }
-}
-
 function csvEscape(v: any): string {
   let s = v == null ? '' : String(v)
   if (s.includes('"')) s = s.replace(/"/g, '""')
@@ -518,73 +517,199 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url)
 }
 
-const exportMonthly95 = async () => {
-  if (!dateRange.value) { ElMessage.warning('请先选择服务时间范围'); return }
+// 统一导出：弹窗与逻辑
+const exportDialogVisible = ref(false)
+const DEFAULT_FIELDS = ['school_name','region','cp','service_date','daily_95_mbps']
+const exportForm = reactive<{ selectedFields: string[]; monthlyAvg: boolean }>({ selectedFields: [...DEFAULT_FIELDS], monthlyAvg: false })
+
+type FieldType = 'base' | 'traffic' | 'money'
+interface FieldDef { key: string; label: string; type: FieldType; getter?: (row: any) => any }
+
+const allFieldDefs: FieldDef[] = [
+  { key: 'school_name', label: '学校名称', type: 'base', getter: (r:any)=> r?.school_name ?? '' },
+  { key: 'region', label: '地区', type: 'base', getter: (r:any)=> r?.region ?? '' },
+  { key: 'cp', label: 'CP', type: 'base', getter: (r:any)=> r?.cp ?? '' },
+  { key: 'service_date', label: '服务日期', type: 'base', getter: (r:any)=> r?.service_date ? formatDateDisplay(String(r.service_date)) : '' },
+  { key: 'daily_95_mbps', label: '日95(Mbps)', type: 'traffic', getter: (r:any)=> (convertToBitsPerSecond(Number(r?.settlement_value ?? 0)) / 1_000_000).toFixed(2) },
+  { key: 'customer_fee', label: '客户费率', type: 'base', getter: (r:any)=> r?.customer_fee },
+  { key: 'customer_bill', label: '客户金额', type: 'money', getter: (r:any)=> r?.customer_bill },
+  { key: 'customer_fee_owner_name', label: '客户费归属', type: 'base', getter: (r:any)=> displayEntity(r?.customer_fee_owner_id) },
+  { key: 'network_line_fee', label: '线路费率', type: 'base', getter: (r:any)=> r?.network_line_fee },
+  { key: 'network_line_bill', label: '线路金额', type: 'money', getter: (r:any)=> r?.network_line_bill },
+  { key: 'network_line_fee_owner_name', label: '线路费归属', type: 'base', getter: (r:any)=> displayEntity(r?.network_line_fee_owner_id) },
+  { key: 'node_deduction_fee', label: '节点通用费率', type: 'base', getter: (r:any)=> r?.node_deduction_fee },
+  { key: 'node_deduction_bill', label: '节点通用金额', type: 'money', getter: (r:any)=> r?.node_deduction_bill },
+  { key: 'node_deduction_fee_owner_name', label: '节点通用费归属', type: 'base', getter: (r:any)=> displayEntity(r?.node_deduction_fee_owner_id) },
+  { key: 'channel_rate', label: '渠道费率', type: 'base', getter: (r:any)=> r?.channel_rate },
+  { key: 'channel_bill', label: '渠道金额', type: 'money', getter: (r:any)=> r?.channel_bill },
+  { key: 'channel_owner_name', label: '渠道费归属', type: 'base', getter: (r:any)=> displayUser(r?.channel_owner_user_id) },
+  { key: 'recalculated', label: '是否复算', type: 'base', getter: (r:any)=> r?.recalculated ? '是' : '否' },
+  { key: 'last_recalc_time', label: '最近复算时间', type: 'base', getter: (r:any)=> r?.last_recalc_time ?? '' },
+]
+
+const baseFields = computed(() => allFieldDefs.filter(f => ['school_name','region','cp','service_date','customer_fee','network_line_fee','node_deduction_fee','channel_rate','recalculated','last_recalc_time'].includes(f.key)))
+const numericFields = computed(() => allFieldDefs.filter(f => f.type === 'traffic' || f.type === 'money'))
+const otherFields = computed(() => allFieldDefs.filter(f => ['customer_fee_owner_name','network_line_fee_owner_name','node_deduction_fee_owner_name','channel_owner_name'].includes(f.key)))
+
+const monthlyAvgDisabled = computed(() => {
+  const selected = new Set(exportForm.selectedFields)
+  return !numericFields.value.some(f => selected.has(f.key))
+})
+
+function openExportDialog() {
+  exportForm.selectedFields = [...DEFAULT_FIELDS]
+  exportForm.monthlyAvg = false
+  exportDialogVisible.value = true
+}
+
+async function fetchAllDataForExport(onProgress?: (p: number, meta?: { processed: number; total?: number }) => void): Promise<any[]> {
+  const params: any = {
+    page: 1,
+    page_size: 1000,
+    start_service_date: filterForm.start_service_date,
+    end_service_date: filterForm.end_service_date,
+  }
+  if (filterForm.region) params.region = filterForm.region
+  if (filterForm.cp) params.cp = filterForm.cp
+  if (filterForm.school_id) {
+    const s = (schools.value || []).find(x => x.school_id === filterForm.school_id)
+    if (s && s.school_name) params.school_name = s.school_name
+  }
+  const all: any[] = []
+  let total = 0
+  while (true) {
+    const res: any = await (api as any).settlementData.list(params)
+    let items: any[] = []
+    if (Array.isArray(res)) { items = res; total = total || res.length } else if (res && Array.isArray(res.items)) { items = res.items; total = Number(res.total || total || 0) }
+    all.push(...items)
+    if (typeof total === 'number' && total > 0 && onProgress) {
+      const processed = Math.min(all.length, total)
+      onProgress(Math.max(0, Math.min(1, processed / total)), { processed, total })
+    }
+    if (items.length < params.page_size) break
+    if (total > 0 && (params.page * params.page_size) >= total) break
+    params.page += 1
+  }
+  return all
+}
+
+function monthKey(d: string): string {
+  if (!d) return ''
+  const s = String(d)
+  const dateStr = s.includes('T') ? s.split('T')[0] : (s.includes(' ') ? s.split(' ')[0] : s)
+  return dateStr.slice(0, 7)
+}
+
+async function doExport() {
+  let taskId: string | null = null
   try {
-    const yStart = Number(String(dateRange.value[0]).slice(0, 4))
-    const yEnd = Number(String(dateRange.value[1]).slice(0, 4))
-    if (!Number.isFinite(yStart)) { ElMessage.warning('无法识别年份，请重新选择日期'); return }
-    if (yEnd && yEnd !== yStart) {
-      try {
-        await ElMessageBox.confirm(`已选择跨年区间，将按 ${yStart} 年整年导出，是否继续？`, '确认', { type: 'warning' })
-      } catch { return }
+    if (exportForm.selectedFields.length === 0) { ElMessage.warning('请至少选择一个字段'); return }
+    if (!filterForm.start_service_date || !filterForm.end_service_date) {
+      try { await ElMessageBox.confirm('未选择服务时间范围，将导出全量范围，可能耗时较长。是否继续？', '确认导出', { type: 'warning' }) } catch { return }
     }
+    const tasks = useTasksStore()
+    taskId = `export:${Date.now()}`
+    tasks.start({ id: taskId, type: 'export', title: '结算数据导出', status: 'running', progress: 0 })
+    const data = await fetchAllDataForExport((p, meta) => { tasks.update(taskId, { progress: p, status: 'running', processed: meta?.processed ?? null, total: meta?.total ?? null }) })
+    const selectedDefs = allFieldDefs.filter(f => exportForm.selectedFields.includes(f.key))
+    let header: string[] = []
 
-    const baseParams: any = {
-      start_date: `${yStart}-01-01`,
-      end_date: `${yStart}-12-31`,
-    }
-    if (filterForm.region) baseParams.region = filterForm.region
-    if (filterForm.cp) baseParams.cp = filterForm.cp
-    if (filterForm.school_id) baseParams.school_id = filterForm.school_id
+    let rows: string[] = []
 
-    const limit = 2000
-    let offset = 0
-    const agg: Record<string, { region: string; school: string; cp: string; sum: number[]; cnt: number[] }> = {}
-    const getMonth = (d: string): number => {
-      if (!d) return 0
-      const m = (d.match(/-(\d{2})-/) || [])[1] || (d.split('T')[0]?.split('-')[1] ?? '')
-      const n = Number(m)
-      return Number.isFinite(n) ? n : 0
-    }
-
-    while (true) {
-      const res: any = await (api as any).v2.settlement.getDailySettlementDetails({ ...baseParams, limit, offset })
-      let items: any[] = []
-      let total = 0
-      if (Array.isArray(res)) { items = res; total = res.length } else if (res && Array.isArray(res.items)) { items = res.items; total = Number(res.total || 0) }
-      for (const r of items) {
-        const key = `${r.region || ''}__${r.school_name || ''}__${r.cp || ''}`
-        if (!agg[key]) agg[key] = { region: r.region || '', school: r.school_name || '', cp: r.cp || '', sum: Array(12).fill(0), cnt: Array(12).fill(0) }
-        const month = getMonth(String(r.daily_date || r.service_date || ''))
-        if (month >= 1 && month <= 12) {
-          const mbps = convertToBitsPerSecond(Number(r.daily_95_value || r.settlement_value || 0)) / 1000000
-          agg[key].sum[month - 1] += mbps
-          agg[key].cnt[month - 1] += 1
+    if (exportForm.monthlyAvg && !monthlyAvgDisabled.value) {
+      const metricDefs = selectedDefs.filter(f => f.type === 'traffic' || f.type === 'money')
+      const selectedTrafficKeys = new Set(metricDefs.filter(f => f.type === 'traffic').map(f => f.key))
+      const stripLabel = (s: string) => String(s).replace(/\(.*?\)/g, '').trim()
+      const monthOf = (d: string): number => {
+        if (!d) return 0
+        const s = String(d)
+        const dateStr = s.includes('T') ? s.split('T')[0] : (s.includes(' ') ? s.split(' ')[0] : s)
+        const mm = Number(dateStr.slice(5, 7))
+        return Number.isFinite(mm) && mm >= 1 && mm <= 12 ? mm : 0
+      }
+      type Agg = { base: any; traf: Record<string, { sum: number[]; cnt: number[] }>; money: Record<string, number[]> }
+      const group = new Map<string, Agg>()
+      for (const r of data) {
+        const m = monthOf(r?.service_date || '')
+        if (m <= 0) continue
+        const gk = `${r?.region || ''}__${r?.school_name || ''}__${r?.cp || ''}`
+        if (!group.has(gk)) {
+          const g: Agg = { base: { school_name: r?.school_name, region: r?.region, cp: r?.cp }, traf: {}, money: {} }
+          for (const def of metricDefs) {
+            if (def.type === 'traffic') g.traf[def.key] = { sum: Array(12).fill(0), cnt: Array(12).fill(0) }
+            else g.money[def.key] = Array(12).fill(0)
+          }
+          group.set(gk, g)
+        }
+        const g = group.get(gk)!
+        if (selectedTrafficKeys.has('daily_95_mbps')) {
+          const v = Number((convertToBitsPerSecond(Number(r?.settlement_value ?? 0)) / 1_000_000).toFixed(9))
+          if (!Number.isNaN(v)) { g.traf['daily_95_mbps'].sum[m - 1] += v; g.traf['daily_95_mbps'].cnt[m - 1] += 1 }
+        }
+        for (const def of metricDefs) {
+          if (def.type !== 'money') continue
+          const k = def.key
+          const v = Number(r?.[k] ?? 0)
+          if (!Number.isNaN(v)) g.money[k][m - 1] += v
         }
       }
-      if (items.length < limit) break
-      if (total > 0 && offset + items.length >= total) break
-      offset += limit
+      header = ['学校名称', '地区', 'CP']
+      for (const def of metricDefs) {
+        const name = stripLabel(def.label)
+        for (let i = 1; i <= 12; i++) header.push(`${i}月${name}`)
+      }
+      const lines: string[] = []
+      for (const [, g] of group) {
+        const row: string[] = [csvEscape(g.base.school_name), csvEscape(g.base.region), csvEscape(g.base.cp)]
+        for (const def of metricDefs) {
+          if (def.type === 'traffic') {
+            const s = g.traf[def.key].sum
+            const c = g.traf[def.key].cnt
+            for (let i = 0; i < 12; i++) {
+              const avg = c[i] > 0 ? (s[i] / c[i]) : ''
+              row.push(avg === '' ? '' : String(Number(avg).toFixed(2)))
+            }
+          } else {
+            const arr = g.money[def.key]
+            for (let i = 0; i < 12; i++) {
+              const val = arr[i]
+              row.push(val == null ? '' : String(Number(val).toFixed(2)))
+            }
+          }
+        }
+        lines.push(row.join(','))
+      }
+      rows = lines
+    } else {
+      header = selectedDefs.map(def => def.label)
+      const lines: string[] = []
+      for (const r of data) {
+        const row: string[] = []
+        for (const def of selectedDefs) {
+          const val = def.getter ? def.getter(r) : r?.[def.key]
+          row.push(csvEscape(val))
+        }
+        lines.push(row.join(','))
+      }
+      rows = lines
     }
 
-    const header = ['地区', '学校', 'CP', ...Array.from({ length: 12 }, (_, i) => `${i + 1}月`)]
-    const rows: string[] = []
-    const keys = Object.keys(agg).sort()
-    for (const k of keys) {
-      const a = agg[k]
-      const cols: string[] = [csvEscape(a.region), csvEscape(a.school), csvEscape(a.cp)]
-      for (let i = 0; i < 12; i++) {
-        const avg = a.cnt[i] > 0 ? (a.sum[i] / a.cnt[i]) : ''
-        cols.push(avg === '' ? '' : String((avg as number).toFixed(2)))
-      }
-      rows.push(cols.join(','))
-    }
     const content = ['\uFEFF' + header.join(','), ...rows].join('\n')
     const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
-    downloadBlob(blob, `monthly-avg-${yStart}.csv`)
+    const filename = exportForm.monthlyAvg ? 'settlement_export_monthly.csv' : 'settlement_export.csv'
+    const url = URL.createObjectURL(blob)
+    tasks.complete(taskId, url)
+    // 立即触发下载
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
     ElMessage.success('导出成功')
-  } catch (e: any) {
+    exportDialogVisible.value = false
+  } catch (e:any) {
+    try { const tasks = useTasksStore(); if (taskId) tasks.fail(taskId, e?.message) } catch {}
     ElMessage.error(e?.response?.data?.message || e?.message || '导出失败')
   }
 }
@@ -608,9 +733,53 @@ const onRecalculate = async () => {
       const s = (schools.value || []).find(x => x.school_id === filterForm.school_id)
       if (s && s.school_name) body.school_name = s.school_name
     }
-    await (api as any).settlementData.recalculate(body)
-    ElMessage.success('已触发复算')
-    fetchData()
+    // 1) 触发后端复算，拿到任务ID
+    const taskNumericId: number = await (api as any).settlementData.recalculate(body)
+    const taskId = `settlement:${taskNumericId}`
+    const tasks = useTasksStore()
+    // 2) 预估总量：用 v2 日95明细列表的 total 作为复算任务的总工作量
+    let estTotal: number | null = null
+    try {
+      const params: any = {
+        start_date: dateRange.value[0],
+        end_date: dateRange.value[1],
+        limit: 1,
+        offset: 0,
+      }
+      if (filterForm.region) params.region = filterForm.region
+      if (filterForm.cp) params.cp = filterForm.cp
+      if (filterForm.school_id) {
+        const s = (schools.value || []).find(x => x.school_id === filterForm.school_id)
+        if (s && s.school_name) params.school_name = s.school_name
+      }
+      const res: any = await (api as any).v2.settlement.getDailySettlementDetails(params)
+      if (res && typeof res === 'object' && 'total' in res) estTotal = Number((res as any).total) || null
+    } catch {}
+    // 3) 在全局浮层启动任务展示
+    tasks.upsertSettlementTask({ id: taskNumericId, status: 'running', processed_count: 0, total_count: estTotal ?? undefined })
+    ElMessage.success('已触发复算，后台执行中')
+    // 4) 轮询该任务直至完成/失败，期间更新进度/ETA
+    let stopped = false
+    const stop = () => { stopped = true }
+    const poll = async () => {
+      if (stopped) return
+      try {
+        const t: any = await (api as any).settlement.getTaskById(taskNumericId)
+        if (t && typeof t === 'object') {
+          const processed = Number((t as any).processed_count ?? 0) || 0
+          const total = Number((t as any).total_count ?? (estTotal ?? 0)) || (estTotal ?? undefined)
+          tasks.upsertSettlementTask({ id: taskNumericId, status: (t as any).status as any, processed_count: processed, total_count: total as any })
+          if ((t as any).status === 'success' || (t as any).status === 'failed') {
+            stop()
+            // 完成后刷新当前列表
+            fetchData()
+            return
+          }
+        }
+      } catch {}
+      setTimeout(poll, 2000)
+    }
+    setTimeout(poll, 1500)
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '复算失败')
   }

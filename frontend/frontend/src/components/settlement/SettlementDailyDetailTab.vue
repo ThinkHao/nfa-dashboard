@@ -106,6 +106,7 @@ import { ref, reactive, onMounted } from 'vue'
 import api from '../../api' // 假设 api/index.ts 中会添加新的接口
 import { ElMessage } from 'element-plus'
 import type { School } from '../../types/api'
+import { useTasksStore } from '@/stores/tasks'
 
 // 定义日95明细数据项接口
 interface DailySettlementDetail {
@@ -346,11 +347,91 @@ const handleSizeChange = (size: number) => {
   fetchData()
 }
 
-// 导出数据 (占位)
-const exportData = () => {
-  // TODO: 实现导出日95明细数据的逻辑
-  ElMessage.info('导出功能待实现')
-  console.log('导出日95明细数据，参数:', filterForm)
+function csvEscape(v: any): string {
+  let s = v == null ? '' : String(v)
+  if (s.includes('"')) s = s.replace(/"/g, '""')
+  if (s.search(/[",\n]/) >= 0) s = `"${s}` + `"`
+  return s
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+async function fetchAllDailyDetailsForExport(onProgress?: (p: number | null, meta?: { processed: number; total?: number | null }) => void): Promise<any[]> {
+  const baseParams: any = {
+    school_id: filterForm.school_id || undefined,
+    region: filterForm.region || undefined,
+    cp: filterForm.cp || undefined,
+    start_date: filterForm.start_date || undefined,
+    end_date: filterForm.end_date || undefined,
+  }
+  let total: number | null = null
+  try {
+    const probe: any = await (api as any).v2.settlement.getDailySettlementDetails({ ...baseParams, limit: 1, offset: 0 })
+    if (typeof probe?.total === 'number') total = probe.total
+    else if (Array.isArray(probe?.items)) total = Number(probe.items.length)
+  } catch {}
+  const limit = 1000
+  let offset = 0
+  const all: any[] = []
+  while (true) {
+    const res: any = await (api as any).v2.settlement.getDailySettlementDetails({ ...baseParams, limit, offset })
+    let items: any[] = []
+    if (Array.isArray(res)) {
+      items = res
+      if (total == null) total = res.length
+    } else if (res && Array.isArray(res.items)) {
+      items = res.items
+      if (typeof res.total === 'number') total = Number(res.total)
+    }
+    all.push(...items)
+    const processed = all.length
+    if (onProgress) {
+      if (typeof total === 'number' && total > 0) onProgress(Math.max(0, Math.min(1, processed / total)), { processed, total })
+      else onProgress(null, { processed, total: null })
+    }
+    if (items.length < limit) break
+    if (typeof total === 'number' && processed >= total) break
+    offset += limit
+  }
+  return all
+}
+
+const exportData = async () => {
+  let taskId: string | null = null
+  try {
+    const tasks = useTasksStore()
+    taskId = `export-daily-95:${Date.now()}`
+    tasks.start({ id: taskId, type: 'export', title: '日95明细导出', status: 'running', progress: 0 })
+    const data = await fetchAllDailyDetailsForExport((p, meta) => {
+      tasks.update(taskId, { progress: p == null ? undefined : p, status: 'running', processed: meta?.processed ?? null, total: (meta?.total as any) ?? null })
+    })
+    const header = ['日期','学校名称','地区','CP','95值(Mbps)']
+    const lines: string[] = []
+    for (const r of data) {
+      const date = formatDateDisplay(String(r?.daily_date || ''))
+      const mbps = (convertToBitsPerSecond(Number(r?.daily_95_value ?? 0)) / 1_000_000).toFixed(2)
+      const row = [date, r?.school_name ?? '', r?.region ?? '', r?.cp ?? '', mbps]
+      lines.push(row.map(csvEscape).join(','))
+    }
+    const content = ['\uFEFF' + header.join(','), ...lines].join('\n')
+    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    tasks.complete(taskId, url)
+    downloadBlob(blob, 'daily_95_export.csv')
+    ElMessage.success('导出成功')
+  } catch (e: any) {
+    try { const tasks = useTasksStore(); if (taskId) tasks.fail(taskId, e?.message) } catch {}
+    ElMessage.error(e?.response?.data?.message || e?.message || '导出失败')
+  }
 }
 
 // 组件挂载时获取数据

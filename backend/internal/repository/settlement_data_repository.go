@@ -150,6 +150,10 @@ func (r *settlementDataRepository) BackfillFromSchoolSettlement(region, cp, scho
 			if rc.NetworkLineFee != nil {
 				rec.NetworkLineFee = rc.NetworkLineFee
 			}
+			// 一般费率映射到节点通用费
+			if rc.GeneralFee != nil {
+				rec.NodeDeductionFee = rc.GeneralFee
+			}
 			if rc.ChannelRate != nil {
 				rec.ChannelRate = rc.ChannelRate
 			}
@@ -159,6 +163,9 @@ func (r *settlementDataRepository) BackfillFromSchoolSettlement(region, cp, scho
 			}
 			if rc.NetworkLineFeeOwnerID != nil {
 				rec.NetworkLineFeeOwnerID = rc.NetworkLineFeeOwnerID
+			}
+			if rc.GeneralFeeOwnerID != nil {
+				rec.NodeDeductionFeeOwnerID = rc.GeneralFeeOwnerID
 			}
 			if rc.ChannelOwnerUserID != nil {
 				rec.ChannelOwnerUserID = rc.ChannelOwnerUserID
@@ -235,20 +242,32 @@ func (r *settlementDataRepository) BackfillFromSchoolSettlement(region, cp, scho
 			// 展示为 Mbps = bitsPerSecond / 1e6；则 Gbps = bitsPerSecond / 1e9
 			bitsPerSecond := rec.SettlementValue * 8.0 / 60.0
 			gbps := bitsPerSecond / 1_000_000_000.0
+			// 当日金额按所在月份天数分摊
+			daysInMonth := 30
+			if rec.ServiceDate != nil {
+				y, m, _ := rec.ServiceDate.Date()
+				last := time.Date(y, m+1, 0, 0, 0, 0, 0, rec.ServiceDate.Location())
+				daysInMonth = last.Day()
+			}
 			if rec.CustomerFee != nil {
-				v := gbps * (*rec.CustomerFee)
+				v := gbps * (*rec.CustomerFee) / float64(daysInMonth)
 				vv := math.Round(v*100) / 100
 				rec.CustomerBill = &vv
 			}
 			if rec.NetworkLineFee != nil {
-				v := gbps * (*rec.NetworkLineFee)
+				v := gbps * (*rec.NetworkLineFee) / float64(daysInMonth)
 				vv := math.Round(v*100) / 100
 				rec.NetworkLineBill = &vv
 			}
 			if rec.ChannelRate != nil {
-				v := gbps * (*rec.ChannelRate)
+				v := gbps * (*rec.ChannelRate) / float64(daysInMonth)
 				vv := math.Round(v*100) / 100
 				rec.ChannelBill = &vv
+			}
+			if rec.NodeDeductionFee != nil {
+				v := gbps * (*rec.NodeDeductionFee) / float64(daysInMonth)
+				vv := math.Round(v*100) / 100
+				rec.NodeDeductionBill = &vv
 			}
 		}
 
@@ -286,6 +305,9 @@ func (r *settlementDataRepository) BackfillFromSchoolSettlement(region, cp, scho
 			if rec.NetworkLineFee != nil {
 				upd["network_line_fee"] = rec.NetworkLineFee
 			}
+			if rec.NodeDeductionFee != nil {
+				upd["node_deduction_fee"] = rec.NodeDeductionFee
+			}
 			if rec.ChannelRate != nil {
 				upd["channel_rate"] = rec.ChannelRate
 			}
@@ -294,6 +316,9 @@ func (r *settlementDataRepository) BackfillFromSchoolSettlement(region, cp, scho
 			}
 			if rec.NetworkLineFeeOwnerID != nil {
 				upd["network_line_fee_owner_id"] = rec.NetworkLineFeeOwnerID
+			}
+			if rec.NodeDeductionFeeOwnerID != nil {
+				upd["node_deduction_fee_owner_id"] = rec.NodeDeductionFeeOwnerID
 			}
 			if rec.ChannelOwnerUserID != nil {
 				upd["channel_owner_user_id"] = rec.ChannelOwnerUserID
@@ -307,6 +332,9 @@ func (r *settlementDataRepository) BackfillFromSchoolSettlement(region, cp, scho
 			}
 			if rec.ChannelBill != nil {
 				upd["channel_bill"] = rec.ChannelBill
+			}
+			if rec.NodeDeductionBill != nil {
+				upd["node_deduction_bill"] = rec.NodeDeductionBill
 			}
 			if uerr := tx.Model(&existing).Updates(upd).Error; uerr != nil {
 				tx.Rollback()

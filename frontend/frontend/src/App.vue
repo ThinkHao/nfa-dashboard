@@ -3,6 +3,7 @@ import { RouterView } from 'vue-router'
 import { ElConfigProvider } from 'element-plus'
 import { computed } from 'vue'
 import { useThemeStore } from '@/stores/theme'
+import BackgroundTasks from '@/components/BackgroundTasks.vue'
 
 const themeStore = useThemeStore()
 const componentSize = computed(() => themeStore.size)
@@ -10,6 +11,7 @@ const componentSize = computed(() => themeStore.size)
 
 <template>
   <ElConfigProvider :size="componentSize">
+    <BackgroundTasks />
     <RouterView />
   </ElConfigProvider>
   

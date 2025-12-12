@@ -386,12 +386,47 @@ func (c *SettlementController) GetSettlementTasks(ctx *gin.Context) {
 		return
 	}
 
+	// 计算可见院校的去重组合总量，作为 daily/weekly 的总工作量基准
+	var totalCombos int64
+	_ = model.DB.Raw(`SELECT COUNT(*) AS c FROM (
+SELECT DISTINCT school_id, school_name, region, cp FROM nfa_school
+WHERE school_id IS NOT NULL AND school_id <> ''
+  AND school_name IS NOT NULL AND school_name <> ''
+  AND region IS NOT NULL AND region <> ''
+  AND cp IS NOT NULL AND cp <> ''
+) t`).Row().Scan(&totalCombos)
+
+	// 构造包含 total_count 的返回项
+	items := make([]gin.H, 0, len(tasks))
+	for _, t := range tasks {
+		totalCount := 0
+		switch t.TaskType {
+		case "daily":
+			totalCount = int(totalCombos)
+		case "weekly":
+			totalCount = int(totalCombos) * 7
+		}
+		items = append(items, gin.H{
+			"id":              t.ID,
+			"task_type":       t.TaskType,
+			"task_date":       t.TaskDate,
+			"status":          t.Status,
+			"start_time":      t.StartTime,
+			"end_time":        t.EndTime,
+			"processed_count": t.ProcessedCount,
+			"total_count":     totalCount,
+			"error_message":   t.ErrorMessage,
+			"create_time":     t.CreateTime,
+			"update_time":     t.UpdateTime,
+		})
+	}
+
 	ctx.JSON(http.StatusOK, gin.H{
 		"code":    200,
 		"message": "获取结算任务列表成功",
 		"data": gin.H{
 			"total": total,
-			"items": tasks,
+			"items": items,
 		},
 	})
 }
@@ -421,10 +456,39 @@ func (c *SettlementController) GetSettlementTaskByID(ctx *gin.Context) {
 		return
 	}
 
+	// 详情补充 total_count
+	var combos int64
+	_ = model.DB.Raw(`SELECT COUNT(*) AS c FROM (
+SELECT DISTINCT school_id, school_name, region, cp FROM nfa_school
+WHERE school_id IS NOT NULL AND school_id <> ''
+  AND school_name IS NOT NULL AND school_name <> ''
+  AND region IS NOT NULL AND region <> ''
+  AND cp IS NOT NULL AND cp <> ''
+) t`).Row().Scan(&combos)
+	totalCount := 0
+	switch task.TaskType {
+	case "daily":
+		totalCount = int(combos)
+	case "weekly":
+		totalCount = int(combos) * 7
+	}
+
 	ctx.JSON(http.StatusOK, gin.H{
 		"code":    200,
 		"message": "获取结算任务详情成功",
-		"data":    task,
+		"data": gin.H{
+			"id":              task.ID,
+			"task_type":       task.TaskType,
+			"task_date":       task.TaskDate,
+			"status":          task.Status,
+			"start_time":      task.StartTime,
+			"end_time":        task.EndTime,
+			"processed_count": task.ProcessedCount,
+			"total_count":     totalCount,
+			"error_message":   task.ErrorMessage,
+			"create_time":     task.CreateTime,
+			"update_time":     task.UpdateTime,
+		},
 	})
 }
 

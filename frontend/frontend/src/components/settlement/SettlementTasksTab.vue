@@ -228,8 +228,38 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, onUnmounted, computed } from 'vue'
 import api from '../../api'
+import { useTasksStore } from '@/stores/tasks'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { TaskListResponse, SettlementTask, TaskStatus } from '../../types/settlement'
+
+// 估算结算任务总工作量：按可见学校的 school_id/region/cp 唯一组合数量
+const combosTotal = ref<number | null>(null)
+const ensureCombosTotal = async (): Promise<number | null> => {
+  if (combosTotal.value != null) return combosTotal.value
+  try {
+    let offset = 0
+    const limit = 1000
+    const set = new Set<string>()
+    while (true) {
+      const res: any = await (api as any).v2.getSchools({ limit, offset })
+      const items = Array.isArray(res) ? res : (Array.isArray(res?.items) ? res.items : [])
+      for (const s of items) {
+        if (!s) continue
+        const sid = s.school_id || s.schoolId || ''
+        const region = s.region || ''
+        const cp = s.cp || ''
+        if (sid && region && cp) set.add(`${sid}__${region}__${cp}`)
+      }
+      if (items.length < limit) break
+      offset += limit
+    }
+    combosTotal.value = set.size
+    return combosTotal.value
+  } catch {
+    combosTotal.value = null
+    return null
+  }
+}
 
 // 筛选表单
 const filterForm = reactive({
@@ -257,6 +287,7 @@ const taskData = ref<TaskListResponse>({
   items: [],
   total: 0
 })
+const tasksStore = useTasksStore()
 
 // 当前选中的任务
 const currentTask = ref<SettlementTask | null>(null)
@@ -299,6 +330,21 @@ const fetchTasks = async () => {
       taskData.value = { items: response.items, total: Number(response.total) || response.items.length }
     } else {
       taskData.value = { items: [], total: 0 }
+    }
+    const needTotal = taskData.value.items.some(t => t.status === 'pending' || t.status === 'running')
+    let estTotal: number | null = null
+    if (needTotal) {
+      estTotal = await ensureCombosTotal()
+    }
+    for (const t of taskData.value.items) {
+      // 优先使用后端返回的 precise total_count，其次使用前端估算
+      let total_count: number | undefined
+      if (typeof (t as any).total_count === 'number' && (t as any).total_count > 0) {
+        total_count = Number((t as any).total_count)
+      } else if (estTotal && (t.task_type === 'daily' || t.task_type === 'weekly')) {
+        total_count = t.task_type === 'daily' ? estTotal : estTotal * 7
+      }
+      tasksStore.upsertSettlementTask({ id: t.id, status: t.status as any, processed_count: t.processed_count, total_count })
     }
     
     // 检查是否有进行中的任务，如果有则启动自动刷新

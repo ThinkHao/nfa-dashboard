@@ -272,8 +272,9 @@ WHERE school_id IS NOT NULL AND school_id <> ''
 
 		if settlement != nil {
 			settlements = append(settlements, *settlement)
-			processedCount++
 		}
+		// 处理计数统一为“已尝试处理的组合数”（与 total_count 口径一致）
+		processedCount++
 	}
 
 	log.Printf("完成 %s 的日结算计算，共生成 %d 条数据", date.Format("2006-01-02"), processedCount)
@@ -287,11 +288,45 @@ func (s *settlementService) ExecuteDailySettlement(taskID int64, date time.Time)
 		return fmt.Errorf("更新任务状态失败: %v", err)
 	}
 
-	// 计算
-	settlements, processedCount, err := s.executeDailySettlementInternal(date)
-	if err != nil {
-		_ = s.UpdateSettlementTaskStatus(taskID, "failed", fmt.Sprintf("执行日结算失败: %v", err))
-		return fmt.Errorf("执行日结算失败: %v", err)
+	// 分段执行并上报进度
+	processedCount := 0
+	var settlements []model.SchoolSettlement
+	// 拉取有效组合
+	type SchoolRegionCP struct {
+		SchoolID   string
+		SchoolName string
+		Region     string
+		CP         string
+	}
+	var validCombinations []SchoolRegionCP
+	query := `
+SELECT DISTINCT school_id, school_name, region, cp
+FROM nfa_school
+WHERE school_id IS NOT NULL AND school_id <> ''
+  AND school_name IS NOT NULL AND school_name <> ''
+  AND region IS NOT NULL AND region <> ''
+  AND cp IS NOT NULL AND cp <> ''`
+	if err := model.DB.Raw(query).Scan(&validCombinations).Error; err != nil {
+		_ = s.UpdateSettlementTaskStatus(taskID, "failed", fmt.Sprintf("获取有效学校组合失败: %v", err))
+		return fmt.Errorf("获取有效学校组合失败: %v", err)
+	}
+	batch := 20
+	for i, combo := range validCombinations {
+		if combo.SchoolID == "" || combo.Region == "" || combo.CP == "" {
+			continue
+		}
+		settlement, calErr := s.repo.CalculateDaily95WithRegionAndCP(date, combo.SchoolID, combo.Region, combo.CP)
+		if calErr == nil && settlement != nil {
+			settlements = append(settlements, *settlement)
+		}
+		processedCount++
+		// 每批上报一次处理进度
+		if processedCount%batch == 0 || i == len(validCombinations)-1 {
+			if task, e := s.repo.GetSettlementTaskByID(taskID); e == nil {
+				task.ProcessedCount = processedCount
+				_ = s.repo.UpdateSettlementTask(task)
+			}
+		}
 	}
 
 	// 保存
@@ -357,6 +392,11 @@ func (s *settlementService) ExecuteWeeklySettlementWithDateRange(taskID int64, s
 		}
 		all = append(all, ds...)
 		total += cnt
+		// 每完成一天后，更新一次已处理数量，便于前端精准显示进度与 ETA
+		if task, e := s.repo.GetSettlementTaskByID(taskID); e == nil {
+			task.ProcessedCount = total
+			_ = s.repo.UpdateSettlementTask(task)
+		}
 	}
 	if len(all) > 0 {
 		if err := s.repo.BatchCreateSettlements(all); err != nil {

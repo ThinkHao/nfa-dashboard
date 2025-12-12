@@ -607,10 +607,15 @@ export default {
         .then((d: any) => d as Blob)
     },
     // 触发复算
-    recalculate(payload: any = {}): Promise<void> {
+    recalculate(payload: any = {}): Promise<number> {
       return api
         .post('/api/v1/settlement/data/customer/recalculate', payload)
-        .then(() => undefined)
+        .then((d: any) => {
+          // 兼容 {code,message,data:{task_id}} 或直接 {task_id}
+          const data = d && typeof d === 'object' && 'data' in d ? (d as any).data : d
+          const taskId = data && typeof data === 'object' && 'task_id' in data ? Number((data as any).task_id) : Number((d as any)?.task_id)
+          return Number.isFinite(taskId) ? taskId : 0
+        })
     },
   }
   ,
