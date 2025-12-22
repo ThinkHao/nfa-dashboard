@@ -31,10 +31,20 @@ func (r *settlementDataRepository) ListSettlementCustomer(filter map[string]inte
 		qb = qb.Where("school_name LIKE ?", "%"+v.(string)+"%")
 	}
 	if v, ok := filter["start_service_date"]; ok && v != nil {
-		qb = qb.Where("service_date >= ?", v)
+		// 使用 DATE(service_date) 与 YYYY-MM-DD 比较，确保包含起始日期整天并避免时区影响
+		if t, ok2 := v.(time.Time); ok2 {
+			qb = qb.Where("DATE(service_date) >= ?", t.Format("2006-01-02"))
+		} else {
+			qb = qb.Where("DATE(service_date) >= ?", v)
+		}
 	}
 	if v, ok := filter["end_service_date"]; ok && v != nil {
-		qb = qb.Where("service_date <= ?", v)
+		// 使用 DATE(service_date) 与 YYYY-MM-DD 比较，确保包含结束日期整天
+		if t, ok2 := v.(time.Time); ok2 {
+			qb = qb.Where("DATE(service_date) <= ?", t.Format("2006-01-02"))
+		} else {
+			qb = qb.Where("DATE(service_date) <= ?", v)
+		}
 	}
 
 	var total int64
@@ -56,7 +66,15 @@ func (r *settlementDataRepository) ListSettlementCustomer(filter map[string]inte
 }
 
 func (r *settlementDataRepository) UpdateRecalculated(region, cp, school string, start, end time.Time) (int64, error) {
-	qb := model.DB.Model(&model.SettlementCustomer{}).Where("service_date IS NOT NULL").Where("service_date BETWEEN ? AND ?", start, end)
+	// 使用 DATE(service_date) BETWEEN 起止日期（YYYY-MM-DD），确保边界包含当天整日
+	qb := model.DB.Model(&model.SettlementCustomer{}).Where("service_date IS NOT NULL")
+	if !start.IsZero() && !end.IsZero() {
+		qb = qb.Where("DATE(service_date) BETWEEN ? AND ?", start.Format("2006-01-02"), end.Format("2006-01-02"))
+	} else if !start.IsZero() {
+		qb = qb.Where("DATE(service_date) >= ?", start.Format("2006-01-02"))
+	} else if !end.IsZero() {
+		qb = qb.Where("DATE(service_date) <= ?", end.Format("2006-01-02"))
+	}
 	if region != "" {
 		qb = qb.Where("region = ?", region)
 	}
@@ -83,10 +101,12 @@ func (r *settlementDataRepository) BackfillFromSchoolSettlement(region, cp, scho
 	// 查询来源数据
 	src := model.DB.Model(&model.SchoolSettlement{})
 	if !start.IsZero() {
-		src = src.Where("settlement_date >= ?", start)
+		// 使用 DATE(settlement_date) 与 YYYY-MM-DD 比较，确保包含起始日期整天
+		src = src.Where("DATE(settlement_date) >= ?", start.Format("2006-01-02"))
 	}
 	if !end.IsZero() {
-		src = src.Where("settlement_date <= ?", end)
+		// 使用 DATE(settlement_date) 与 YYYY-MM-DD 比较，确保包含结束日期整天
+		src = src.Where("DATE(settlement_date) <= ?", end.Format("2006-01-02"))
 	}
 	if region != "" {
 		src = src.Where("region = ?", region)
