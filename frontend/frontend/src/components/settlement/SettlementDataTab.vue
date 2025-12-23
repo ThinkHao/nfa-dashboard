@@ -33,6 +33,16 @@
             />
           </el-select>
         </el-form-item>
+        <el-form-item label="费用归属" style="min-width: 300px;">
+          <el-select v-model="ownerSelect" placeholder="选择费用归属" clearable style="width: 250px;" @change="handleOwnerChange">
+            <el-option
+              v-for="opt in ownerOptions"
+              :key="opt.id"
+              :label="opt.label"
+              :value="String(opt.id)"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item label="服务时间" style="min-width: 400px;">
           <el-date-picker
             v-model="dateRange"
@@ -93,17 +103,17 @@
         <el-table-column prop="customer_fee" label="客户费率" width="110" />
         <el-table-column prop="customer_bill" label="客户金额" width="110" />
         <el-table-column label="客户费归属" min-width="160">
-          <template #default="{ row }">{{ displayEntity(row.customer_fee_owner_id) }}</template>
+          <template #default="{ row }">{{ displayUser(row.customer_fee_owner_id) }}</template>
         </el-table-column>
         <el-table-column prop="network_line_fee" label="线路费率" width="110" />
         <el-table-column prop="network_line_bill" label="线路金额" width="110" />
         <el-table-column label="线路费归属" min-width="160">
-          <template #default="{ row }">{{ displayEntity(row.network_line_fee_owner_id) }}</template>
+          <template #default="{ row }">{{ displayUser(row.network_line_fee_owner_id) }}</template>
         </el-table-column>
         <el-table-column prop="node_deduction_fee" label="节点通用费率" width="110" />
         <el-table-column prop="node_deduction_bill" label="节点通用金额" width="120" />
         <el-table-column label="节点通用费归属" min-width="160">
-          <template #default="{ row }">{{ displayEntity(row.node_deduction_fee_owner_id) }}</template>
+          <template #default="{ row }">{{ displayUser(row.node_deduction_fee_owner_id) }}</template>
         </el-table-column>
         <el-table-column prop="channel_rate" label="渠道费率" width="110" />
         <el-table-column prop="channel_bill" label="渠道金额" width="110" />
@@ -149,7 +159,9 @@
         </div>
         <div style="width:220px;">
           <div style="font-weight:600; margin-bottom:8px;">选项</div>
-          <el-checkbox v-model="exportForm.monthlyAvg" :disabled="monthlyAvgDisabled">按月平均</el-checkbox>
+          <el-checkbox v-model="exportForm.groupBySchoolCp">按学校+CP聚合</el-checkbox>
+          <div style="color: var(--text-muted); margin:6px 0 10px; font-size:12px;">金额字段将累加，流量字段取平均</div>
+          <el-checkbox v-model="exportForm.monthlyAvg" :disabled="monthlyAvgDisabled">按月聚合</el-checkbox>
           <div style="color: var(--text-muted); margin-top:8px; font-size:12px;">仅对已勾选的流量/金额字段生效</div>
         </div>
       </div>
@@ -175,6 +187,10 @@ import type { School, PaginationParams, BusinessEntity } from '../../types/api'
 const schools = ref<School[]>([])
 const regions = ref<string[]>([])
 const cps = ref<string[]>([])
+// 费用归属（统一：仅用户）下拉
+type OwnerOption = { id: number; name: string; label: string }
+const ownerOptions = ref<OwnerOption[]>([])
+const ownerSelect = ref<string | null>(null)
 
 // 筛选表单
 interface FilterForm {
@@ -183,6 +199,8 @@ interface FilterForm {
   cp: string;
   start_service_date: string;
   end_service_date: string;
+  owner_entity_id: number | null;
+  channel_owner_user_id: number | null;
   page: number;
   page_size: number;
 }
@@ -193,6 +211,8 @@ const filterForm = reactive<FilterForm>({
   cp: '',
   start_service_date: '',
   end_service_date: '',
+  owner_entity_id: null,
+  channel_owner_user_id: null,
   page: 1,
   page_size: 10
 })
@@ -282,6 +302,8 @@ const fetchBaseData = async () => {
     // 直接加载 v2 学校（已按用户权限过滤），后派生地区/运营商
     await loadSchools()
     computeRegionCpOptions()
+    // 加载费用归属下拉
+    await loadOwnerOptions()
   } catch (error) {
     console.error('获取基础数据失败', error)
     ElMessage.error('获取基础数据失败')
@@ -371,6 +393,66 @@ const handleSchoolChange = (schoolId: string): void => {
   fetchData()
 }
 
+// 处理费用归属选择变化（仅用户）：仅设置 channel_owner_user_id，用后端统一 OR 过滤四个归属字段
+const handleOwnerChange = (val: string | null): void => {
+  console.log('费用归属选择变化:', val)
+  // 重置两个字段
+  filterForm.owner_entity_id = null
+  filterForm.channel_owner_user_id = null
+  if (val && typeof val === 'string') {
+    const id = Number(val)
+    if (Number.isFinite(id) && id > 0) {
+      filterForm.channel_owner_user_id = id
+    }
+  }
+  fetchData()
+}
+
+// 加载费用归属（仅用户）：汇总 settlement_customer 四个归属字段中被使用过的用户ID
+const loadOwnerOptions = async () => {
+  try {
+    // 1) 先取后端提供的渠道归属用户（作为基础）
+    const baseUsers: any[] = await (api as any).settlementData.usedChannelOwners()
+    const idSet = new Set<number>(Array.isArray(baseUsers) ? baseUsers.map(u => Number((u as any).id)).filter((n: any) => Number.isFinite(n) && n > 0) : [])
+    // 2) 基于当前筛选范围，分页拉取结算明细，收集四个归属字段中的用户ID
+    const params: any = {
+      page: 1,
+      page_size: 1000,
+      region: filterForm.region || undefined,
+      cp: filterForm.cp || undefined,
+      start_service_date: filterForm.start_service_date || undefined,
+      end_service_date: filterForm.end_service_date || undefined,
+    }
+    let total = 0
+    while (true) {
+      const res: any = await (api as any).settlementData.list(params)
+      const items: any[] = Array.isArray(res) ? res : (Array.isArray(res?.items) ? res.items : [])
+      if (typeof res?.total === 'number') total = res.total
+      for (const r of items) {
+        const push = (v: any) => { const n = Number(v); if (!Number.isNaN(n) && n > 0) idSet.add(n) }
+        push(r?.customer_fee_owner_id)
+        push(r?.network_line_fee_owner_id)
+        push(r?.node_deduction_fee_owner_id)
+        push(r?.channel_owner_user_id)
+      }
+      if (items.length < (params.page_size || 1000)) break
+      if (total > 0 && (params.page * params.page_size) >= total) break
+      params.page += 1
+    }
+    if (idSet.size === 0) { ownerOptions.value = []; return }
+    // 3) 批量查询用户信息
+    const resUsers: any = await (api as any).system.users.list({ ids: Array.from(idSet).join(',') })
+    const list: any[] = Array.isArray(resUsers?.items) ? resUsers.items : []
+    ownerOptions.value = list
+      .map(u => ({ id: Number(u.id), name: String(u.alias || u.display_name || u.username || ''), label: String(u.alias || u.display_name || u.username || `用户#${u.id}`) }))
+      .filter(it => Number.isFinite(it.id) && it.label)
+      .sort((a, b) => String(a.label).localeCompare(String(b.label)))
+  } catch (e) {
+    console.warn('加载费用归属下拉失败', e)
+    ownerOptions.value = []
+  }
+}
+
 // 处理日期范围变化
 const handleDateRangeChange = (val: [string, string] | null) => {
   if (val) {
@@ -404,6 +486,8 @@ const fetchData = async () => {
       school_name?: string;
       start_service_date?: string;
       end_service_date?: string;
+      owner_entity_id?: number;
+      channel_owner_user_id?: number;
       page?: number;
       page_size?: number;
     } = {
@@ -428,6 +512,8 @@ const fetchData = async () => {
     if (filterForm.cp) {
       params.cp = filterForm.cp
     }
+    if (filterForm.owner_entity_id != null) params.owner_entity_id = filterForm.owner_entity_id
+    if (filterForm.channel_owner_user_id != null) params.channel_owner_user_id = filterForm.channel_owner_user_id
     
     console.log('最终请求参数:', params)
     
@@ -480,6 +566,9 @@ const resetFilter = () => {
   filterForm.cp = ''
   filterForm.start_service_date = ''
   filterForm.end_service_date = ''
+  filterForm.owner_entity_id = null
+  filterForm.channel_owner_user_id = null
+  ownerSelect.value = null
   dateRange.value = null
   currentPage.value = 1
   pageSize.value = 10
@@ -520,7 +609,7 @@ function downloadBlob(blob: Blob, filename: string) {
 // 统一导出：弹窗与逻辑
 const exportDialogVisible = ref(false)
 const DEFAULT_FIELDS = ['school_name','region','cp','service_date','daily_95_mbps']
-const exportForm = reactive<{ selectedFields: string[]; monthlyAvg: boolean }>({ selectedFields: [...DEFAULT_FIELDS], monthlyAvg: false })
+const exportForm = reactive<{ selectedFields: string[]; monthlyAvg: boolean; groupBySchoolCp: boolean }>({ selectedFields: [...DEFAULT_FIELDS], monthlyAvg: false, groupBySchoolCp: false })
 
 type FieldType = 'base' | 'traffic' | 'money'
 interface FieldDef { key: string; label: string; type: FieldType; getter?: (row: any) => any }
@@ -533,13 +622,13 @@ const allFieldDefs: FieldDef[] = [
   { key: 'daily_95_mbps', label: '日95(Mbps)', type: 'traffic', getter: (r:any)=> (convertToBitsPerSecond(Number(r?.settlement_value ?? 0)) / 1_000_000).toFixed(2) },
   { key: 'customer_fee', label: '客户费率', type: 'base', getter: (r:any)=> r?.customer_fee },
   { key: 'customer_bill', label: '客户金额', type: 'money', getter: (r:any)=> r?.customer_bill },
-  { key: 'customer_fee_owner_name', label: '客户费归属', type: 'base', getter: (r:any)=> displayEntity(r?.customer_fee_owner_id) },
+  { key: 'customer_fee_owner_name', label: '客户费归属', type: 'base', getter: (r:any)=> displayUser(r?.customer_fee_owner_id) },
   { key: 'network_line_fee', label: '线路费率', type: 'base', getter: (r:any)=> r?.network_line_fee },
   { key: 'network_line_bill', label: '线路金额', type: 'money', getter: (r:any)=> r?.network_line_bill },
-  { key: 'network_line_fee_owner_name', label: '线路费归属', type: 'base', getter: (r:any)=> displayEntity(r?.network_line_fee_owner_id) },
+  { key: 'network_line_fee_owner_name', label: '线路费归属', type: 'base', getter: (r:any)=> displayUser(r?.network_line_fee_owner_id) },
   { key: 'node_deduction_fee', label: '节点通用费率', type: 'base', getter: (r:any)=> r?.node_deduction_fee },
   { key: 'node_deduction_bill', label: '节点通用金额', type: 'money', getter: (r:any)=> r?.node_deduction_bill },
-  { key: 'node_deduction_fee_owner_name', label: '节点通用费归属', type: 'base', getter: (r:any)=> displayEntity(r?.node_deduction_fee_owner_id) },
+  { key: 'node_deduction_fee_owner_name', label: '节点通用费归属', type: 'base', getter: (r:any)=> displayUser(r?.node_deduction_fee_owner_id) },
   { key: 'channel_rate', label: '渠道费率', type: 'base', getter: (r:any)=> r?.channel_rate },
   { key: 'channel_bill', label: '渠道金额', type: 'money', getter: (r:any)=> r?.channel_bill },
   { key: 'channel_owner_name', label: '渠道费归属', type: 'base', getter: (r:any)=> displayUser(r?.channel_owner_user_id) },
@@ -559,6 +648,7 @@ const monthlyAvgDisabled = computed(() => {
 function openExportDialog() {
   exportForm.selectedFields = [...DEFAULT_FIELDS]
   exportForm.monthlyAvg = false
+  exportForm.groupBySchoolCp = false
   exportDialogVisible.value = true
 }
 
@@ -571,6 +661,8 @@ async function fetchAllDataForExport(onProgress?: (p: number, meta?: { processed
   }
   if (filterForm.region) params.region = filterForm.region
   if (filterForm.cp) params.cp = filterForm.cp
+  if (filterForm.owner_entity_id != null) params.owner_entity_id = filterForm.owner_entity_id
+  if (filterForm.channel_owner_user_id != null) params.channel_owner_user_id = filterForm.channel_owner_user_id
   if (filterForm.school_id) {
     const s = (schools.value || []).find(x => x.school_id === filterForm.school_id)
     if (s && s.school_name) params.school_name = s.school_name
@@ -617,61 +709,92 @@ async function doExport() {
     let rows: string[] = []
 
     if (exportForm.monthlyAvg && !monthlyAvgDisabled.value) {
+      // 校验必须选择时间范围
+      if (!filterForm.start_service_date || !filterForm.end_service_date) {
+        ElMessage.warning('请先选择服务时间范围，再进行按月聚合导出')
+        return
+      }
       const metricDefs = selectedDefs.filter(f => f.type === 'traffic' || f.type === 'money')
       const selectedTrafficKeys = new Set(metricDefs.filter(f => f.type === 'traffic').map(f => f.key))
       const stripLabel = (s: string) => String(s).replace(/\(.*?\)/g, '').trim()
-      const monthOf = (d: string): number => {
-        if (!d) return 0
-        const s = String(d)
-        const dateStr = s.includes('T') ? s.split('T')[0] : (s.includes(' ') ? s.split(' ')[0] : s)
-        const mm = Number(dateStr.slice(5, 7))
-        return Number.isFinite(mm) && mm >= 1 && mm <= 12 ? mm : 0
+
+      // 计算选择范围内的月份列表（跨年支持），键为 YYYY-MM
+      const parseDateOnly = (s: string): Date => {
+        const ss = String(s)
+        const dstr = ss.includes('T') ? ss.split('T')[0] : (ss.includes(' ') ? ss.split(' ')[0] : ss)
+        const [y, m, d] = dstr.split('-').map(n => Number(n))
+        return new Date(y, (m || 1) - 1, d || 1)
       }
+      const startD = parseDateOnly(filterForm.start_service_date)
+      const endD = parseDateOnly(filterForm.end_service_date)
+      const months: { key: string; label: string; y: number; m: number }[] = []
+      const monthKey2 = (y: number, m: number) => `${y}-${String(m).padStart(2, '0')}`
+      // 从起始月到结束月逐月推进
+      let cy = startD.getFullYear(), cm = startD.getMonth() + 1
+      const ey = endD.getFullYear(), em = endD.getMonth() + 1
+      while (cy < ey || (cy === ey && cm <= em)) {
+        const key = monthKey2(cy, cm)
+        months.push({ key, label: key, y: cy, m: cm })
+        cm++
+        if (cm > 12) { cm = 1; cy++ }
+      }
+      const monthIndex = new Map<string, number>()
+      months.forEach((it, idx) => monthIndex.set(it.key, idx))
+
       type Agg = { base: any; traf: Record<string, { sum: number[]; cnt: number[] }>; money: Record<string, number[]> }
       const group = new Map<string, Agg>()
       for (const r of data) {
-        const m = monthOf(r?.service_date || '')
-        if (m <= 0) continue
-        const gk = `${r?.region || ''}__${r?.school_name || ''}__${r?.cp || ''}`
+        const s = String(r?.service_date || '')
+        const dateStr = s.includes('T') ? s.split('T')[0] : (s.includes(' ') ? s.split(' ')[0] : s)
+        if (!dateStr) continue
+        const ym = dateStr.slice(0, 7)
+        const idx = monthIndex.get(ym)
+        if (idx == null) continue // 不在选择范围内
+        const gk = exportForm.groupBySchoolCp
+          ? `${r?.school_name || ''}__${r?.cp || ''}`
+          : `${r?.region || ''}__${r?.school_name || ''}__${r?.cp || ''}`
         if (!group.has(gk)) {
           const g: Agg = { base: { school_name: r?.school_name, region: r?.region, cp: r?.cp }, traf: {}, money: {} }
           for (const def of metricDefs) {
-            if (def.type === 'traffic') g.traf[def.key] = { sum: Array(12).fill(0), cnt: Array(12).fill(0) }
-            else g.money[def.key] = Array(12).fill(0)
+            if (def.type === 'traffic') g.traf[def.key] = { sum: Array(months.length).fill(0), cnt: Array(months.length).fill(0) }
+            else g.money[def.key] = Array(months.length).fill(0)
           }
           group.set(gk, g)
         }
         const g = group.get(gk)!
         if (selectedTrafficKeys.has('daily_95_mbps')) {
           const v = Number((convertToBitsPerSecond(Number(r?.settlement_value ?? 0)) / 1_000_000).toFixed(9))
-          if (!Number.isNaN(v)) { g.traf['daily_95_mbps'].sum[m - 1] += v; g.traf['daily_95_mbps'].cnt[m - 1] += 1 }
+          if (!Number.isNaN(v)) { g.traf['daily_95_mbps'].sum[idx] += v; g.traf['daily_95_mbps'].cnt[idx] += 1 }
         }
         for (const def of metricDefs) {
           if (def.type !== 'money') continue
           const k = def.key
           const v = Number(r?.[k] ?? 0)
-          if (!Number.isNaN(v)) g.money[k][m - 1] += v
+          if (!Number.isNaN(v)) g.money[k][idx] += v
         }
       }
-      header = ['学校名称', '地区', 'CP']
+      header = exportForm.groupBySchoolCp ? ['学校名称', 'CP'] : ['学校名称', '地区', 'CP']
       for (const def of metricDefs) {
         const name = stripLabel(def.label)
-        for (let i = 1; i <= 12; i++) header.push(`${i}月${name}`)
+        for (const mo of months) header.push(`${mo.label}${name}`)
       }
       const lines: string[] = []
       for (const [, g] of group) {
-        const row: string[] = [csvEscape(g.base.school_name), csvEscape(g.base.region), csvEscape(g.base.cp)]
+        const rowBase: string[] = exportForm.groupBySchoolCp
+          ? [csvEscape(g.base.school_name), csvEscape(g.base.cp)]
+          : [csvEscape(g.base.school_name), csvEscape(g.base.region), csvEscape(g.base.cp)]
+        const row: string[] = [...rowBase]
         for (const def of metricDefs) {
           if (def.type === 'traffic') {
-            const s = g.traf[def.key].sum
-            const c = g.traf[def.key].cnt
-            for (let i = 0; i < 12; i++) {
-              const avg = c[i] > 0 ? (s[i] / c[i]) : ''
+            const sarr = g.traf[def.key].sum
+            const carr = g.traf[def.key].cnt
+            for (let i = 0; i < months.length; i++) {
+              const avg = carr[i] > 0 ? (sarr[i] / carr[i]) : ''
               row.push(avg === '' ? '' : String(Number(avg).toFixed(2)))
             }
           } else {
             const arr = g.money[def.key]
-            for (let i = 0; i < 12; i++) {
+            for (let i = 0; i < months.length; i++) {
               const val = arr[i]
               row.push(val == null ? '' : String(Number(val).toFixed(2)))
             }
@@ -680,6 +803,52 @@ async function doExport() {
         lines.push(row.join(','))
       }
       rows = lines
+    } else if (exportForm.groupBySchoolCp) {
+      // 非按月，但按学校+CP聚合：金额字段求和，流量字段取平均
+      const metricDefs = selectedDefs.filter(f => f.type === 'traffic' || f.type === 'money')
+      const selectedTrafficKeys = new Set(metricDefs.filter(f => f.type === 'traffic').map(f => f.key))
+      type Agg2 = { base: { school_name: string; cp: string }; traf: Record<string, { sum: number; cnt: number }>; money: Record<string, number> }
+      const group2 = new Map<string, Agg2>()
+      for (const r of data) {
+        const gk = `${r?.school_name || ''}__${r?.cp || ''}`
+        if (!group2.has(gk)) {
+          const g: Agg2 = { base: { school_name: r?.school_name || '', cp: r?.cp || '' }, traf: {}, money: {} }
+          for (const def of metricDefs) {
+            if (def.type === 'traffic') g.traf[def.key] = { sum: 0, cnt: 0 }
+            else g.money[def.key] = 0
+          }
+          group2.set(gk, g)
+        }
+        const g = group2.get(gk)!
+        if (selectedTrafficKeys.has('daily_95_mbps')) {
+          const v = Number((convertToBitsPerSecond(Number(r?.settlement_value ?? 0)) / 1_000_000).toFixed(9))
+          if (!Number.isNaN(v)) { g.traf['daily_95_mbps'].sum += v; g.traf['daily_95_mbps'].cnt += 1 }
+        }
+        for (const def of metricDefs) {
+          if (def.type !== 'money') continue
+          const k = def.key
+          const v = Number(r?.[k] ?? 0)
+          if (!Number.isNaN(v)) g.money[k] += v
+        }
+      }
+      header = ['学校名称', 'CP']
+      for (const def of metricDefs) header.push(def.label)
+      const lines2: string[] = []
+      for (const [, g] of group2) {
+        const row: string[] = [csvEscape(g.base.school_name), csvEscape(g.base.cp)]
+        for (const def of metricDefs) {
+          if (def.type === 'traffic') {
+            const tt = g.traf[def.key]
+            const avg = tt.cnt > 0 ? (tt.sum / tt.cnt) : ''
+            row.push(avg === '' ? '' : String(Number(avg).toFixed(2)))
+          } else {
+            const val = g.money[def.key]
+            row.push(val == null ? '' : String(Number(val).toFixed(2)))
+          }
+        }
+        lines2.push(row.join(','))
+      }
+      rows = lines2
     } else {
       header = selectedDefs.map(def => def.label)
       const lines: string[] = []
@@ -815,7 +984,11 @@ const loadEntityMap = async () => {
 const loadUsersForItems = async () => {
   const ids = new Set<number>()
   for (const r of settlementData.value.items as any[]) {
-    if (r?.channel_owner_user_id != null) { const n = Number(r.channel_owner_user_id); if (!Number.isNaN(n) && n>0) ids.add(n) }
+    const push = (v:any) => { const n = Number(v); if (!Number.isNaN(n) && n>0) ids.add(n) }
+    push(r?.customer_fee_owner_id)
+    push(r?.network_line_fee_owner_id)
+    push(r?.node_deduction_fee_owner_id)
+    push(r?.channel_owner_user_id)
   }
   if (ids.size === 0) { userMap.value = {}; return }
   try {

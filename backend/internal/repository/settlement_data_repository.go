@@ -47,6 +47,15 @@ func (r *settlementDataRepository) ListSettlementCustomer(filter map[string]inte
 		}
 	}
 
+	// 费用归属业务对象过滤（客户费/线路费/节点通用费 任一匹配）
+	if v, ok := filter["owner_entity_id"]; ok && v != nil {
+		qb = qb.Where("(customer_fee_owner_id = ? OR network_line_fee_owner_id = ? OR node_deduction_fee_owner_id = ?)", v, v, v)
+	}
+	// 渠道归属用户过滤（统一为用户ID后，需在四个归属字段中任一匹配）
+	if v, ok := filter["channel_owner_user_id"]; ok && v != nil {
+		qb = qb.Where("(customer_fee_owner_id = ? OR network_line_fee_owner_id = ? OR node_deduction_fee_owner_id = ? OR channel_owner_user_id = ?)", v, v, v, v)
+	}
+
 	var total int64
 	if err := qb.Count(&total).Error; err != nil {
 		return nil, 0, err

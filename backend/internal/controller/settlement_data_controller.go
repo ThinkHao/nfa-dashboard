@@ -17,6 +17,103 @@ type SettlementDataController struct {
 	dataSvc service.SettlementDataService
 }
 
+// ListUsedChannelOwners GET /api/v1/settlement/data/customer/channel-owners
+// 返回在结算明细中实际被使用过的“渠道归属用户”（系统用户）去重列表
+func (c *SettlementDataController) ListUsedChannelOwners(ctx *gin.Context) {
+	// 1) 取去重的用户ID
+	var uids []uint64
+	_ = model.DB.Model(&model.SettlementCustomer{}).
+		Where("channel_owner_user_id IS NOT NULL").
+		Distinct().Pluck("channel_owner_user_id", &uids).Error
+
+	if len(uids) == 0 {
+		ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "OK", "data": gin.H{"items": []interface{}{}}})
+		return
+	}
+
+	// 2) 查询用户展示名
+	type item struct {
+		ID          uint64 `json:"id"`
+		DisplayName string `json:"display_name"`
+	}
+	var users []model.User
+	if err := model.DB.Where("id IN ?", uids).Find(&users).Error; err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询渠道归属用户失败", "error": err.Error()})
+		return
+	}
+	out := make([]item, 0, len(users))
+	for _, u := range users {
+		name := ""
+		if u.Alias != nil && strings.TrimSpace(*u.Alias) != "" {
+			name = strings.TrimSpace(*u.Alias)
+		} else if strings.TrimSpace(u.Username) != "" {
+			name = strings.TrimSpace(u.Username)
+		} else {
+			name = fmt.Sprintf("用户#%d", u.ID)
+		}
+		out = append(out, item{ID: u.ID, DisplayName: name})
+	}
+	ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "OK", "data": gin.H{"items": out}})
+}
+
+// ListUsedOwnerEntities GET /api/v1/settlement/data/customer/owners
+// 返回在结算明细中实际被使用过的业务对象（费用归属：客户费/线路费/节点通用费）去重列表
+func (c *SettlementDataController) ListUsedOwnerEntities(ctx *gin.Context) {
+	// 1) 分别取三个 owner 列的去重ID
+	var ids1, ids2, ids3 []uint64
+	_ = model.DB.Model(&model.SettlementCustomer{}).
+		Where("customer_fee_owner_id IS NOT NULL").
+		Distinct().Pluck("customer_fee_owner_id", &ids1).Error
+	_ = model.DB.Model(&model.SettlementCustomer{}).
+		Where("network_line_fee_owner_id IS NOT NULL").
+		Distinct().Pluck("network_line_fee_owner_id", &ids2).Error
+	_ = model.DB.Model(&model.SettlementCustomer{}).
+		Where("node_deduction_fee_owner_id IS NOT NULL").
+		Distinct().Pluck("node_deduction_fee_owner_id", &ids3).Error
+
+	// 2) 合并去重
+	uniq := map[uint64]struct{}{}
+	for _, id := range ids1 {
+		if id > 0 {
+			uniq[id] = struct{}{}
+		}
+	}
+	for _, id := range ids2 {
+		if id > 0 {
+			uniq[id] = struct{}{}
+		}
+	}
+	for _, id := range ids3 {
+		if id > 0 {
+			uniq[id] = struct{}{}
+		}
+	}
+	if len(uniq) == 0 {
+		ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "OK", "data": gin.H{"items": []interface{}{}}})
+		return
+	}
+	ids := make([]uint64, 0, len(uniq))
+	for id := range uniq {
+		ids = append(ids, id)
+	}
+
+	// 3) 查询业务对象名称
+	type item struct {
+		ID         uint64 `json:"id"`
+		EntityName string `json:"entity_name"`
+	}
+	var ents []model.BusinessEntity
+	if err := model.DB.Where("id IN ?", ids).Find(&ents).Error; err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询费用归属对象失败", "error": err.Error()})
+		return
+	}
+	out := make([]item, 0, len(ents))
+	for _, e := range ents {
+		out = append(out, item{ID: e.ID, EntityName: strings.TrimSpace(e.EntityName)})
+	}
+	ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "OK", "data": gin.H{"items": out}})
+}
+
 func mapGetEntityName(m map[uint64]string, id *uint64) string {
 	if id == nil {
 		return ""
@@ -43,13 +140,15 @@ func NewSettlementDataController(svc service.SettlementDataService) *SettlementD
 // ListCustomerData GET /api/v1/settlement/data/customer
 func (c *SettlementDataController) ListCustomerData(ctx *gin.Context) {
 	var (
-		region = ctx.Query("region")
-		cp     = ctx.Query("cp")
-		school = ctx.Query("school_name")
-		startS = ctx.Query("start_service_date")
-		endS   = ctx.Query("end_service_date")
-		page   = intFrom(ctx.DefaultQuery("page", "1"), 1)
-		size   = intFrom(ctx.DefaultQuery("page_size", "10"), 10)
+		region   = ctx.Query("region")
+		cp       = ctx.Query("cp")
+		school   = ctx.Query("school_name")
+		startS   = ctx.Query("start_service_date")
+		endS     = ctx.Query("end_service_date")
+		ownerS   = ctx.Query("owner_entity_id")
+		channelS = ctx.Query("channel_owner_user_id")
+		page     = intFrom(ctx.DefaultQuery("page", "1"), 1)
+		size     = intFrom(ctx.DefaultQuery("page_size", "10"), 10)
 	)
 	var (
 		startPtr *time.Time
@@ -65,7 +164,19 @@ func (c *SettlementDataController) ListCustomerData(ctx *gin.Context) {
 			endPtr = &t
 		}
 	}
-	items, total, err := c.dataSvc.List(service.SettlementCustomerFilter{Region: region, CP: cp, School: school, Start: startPtr, End: endPtr}, page, size)
+	var ownerPtr *uint64
+	if ownerS != "" {
+		if uv, err := strconv.ParseUint(ownerS, 10, 64); err == nil && uv > 0 {
+			ownerPtr = &uv
+		}
+	}
+	var channelPtr *uint64
+	if channelS != "" {
+		if cuv, err := strconv.ParseUint(channelS, 10, 64); err == nil && cuv > 0 {
+			channelPtr = &cuv
+		}
+	}
+	items, total, err := c.dataSvc.List(service.SettlementCustomerFilter{Region: region, CP: cp, School: school, Start: startPtr, End: endPtr, OwnerEntityID: ownerPtr, ChannelOwnerUserID: channelPtr}, page, size)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询结算数据失败", "error": err.Error()})
 		return
@@ -76,11 +187,13 @@ func (c *SettlementDataController) ListCustomerData(ctx *gin.Context) {
 // ExportCustomerData GET /api/v1/settlement/data/customer/export
 func (c *SettlementDataController) ExportCustomerData(ctx *gin.Context) {
 	var (
-		region = ctx.Query("region")
-		cp     = ctx.Query("cp")
-		school = ctx.Query("school_name")
-		startS = ctx.Query("start_service_date")
-		endS   = ctx.Query("end_service_date")
+		region   = ctx.Query("region")
+		cp       = ctx.Query("cp")
+		school   = ctx.Query("school_name")
+		startS   = ctx.Query("start_service_date")
+		endS     = ctx.Query("end_service_date")
+		ownerS   = ctx.Query("owner_entity_id")
+		channelS = ctx.Query("channel_owner_user_id")
 	)
 	var (
 		startPtr *time.Time
@@ -96,7 +209,19 @@ func (c *SettlementDataController) ExportCustomerData(ctx *gin.Context) {
 			endPtr = &t
 		}
 	}
-	rows, err := c.dataSvc.ListAll(service.SettlementCustomerFilter{Region: region, CP: cp, School: school, Start: startPtr, End: endPtr})
+	var ownerPtr *uint64
+	if ownerS != "" {
+		if uv, err := strconv.ParseUint(ownerS, 10, 64); err == nil && uv > 0 {
+			ownerPtr = &uv
+		}
+	}
+	var channelPtr *uint64
+	if channelS != "" {
+		if cuv, err := strconv.ParseUint(channelS, 10, 64); err == nil && cuv > 0 {
+			channelPtr = &cuv
+		}
+	}
+	rows, err := c.dataSvc.ListAll(service.SettlementCustomerFilter{Region: region, CP: cp, School: school, Start: startPtr, End: endPtr, OwnerEntityID: ownerPtr, ChannelOwnerUserID: channelPtr})
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "导出失败", "error": err.Error()})
 		return

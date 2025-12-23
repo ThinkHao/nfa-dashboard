@@ -617,6 +617,18 @@ export default {
           return Number.isFinite(taskId) ? taskId : 0
         })
     },
+    // 已使用过的费用归属对象（业务对象）下拉
+    usedOwners(): Promise<Array<{ id: number; entity_name: string }>> {
+      return api
+        .get('/api/v1/settlement/data/customer/owners')
+        .then((d: any) => (d && typeof d === 'object' && 'data' in d ? ((d as any).data?.items ?? []) : (Array.isArray(d) ? d : [])))
+    },
+    // 已使用过的渠道归属用户下拉
+    usedChannelOwners(): Promise<Array<{ id: number; display_name: string }>> {
+      return api
+        .get('/api/v1/settlement/data/customer/channel-owners')
+        .then((d: any) => (d && typeof d === 'object' && 'data' in d ? ((d as any).data?.items ?? []) : (Array.isArray(d) ? d : [])))
+    },
   }
   ,
   // v2 接口：启用按用户过滤（后端会在无权限时强制使用当前用户）

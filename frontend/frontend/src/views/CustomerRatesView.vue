@@ -306,7 +306,7 @@
                 clearable
                 :remote-method="remoteSearchSystemUsersAny"
                 :loading="ownerUserAnyLoading"
-                placeholder="搜索系统用户"
+                placeholder="搜索渠道相关用户"
                 style="width: 300px"
                 @visible-change="(v) => v && remoteSearchSystemUsersAny('')"
               >

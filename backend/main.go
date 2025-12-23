@@ -185,6 +185,9 @@ func main() {
 			settlement.GET("/data/customer", authMW.PermissionRequired("settlement.data.read"), settlementDataController.ListCustomerData)
 			settlement.GET("/data/customer/export", authMW.PermissionRequired("settlement.data.export"), settlementDataController.ExportCustomerData)
 			settlement.POST("/data/customer/recalculate", authMW.PermissionRequired("settlement.data.recalculate"), settlementDataController.RecalculateCustomerData)
+			// 费用归属下拉（仅返回在结算明细中使用过的对象/用户）
+			settlement.GET("/data/customer/owners", authMW.PermissionRequired("settlement.data.read"), settlementDataController.ListUsedOwnerEntities)
+			settlement.GET("/data/customer/channel-owners", authMW.PermissionRequired("settlement.data.read"), settlementDataController.ListUsedChannelOwners)
 
 			// 结算公式 CRUD
 			formulas := settlement.Group("/formulas")

@@ -18,6 +18,10 @@ type SettlementCustomerFilter struct {
 	School string
 	Start  *time.Time
 	End    *time.Time
+	// 费用归属业务对象ID：匹配客户费或线路费任一归属
+	OwnerEntityID *uint64
+	// 渠道归属系统用户ID
+	ChannelOwnerUserID *uint64
 }
 
 type settlementDataService struct {
@@ -44,6 +48,12 @@ func (s *settlementDataService) List(filter SettlementCustomerFilter, page, page
 	}
 	if filter.End != nil {
 		m["end_service_date"] = *filter.End
+	}
+	if filter.OwnerEntityID != nil && *filter.OwnerEntityID > 0 {
+		m["owner_entity_id"] = *filter.OwnerEntityID
+	}
+	if filter.ChannelOwnerUserID != nil && *filter.ChannelOwnerUserID > 0 {
+		m["channel_owner_user_id"] = *filter.ChannelOwnerUserID
 	}
 	if page <= 0 {
 		page = 1
@@ -72,6 +82,12 @@ func (s *settlementDataService) ListAll(filter SettlementCustomerFilter) ([]mode
 	}
 	if filter.End != nil {
 		m["end_service_date"] = *filter.End
+	}
+	if filter.OwnerEntityID != nil && *filter.OwnerEntityID > 0 {
+		m["owner_entity_id"] = *filter.OwnerEntityID
+	}
+	if filter.ChannelOwnerUserID != nil && *filter.ChannelOwnerUserID > 0 {
+		m["channel_owner_user_id"] = *filter.ChannelOwnerUserID
 	}
 	rows, _, err := s.repo.ListSettlementCustomer(m, 100000, 0)
 	return rows, err
