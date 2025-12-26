@@ -124,8 +124,13 @@
         <el-form-item label="启用">
           <el-switch v-model="editForm.enabled" />
         </el-form-item>
-        <el-form-item label="作用字段(JSON 数组)">
-          <el-input v-model="fieldsText" type="textarea" :rows="3" placeholder='示例: ["customer_fee"] 或 ["customer_fee","channel_rate"]' />
+        <el-form-item label="作用字段">
+          <el-checkbox-group v-model="fieldsSelected">
+            <el-checkbox label="customer_fee">客户费率</el-checkbox>
+            <el-checkbox label="network_line_fee">线路费率</el-checkbox>
+            <el-checkbox label="general_fee">节点通用费率</el-checkbox>
+            <el-checkbox label="channel_rate">渠道费率</el-checkbox>
+          </el-checkbox-group>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -135,7 +140,7 @@
     </el-dialog>
 
     <!-- 规则条目编辑弹窗 -->
-    <el-dialog v-model="itemsVisible" title="编辑规则条目" width="860px">
+    <el-dialog v-model="itemsVisible" title="编辑规则条目" width="960px" :append-to-body="true">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
         <div v-if="!itemsAdvancedJsonMode" style="display: flex; gap: 8px; align-items: center;">
           <el-button @click="onQuickFillStandard">快速填充 100%/75%/25%</el-button>
@@ -144,24 +149,26 @@
         <el-checkbox v-model="itemsAdvancedJsonMode">JSON 编辑</el-checkbox>
       </div>
       <div v-if="!itemsAdvancedJsonMode">
-        <el-table :data="itemsRows" border size="small" height="420px">
-          <el-table-column label="开始年(from)" width="140">
+        <el-table :data="itemsRows" border size="small" max-height="480">
+          <el-table-column label="开始年(from)" width="160">
             <template #default="{ row }">
-              <el-input-number v-model="row.from_year" :min="1" :step="1" />
+              <el-input-number v-model="row.from_year" size="small" :min="1" :step="1" controls-position="right" style="width: 120px" />
             </template>
           </el-table-column>
-          <el-table-column label="结束年(to)" width="160">
+          <el-table-column label="结束年(to)" width="220">
             <template #default="{ row }">
               <div style="display:flex; gap:6px; align-items:center;">
-                <el-input-number v-model="row.to_year" :min="row.from_year || 1" :step="1" />
+                <el-input-number v-model="row.to_year" size="small" :min="row.from_year || 1" :step="1" controls-position="right" style="width: 120px" />
                 <el-button text type="primary" @click="row.to_year = null">无上限</el-button>
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="折损比率(0~1)" width="180">
+          <el-table-column label="折损比率(0~1)" width="220">
             <template #default="{ row }">
-              <el-input-number v-model="row.discount_rate" :min="0" :max="1" :step="0.01" :precision="2" />
-              <span style="margin-left:6px; color:#888;">{{ Math.round((Number(row.discount_rate)||0)*100) }}%</span>
+              <div style="display:flex; align-items:center; gap:6px;">
+                <el-input-number v-model="row.discount_rate" size="small" :min="0" :max="1" :step="0.01" :precision="2" controls-position="right" style="width: 140px" />
+                <span style="color:#888; min-width: 40px;">{{ Math.round((Number(row.discount_rate)||0)*100) }}%</span>
+              </div>
             </template>
           </el-table-column>
           <el-table-column label="操作" width="120" fixed="right">
@@ -186,7 +193,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api'
 import { useAuthStore } from '@/stores/auth'
@@ -231,6 +239,7 @@ const editVisible = ref(false)
 const saving = ref(false)
 const editForm = reactive<any>({ id: undefined, name: '', scope_type: 'global', scope_key: '', enabled: true, priority: 100, fields: [] })
 const fieldsText = ref('')
+const fieldsSelected = ref<string[]>([])
 
 const regionOptions = ref<string[]>([])
 const cpOptions = ref<string[]>([])
@@ -246,6 +255,8 @@ function openEdit(row?: any) {
     editForm.enabled = !!row.enabled
     editForm.priority = Number(row.priority || 100)
     fieldsText.value = formatFieldsRaw(row.fields)
+    const parsed = parseFieldsList(row.fields)
+    fieldsSelected.value = parsed.length > 0 ? parsed : ['customer_fee']
   } else {
     editForm.id = undefined
     editForm.name = ''
@@ -254,6 +265,7 @@ function openEdit(row?: any) {
     editForm.enabled = true
     editForm.priority = 100
     fieldsText.value = '["customer_fee"]'
+    fieldsSelected.value = ['customer_fee']
   }
   editVisible.value = true
 }
@@ -275,21 +287,29 @@ function formatFields(v: any): string {
   } catch { return '-' }
 }
 
+function parseFieldsList(v: any): string[] {
+  try {
+    if (!v) return []
+    const arr = typeof v === 'string' ? JSON.parse(v) : v
+    if (Array.isArray(arr)) return arr.filter((x: any) => typeof x === 'string' && x)
+    return []
+  } catch { return [] }
+}
+
 async function onSave() {
   if (!editForm.name) { ElMessage.warning('名称必填'); return }
   if (!editForm.scope_type) { ElMessage.warning('范围必选'); return }
-  // 解析 fields JSON
-  let fieldsJson: any = null
-  if (fieldsText.value && fieldsText.value.trim()) {
-    try { fieldsJson = JSON.parse(fieldsText.value) } catch { ElMessage.error('作用字段 JSON 格式错误'); return }
-  }
+  // 使用点选复选框的结果；为空则默认 customer_fee
+  const selected = Array.isArray(fieldsSelected.value) && fieldsSelected.value.length > 0
+    ? fieldsSelected.value
+    : ['customer_fee']
   const payload: any = {
     name: editForm.name,
     scope_type: editForm.scope_type,
     scope_key: editForm.scope_type === 'global' ? null : (editForm.scope_key || null),
     enabled: !!editForm.enabled,
     priority: Number(editForm.priority || 100),
-    fields: fieldsJson,
+    fields: selected,
   }
   saving.value = true
   try {
@@ -428,14 +448,45 @@ async function loadRegionsAndCPs() {
 async function remoteSearchSchools(q: string) {
   schoolsLoading.value = true
   try {
-    const data = await (api as any).v2.getSchools({ school_name: q || undefined, limit: 20, offset: 0 })
+    const data = await (api as any).v2.getSchools({ school_name: q || undefined, limit: 100, offset: 0 })
     const list: any[] = Array.isArray(data?.items) ? data.items : (Array.isArray(data) ? data : [])
-    schoolOptions.value = list.map((it: any) => it?.school_name || it?.name || it).filter(Boolean)
+    const names = list
+      .map((it: any) => it?.school_name || it?.name || it)
+      .map((s: any) => (s != null ? String(s).trim() : ''))
+      .filter((s: string) => !!s)
+    const uniq = Array.from(new Set(names))
+    schoolOptions.value = uniq
   } catch { schoolOptions.value = [] }
   finally { schoolsLoading.value = false }
 }
+// 支持通过路由参数直接打开编辑/条目
+const route = useRoute()
 
-onMounted(async () => { await Promise.all([fetchData(), loadRegionsAndCPs()]) })
+async function handleRouteOpen() {
+  try {
+    const open = String((route.query as any)?.open || '')
+    const id = Number((route.query as any)?.id || 0)
+    if (!open || !Number.isFinite(id) || id <= 0) return
+    const row = (items.value || []).find((r: any) => Number(r?.id) === id)
+    if (open === 'edit') {
+      if (row) openEdit(row)
+      else {
+        try {
+          const d: any = await api.settlementRates.discountRules.get(id)
+          if (d?.rule) openEdit(d.rule)
+        } catch {}
+      }
+    } else if (open === 'items') {
+      openItems(row || { id })
+    }
+  } catch {}
+}
+
+onMounted(async () => {
+  try { await Promise.all([fetchData(), loadRegionsAndCPs()]) } finally { handleRouteOpen() }
+})
+
+watch(() => route.query, () => { handleRouteOpen() })
 </script>
 
 <style scoped>

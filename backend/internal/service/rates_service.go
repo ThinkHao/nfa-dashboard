@@ -143,21 +143,23 @@ func (s *ratesService) CleanupInvalidFinalCustomerRates() (int64, error) {
 
 // DiscountedFinalCustomerRate 表示指定服务日期下、折损后的最终客户费率视图
 type DiscountedFinalCustomerRate struct {
-	Region              string   `json:"region"`
-	CP                  string   `json:"cp"`
-	SchoolName          *string  `json:"school_name,omitempty"`
-	ServiceDate         string   `json:"service_date"`
-	CustomerFeeBase     *float64 `json:"customer_fee_base,omitempty"`
-	CustomerFeeDiscount *float64 `json:"customer_fee_discount,omitempty"`
-	ChannelRateBase     *float64 `json:"channel_rate_base,omitempty"`
-	ChannelRateDiscount *float64 `json:"channel_rate_discount,omitempty"`
-	NetworkLineFeeBase  *float64 `json:"network_line_fee_base,omitempty"`
-	GeneralFeeBase      *float64 `json:"general_fee_base,omitempty"`
-	CustomerFeeOwnerID  *uint64  `json:"customer_fee_owner_id,omitempty"`
-	ChannelOwnerUserID  *uint64  `json:"channel_owner_user_id,omitempty"`
-	DiscountRuleID      *uint64  `json:"discount_rule_id,omitempty"`
-	DiscountRuleName    *string  `json:"discount_rule_name,omitempty"`
-	ServiceYearIndex    *int     `json:"service_year_index,omitempty"`
+	Region                 string   `json:"region"`
+	CP                     string   `json:"cp"`
+	SchoolName             *string  `json:"school_name,omitempty"`
+	ServiceDate            string   `json:"service_date"`
+	CustomerFeeBase        *float64 `json:"customer_fee_base,omitempty"`
+	CustomerFeeDiscount    *float64 `json:"customer_fee_discount,omitempty"`
+	ChannelRateBase        *float64 `json:"channel_rate_base,omitempty"`
+	ChannelRateDiscount    *float64 `json:"channel_rate_discount,omitempty"`
+	NetworkLineFeeBase     *float64 `json:"network_line_fee_base,omitempty"`
+	NetworkLineFeeDiscount *float64 `json:"network_line_fee_discount,omitempty"`
+	GeneralFeeBase         *float64 `json:"general_fee_base,omitempty"`
+	GeneralFeeDiscount     *float64 `json:"general_fee_discount,omitempty"`
+	CustomerFeeOwnerID     *uint64  `json:"customer_fee_owner_id,omitempty"`
+	ChannelOwnerUserID     *uint64  `json:"channel_owner_user_id,omitempty"`
+	DiscountRuleID         *uint64  `json:"discount_rule_id,omitempty"`
+	DiscountRuleName       *string  `json:"discount_rule_name,omitempty"`
+	ServiceYearIndex       *int     `json:"service_year_index,omitempty"`
 }
 
 // ListFinalCustomerRatesDiscounted 按服务日期返回折损后的最终客户费率
@@ -221,8 +223,22 @@ func (s *ratesService) ListFinalCustomerRatesDiscounted(region, cp, schoolName, 
 		} else {
 			cfDiscount = cfBase
 		}
-		// 业务规则：折损仅作用于客户费，渠道费率不折损
-		chDiscount = chBase
+		if v, ok := discounted["channel_rate"]; ok {
+			chDiscount = v
+		} else {
+			chDiscount = chBase
+		}
+		var nlDiscount, gnDiscount *float64
+		if v, ok := discounted["network_line_fee"]; ok {
+			nlDiscount = v
+		} else {
+			nlDiscount = nlBase
+		}
+		if v, ok := discounted["general_fee"]; ok {
+			gnDiscount = v
+		} else {
+			gnDiscount = gnBase
+		}
 		var ruleID *uint64
 		var ruleName *string
 		if rule != nil {
@@ -240,21 +256,23 @@ func (s *ratesService) ListFinalCustomerRatesDiscounted(region, cp, schoolName, 
 			yearIdxPtr = &yearIdx
 		}
 		items = append(items, DiscountedFinalCustomerRate{
-			Region:              cst.Region,
-			CP:                  cst.CP,
-			SchoolName:          cst.SchoolName,
-			ServiceDate:         serviceDate.Format("2006-01-02"),
-			CustomerFeeBase:     cfBase,
-			CustomerFeeDiscount: cfDiscount,
-			ChannelRateBase:     chBase,
-			ChannelRateDiscount: chDiscount,
-			NetworkLineFeeBase:  nlBase,
-			GeneralFeeBase:      gnBase,
-			CustomerFeeOwnerID:  cst.CustomerFeeOwnerID,
-			ChannelOwnerUserID:  cst.ChannelOwnerUserID,
-			DiscountRuleID:      ruleID,
-			DiscountRuleName:    ruleName,
-			ServiceYearIndex:    yearIdxPtr,
+			Region:                 cst.Region,
+			CP:                     cst.CP,
+			SchoolName:             cst.SchoolName,
+			ServiceDate:            serviceDate.Format("2006-01-02"),
+			CustomerFeeBase:        cfBase,
+			CustomerFeeDiscount:    cfDiscount,
+			ChannelRateBase:        chBase,
+			ChannelRateDiscount:    chDiscount,
+			NetworkLineFeeBase:     nlBase,
+			NetworkLineFeeDiscount: nlDiscount,
+			GeneralFeeBase:         gnBase,
+			GeneralFeeDiscount:     gnDiscount,
+			CustomerFeeOwnerID:     cst.CustomerFeeOwnerID,
+			ChannelOwnerUserID:     cst.ChannelOwnerUserID,
+			DiscountRuleID:         ruleID,
+			DiscountRuleName:       ruleName,
+			ServiceYearIndex:       yearIdxPtr,
 		})
 	}
 	return items, total, nil
@@ -376,7 +394,21 @@ func (s *ratesService) applyDiscountForCustomer(c *model.RateCustomer, serviceDa
 				v := (*c.CustomerFee) * ratio
 				res["customer_fee"] = &v
 			}
-			// 业务约束：其他费率（包含 channel_rate）不参与折损
+		case "network_line_fee":
+			if c.NetworkLineFee != nil {
+				v := (*c.NetworkLineFee) * ratio
+				res["network_line_fee"] = &v
+			}
+		case "general_fee":
+			if c.GeneralFee != nil {
+				v := (*c.GeneralFee) * ratio
+				res["general_fee"] = &v
+			}
+		case "channel_rate":
+			if c.ChannelRate != nil {
+				v := (*c.ChannelRate) * ratio
+				res["channel_rate"] = &v
+			}
 		}
 	}
 	return res, matchedRule, yearIdx, nil

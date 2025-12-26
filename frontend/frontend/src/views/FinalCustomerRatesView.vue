@@ -53,6 +53,8 @@
         <el-table-column prop="customer_fee_discount" label="客户费(折后)" width="140" />
         <el-table-column prop="network_line_fee" label="线路费" width="120" />
         <el-table-column prop="channel_rate" label="渠道费率" width="140" />
+        <el-table-column prop="network_line_fee_discount" label="线路费(折后)" width="140" />
+        <el-table-column prop="channel_rate_discount" label="渠道费率(折后)" width="160" />
         <el-table-column label="客户费归属" min-width="160">
           <template #default="{ row }">
             <el-tooltip placement="top" :content="`ID: ${row.customer_fee_owner_id ?? '-'}`">
@@ -162,7 +164,7 @@ const loading = ref(false)
 const refreshing = ref(false)
 const cleaning = ref(false)
 const exporting = ref(false)
-const itemsCombined = ref<Array<RateFinalCustomer & { service_date?: string; customer_fee_discount?: number | null }>>([])
+const itemsCombined = ref<Array<RateFinalCustomer & { service_date?: string; customer_fee_discount?: number | null; network_line_fee_discount?: number | null; channel_rate_discount?: number | null }>>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
@@ -208,6 +210,8 @@ async function fetchData() {
         ...r,
         service_date: d?.service_date || query.service_date,
         customer_fee_discount: (d?.customer_fee_discount as any) ?? null,
+        network_line_fee_discount: (d?.network_line_fee_discount as any) ?? null,
+        channel_rate_discount: (d?.channel_rate_discount as any) ?? null,
       }
     })
     itemsCombined.value = merged

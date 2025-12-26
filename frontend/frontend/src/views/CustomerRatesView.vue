@@ -153,6 +153,18 @@
           </template>
         </el-table-column>
         <el-table-column v-if="colVisible.start_at" prop="start_at" label="起算日期" width="140" />
+        <el-table-column label="折损规则" width="140">
+          <template #default="{ row }">
+            <template v-if="getResolvedRuleId(row)">
+              <el-tooltip placement="top" :content="formatRuleTooltip(getResolvedRuleId(row)!)">
+                <el-button type="primary" link @click="goToDiscountRuleById(getResolvedRuleId(row)!)">
+                  {{ getResolvedRuleId(row) }}
+                </el-button>
+              </el-tooltip>
+            </template>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column v-if="colVisible.updated_at" prop="updated_at" label="更新时间" min-width="180" />
         <el-table-column v-if="canWrite" label="操作" fixed="right" width="100">
           <template #default="{ row }">
@@ -418,6 +430,17 @@ const colVisible = reactive({
   updated_at: true,
 })
 
+const discountRules = ref<any[]>([])
+const discountRuleDetailMap = ref<Record<number, { rule: any; items: any[] }>>({})
+
+async function loadDiscountRules() {
+  if (discountRules.value.length > 0) return
+  try {
+    const res: any = await api.settlementRates.discountRules.list({ enabled: 'true', page: 1, page_size: 1000 })
+    discountRules.value = Array.isArray(res?.items) ? res.items : []
+  } catch { discountRules.value = [] }
+}
+
 function buildParams() {
   const p: any = { page: page.value, page_size: pageSize.value }
   if (query.region) p.region = query.region
@@ -437,6 +460,19 @@ async function fetchData() {
     total.value = res.total || 0
     // 批量加载归属对象信息，构建映射
     await Promise.all([loadEntitiesForItems(), loadUsersForItems()])
+    await loadDiscountRules()
+    try {
+      const ids = new Set<number>()
+      for (const r of items.value) {
+        const id = getResolvedRuleId(r)
+        if (typeof id === 'number') ids.add(id)
+      }
+      await Promise.all(Array.from(ids).map(async (id) => {
+        if (!discountRuleDetailMap.value[id]) {
+          try { discountRuleDetailMap.value[id] = await api.settlementRates.discountRules.get(id) as any } catch {}
+        }
+      }))
+    } catch {}
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '加载失败')
   } finally {
@@ -880,6 +916,56 @@ function formatTime(s?: string | null): string {
 function formatMode(m?: string): string {
   if (!m) return '自动'
   return m === 'configed' ? '手工' : '自动'
+}
+
+function getResolvedRuleId(row: RateCustomer): number | null {
+  if (!row?.start_at) return null
+  if (!Array.isArray(discountRules.value) || discountRules.value.length === 0) return null
+  const matched = discountRules.value.filter((r: any) => {
+    if (!r?.enabled) return false
+    const t = String(r?.scope_type || 'global')
+    const k = r?.scope_key ?? null
+    if (t === 'school') return (row.school_name ?? null) != null && String(row.school_name) === String(k)
+    if (t === 'cp') return String(row.cp) === String(k)
+    if (t === 'region') return String(row.region) === String(k)
+    return t === 'global'
+  })
+  if (matched.length === 0) return null
+  const scopeRank = (t: string) => (t === 'school' ? 4 : t === 'cp' ? 3 : t === 'region' ? 2 : 1)
+  matched.sort((a: any, b: any) => {
+    const sr = scopeRank(String(b.scope_type)) - scopeRank(String(a.scope_type))
+    if (sr !== 0) return sr
+    const pa = Number(a.priority ?? 100)
+    const pb = Number(b.priority ?? 100)
+    if (pa !== pb) return pa - pb
+    return Number(a.id) - Number(b.id)
+  })
+  const chosen = matched[0]
+  return chosen && Number.isFinite(Number(chosen.id)) ? Number(chosen.id) : null
+}
+
+function goToDiscountRuleById(id: number) {
+  router.push({ name: 'settlement-rates-discount-rules', query: { open: 'edit', id: String(id) } })
+}
+
+function formatRuleTooltip(id: number): string {
+  const d = discountRuleDetailMap.value[id]
+  const rule = d?.rule || discountRules.value.find((r: any) => Number(r.id) === Number(id))
+  if (!rule) return `规则 #${id}`
+  const name = rule.name || `规则 #${id}`
+  const scope = `${rule.scope_type || 'global'}${rule.scope_type === 'global' ? '' : `/${rule.scope_key ?? '-'}`}`
+  const fields = (() => {
+    try {
+      const v = rule.fields
+      const arr = typeof v === 'string' ? JSON.parse(v) : v
+      return Array.isArray(arr) ? arr.join(',') : '-'
+    } catch { return '-' }
+  })()
+  const items = Array.isArray(d?.items) ? d!.items : []
+  const itemsText = items.length > 0
+    ? items.map((it: any) => `${it.from_year}-${it.to_year ?? '∞'}: ${Math.round(Number(it.discount_rate || 0)*100)}%`).slice(0, 5).join(' | ')
+    : '无条目'
+  return `${name}\n范围：${scope}\n字段：${fields}\n条目：${itemsText}`
 }
 
 // 缺失字段提示

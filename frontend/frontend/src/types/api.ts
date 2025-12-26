@@ -341,7 +341,9 @@ export interface DiscountedFinalCustomerRate {
   channel_rate_base?: number | null;
   channel_rate_discount?: number | null;
   network_line_fee_base?: number | null;
+  network_line_fee_discount?: number | null;
   general_fee_base?: number | null;
+  general_fee_discount?: number | null;
   customer_fee_owner_id?: number | null;
   channel_owner_user_id?: number | null;
   discount_rule_id?: number | null;

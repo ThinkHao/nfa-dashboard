@@ -138,6 +138,10 @@ func (s *rateDiscountService) Update(id uint64, updates map[string]interface{}) 
 		if err := validateFieldsJSONInterface(v); err != nil {
 			return err
 		}
+		// 将数组等通用类型统一转为 JSON，避免直接用数组导致 SQL 语法错误 (Operand should contain 1 column(s))
+		if bs, ok2 := toJSONBytes(v); ok2 {
+			updates["fields"] = datatypes.JSON(bs)
+		}
 	}
 	return s.repo.UpdateRule(id, updates)
 }
