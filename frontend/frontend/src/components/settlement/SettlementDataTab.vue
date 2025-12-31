@@ -101,22 +101,58 @@
           </template>
         </el-table-column>
         <el-table-column prop="customer_fee" label="客户费率" width="110" />
-        <el-table-column prop="customer_bill" label="客户金额" width="110" />
+        <el-table-column prop="customer_bill" label="客户金额" width="110">
+          <template #default="{ row }">
+            <el-tooltip placement="top">
+              <template #content>
+                <pre style="white-space: pre-wrap; max-width: 420px; font-size:12px; line-height:1.3;">{{ amountDetail(row, 'customer_fee', 'customer_bill', '客户费率') }}</pre>
+              </template>
+              <span>{{ row.customer_bill != null ? row.customer_bill : '-' }}</span>
+            </el-tooltip>
+          </template>
+        </el-table-column>
         <el-table-column label="客户费归属" min-width="160">
           <template #default="{ row }">{{ displayUser(row.customer_fee_owner_id) }}</template>
         </el-table-column>
         <el-table-column prop="network_line_fee" label="线路费率" width="110" />
-        <el-table-column prop="network_line_bill" label="线路金额" width="110" />
+        <el-table-column prop="network_line_bill" label="线路金额" width="110">
+          <template #default="{ row }">
+            <el-tooltip placement="top">
+              <template #content>
+                <pre style="white-space: pre-wrap; max-width: 420px; font-size:12px; line-height:1.3;">{{ amountDetail(row, 'network_line_fee', 'network_line_bill', '线路费率') }}</pre>
+              </template>
+              <span>{{ row.network_line_bill != null ? row.network_line_bill : '-' }}</span>
+            </el-tooltip>
+          </template>
+        </el-table-column>
         <el-table-column label="线路费归属" min-width="160">
           <template #default="{ row }">{{ displayUser(row.network_line_fee_owner_id) }}</template>
         </el-table-column>
         <el-table-column prop="node_deduction_fee" label="节点通用费率" width="110" />
-        <el-table-column prop="node_deduction_bill" label="节点通用金额" width="120" />
+        <el-table-column prop="node_deduction_bill" label="节点通用金额" width="120">
+          <template #default="{ row }">
+            <el-tooltip placement="top">
+              <template #content>
+                <pre style="white-space: pre-wrap; max-width: 420px; font-size:12px; line-height:1.3;">{{ amountDetail(row, 'node_deduction_fee', 'node_deduction_bill', '节点通用费率') }}</pre>
+              </template>
+              <span>{{ row.node_deduction_bill != null ? row.node_deduction_bill : '-' }}</span>
+            </el-tooltip>
+          </template>
+        </el-table-column>
         <el-table-column label="节点通用费归属" min-width="160">
           <template #default="{ row }">{{ displayUser(row.node_deduction_fee_owner_id) }}</template>
         </el-table-column>
         <el-table-column prop="channel_rate" label="渠道费率" width="110" />
-        <el-table-column prop="channel_bill" label="渠道金额" width="110" />
+        <el-table-column prop="channel_bill" label="渠道金额" width="110">
+          <template #default="{ row }">
+            <el-tooltip placement="top">
+              <template #content>
+                <pre style="white-space: pre-wrap; max-width: 420px; font-size:12px; line-height:1.3;">{{ amountDetail(row, 'channel_rate', 'channel_bill', '渠道费率') }}</pre>
+              </template>
+              <span>{{ row.channel_bill != null ? row.channel_bill : '-' }}</span>
+            </el-tooltip>
+          </template>
+        </el-table-column>
         <el-table-column label="渠道费归属" min-width="160">
           <template #default="{ row }">{{ displayUser(row.channel_owner_user_id) }}</template>
         </el-table-column>
@@ -205,6 +241,88 @@ interface FilterForm {
   page_size: number;
 }
 
+function daysInMonthFrom(dateStr?: string | null): number {
+  try {
+    if (!dateStr) return 30
+    const d = new Date(String(dateStr))
+    if (!isNaN(d.getTime())) {
+      const y = d.getFullYear()
+      const m = d.getMonth()
+      return new Date(y, m + 1, 0).getDate()
+    }
+    const m2 = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})/)
+    if (m2) {
+      const y = Number(m2[1])
+      const m = Number(m2[2]) - 1
+      return new Date(y, m + 1, 0).getDate()
+    }
+    return 30
+  } catch { return 30 }
+}
+
+function toFixedNum(n: number, digits = 2): string {
+  try { return Number(n).toFixed(digits) } catch { return String(n) }
+}
+
+function amountDetail(row: any, rateField: string, billField: string, rateLabel: string): string {
+  try {
+    const sv = Number(row?.settlement_value ?? 0)
+    const bps = (sv * 8) / 60
+    const mbps = bps / 1_000_000
+    const gbps = bps / 1_000_000_000
+    const rateRaw = row ? row[rateField] : null
+    const rate = rateRaw != null ? Number(rateRaw) : NaN
+    const days = daysInMonthFrom(row?.service_date)
+    const calc = Number.isFinite(rate) ? (gbps * rate) / days : NaN
+    const bill = row ? row[billField] : null
+    const lines: string[] = []
+    lines.push(`学校：${row?.school_name ?? ''}`)
+    lines.push(`日期：${row?.service_date ?? ''}`)
+    lines.push(`日95原值：${sv}`)
+    lines.push(`换算：bits/s = 日95 * 8 / 60 = ${(sv*8).toFixed(2)} / 60 = ${toFixedNum(bps, 2)}`)
+    lines.push(`换算：Mbps = bits/s / 1e6 = ${toFixedNum(bps,2)} / 1e6 = ${toFixedNum(mbps, 2)}`)
+    lines.push(`换算：Gbps = bits/s / 1e9 = ${toFixedNum(bps,2)} / 1e9 = ${toFixedNum(gbps, 6)}`)
+    let extra: string[] = []
+    if (rateField === 'customer_fee') {
+      const rid = Number(row?.discount_rule_id || 0)
+      const yi = Number(row?.service_year_index || 0)
+      if (rid > 0 && yi > 0) {
+        const det = discountRuleDetailMap.value[rid]
+        const rule = det?.rule
+        const items = Array.isArray(det?.items) ? det!.items : []
+        const used = items.find((it: any) => yi >= Number(it.from_year) && (it.to_year == null || yi <= Number(it.to_year)))
+        if (rule) {
+          const scope = `${rule.scope_type || 'global'}${rule.scope_type === 'global' ? '' : `/${rule.scope_key ?? '-'}`}`
+          extra.push(`折损规则：#${rid} ${rule.name || ''}（范围：${scope}）`)
+        } else {
+          extra.push(`折损规则：#${rid}`)
+        }
+        if (used && Number.isFinite(Number(used.discount_rate))) {
+          const ratio = Number(used.discount_rate)
+          const baseFee = Number.isFinite(rate) ? (rate as number) / ratio : NaN
+          extra.push(`生效条目：第${yi}年，区间 ${used.from_year}-${used.to_year ?? '∞'}，比例=${Math.round(ratio*100)}%`)
+          if (Number.isFinite(baseFee)) {
+            extra.push(`原始费率（未折损）：${toFixedNum(baseFee, 4)}，折后费率：${rate}`)
+          }
+        } else if (yi > 0) {
+          extra.push(`生效条目：第${yi}年（未匹配到条目）`)
+        }
+      }
+    }
+    lines.push(`${rateLabel}：${Number.isFinite(rate) ? rate : '-'}`)
+    if (extra.length > 0) lines.push(...extra)
+    lines.push(`当月天数：${days}`)
+    if (Number.isFinite(rate)) {
+      lines.push(`公式：金额 = Gbps * 费率 / 当月天数 = ${toFixedNum(gbps,6)} * ${rate} / ${days} = ${toFixedNum(calc, 2)}`)
+    } else {
+      lines.push('公式：缺少费率，金额不可计算')
+    }
+    if (bill != null) {
+      lines.push(`金额(入库)：${bill}`)
+    }
+    return lines.join('\n')
+  } catch { return '' }
+}
 const filterForm = reactive<FilterForm>({
   school_id: '',
   region: '',
@@ -232,6 +350,8 @@ const settlementData = ref<SettlementListResponse>({
   items: [],
   total: 0
 })
+
+const discountRuleDetailMap = ref<Record<number, { rule: any; items: any[] }>>({})
 
 // 将原始数据转换为 bits/s
 const convertToBitsPerSecond = (bytes: number | null | undefined): number => {
@@ -536,6 +656,18 @@ const fetchData = async () => {
       await loadEntityMap()
     }
     await loadUsersForItems()
+    try {
+      const ids = new Set<number>()
+      for (const r of settlementData.value.items || []) {
+        const id = Number((r as any)?.discount_rule_id || 0)
+        if (Number.isFinite(id) && id > 0) ids.add(id)
+      }
+      await Promise.all(Array.from(ids).map(async (id) => {
+        if (!discountRuleDetailMap.value[id]) {
+          try { discountRuleDetailMap.value[id] = await (api as any).settlementRates.discountRules.get(id) } catch {}
+        }
+      }))
+    } catch {}
     
     // 检查数据结构
     if (settlementData.value.items && Array.isArray(settlementData.value.items)) {
