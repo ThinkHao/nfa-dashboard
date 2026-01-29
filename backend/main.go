@@ -26,6 +26,8 @@ func main() {
 	// 注册中间件
 	r.Use(middleware.Logger())
 	r.Use(middleware.CORS())
+	// 压缩大响应，降低网络体积
+	r.Use(middleware.Gzip())
 	r.Use(middleware.Audit())
 
 	// 健康检查
@@ -188,6 +190,7 @@ func main() {
 			// 费用归属下拉（仅返回在结算明细中使用过的对象/用户）
 			settlement.GET("/data/customer/owners", authMW.PermissionRequired("settlement.data.read"), settlementDataController.ListUsedOwnerEntities)
 			settlement.GET("/data/customer/channel-owners", authMW.PermissionRequired("settlement.data.read"), settlementDataController.ListUsedChannelOwners)
+			settlement.GET("/data/customer/owner-subjects", authMW.PermissionRequired("settlement.data.read"), settlementDataController.ListUsedOwnerSubjects)
 
 			// 结算公式 CRUD
 			formulas := settlement.Group("/formulas")

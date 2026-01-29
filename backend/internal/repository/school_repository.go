@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"log"
+	"strings"
 	"time"
 
 	"nfa-dashboard/internal/model"
@@ -62,7 +63,9 @@ func (r *schoolRepository) GetAllSchools(filter map[string]interface{}, limit, o
 			}
 			continue
 		}
-		if value == nil { continue }
+		if value == nil {
+			continue
+		}
 		// 仅对字符串类型按原逻辑处理
 		if strValue, ok := value.(string); ok && strValue != "" {
 			// 根据字段类型选择合适的查询方式
@@ -144,6 +147,18 @@ func (r *schoolRepository) GetCPsWithUser(userID *uint64) ([]string, error) {
 // GetTrafficData 根据过滤条件获取流量数据
 func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.TrafficResponse, error) {
 	var results []model.TrafficResponse
+
+	// 统一时间到本地时区，避免前端使用 RFC3339(Z/UTC) 传参时与库内 DATETIME(+08:00) 比较产生错位
+	if !filter.StartTime.IsZero() {
+		filter.StartTime = filter.StartTime.In(time.Local)
+	}
+	if !filter.EndTime.IsZero() {
+		filter.EndTime = filter.EndTime.In(time.Local)
+	}
+	// 防御：如果时间范围反了，交换
+	if !filter.StartTime.IsZero() && !filter.EndTime.IsZero() && filter.EndTime.Before(filter.StartTime) {
+		filter.StartTime, filter.EndTime = filter.EndTime, filter.StartTime
+	}
 
 	// 限制查询时间范围，避免全表扫描
 	if filter.StartTime.IsZero() && filter.EndTime.IsZero() {
@@ -228,7 +243,7 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
                 cp,
                 total_recv,
                 total_send
-            FROM nfa_school_traffic
+            FROM nfa_school_traffic FORCE INDEX (idx_traffic_rcn_name_time_cov)
             WHERE create_time BETWEEN ? AND ?`
 
 	// 初始化参数
@@ -236,8 +251,14 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 
 	// 添加过滤条件
 	if filter.SchoolName != "" {
-		query += " AND school_name LIKE ?"
-		args = append(args, filter.SchoolName+"%")
+		// 当 school_name 不包含通配符时使用等值匹配，避免范围条件影响索引有序输出
+		if strings.ContainsAny(filter.SchoolName, "%_") {
+			query += " AND school_name LIKE ?"
+			args = append(args, filter.SchoolName)
+		} else {
+			query += " AND school_name = ?"
+			args = append(args, filter.SchoolName)
+		}
 	}
 	if filter.Region != "" {
 		query += " AND region = ?"
@@ -353,17 +374,6 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 	// 如果没有数据，打印警告
 	if len(results) == 0 {
 		log.Printf("警告: 没有找到符合条件的数据，时间范围: %v 至 %v", filter.StartTime, filter.EndTime)
-		// 检查数据库中是否有任何数据
-		var count int64
-		model.DB.Table("nfa_school_traffic").Count(&count)
-		log.Printf("数据库中共有 %d 条数据记录", count)
-
-		// 检查最早和最晚的数据时间
-		var earliest, latest time.Time
-		model.DB.Table("nfa_school_traffic").Select("MIN(create_time)").Row().Scan(&earliest)
-		model.DB.Table("nfa_school_traffic").Select("MAX(create_time)").Row().Scan(&latest)
-		log.Printf("数据库中最早的数据时间: %v", earliest)
-		log.Printf("数据库中最晚的数据时间: %v", latest)
 	}
 
 	return results, nil

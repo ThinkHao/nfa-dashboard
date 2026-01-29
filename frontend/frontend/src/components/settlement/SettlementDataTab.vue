@@ -216,7 +216,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { useTasksStore } from '@/stores/tasks'
 import type { SettlementListResponse } from '../../types/settlement'
-import type { School, PaginationParams, BusinessEntity } from '../../types/api'
+import type { School, PaginationParams } from '../../types/api'
 
 // 学校、地区和运营商数据
 
@@ -235,7 +235,6 @@ interface FilterForm {
   cp: string;
   start_service_date: string;
   end_service_date: string;
-  owner_entity_id: number | null;
   channel_owner_user_id: number | null;
   page: number;
   page_size: number;
@@ -329,7 +328,6 @@ const filterForm = reactive<FilterForm>({
   cp: '',
   start_service_date: '',
   end_service_date: '',
-  owner_entity_id: null,
   channel_owner_user_id: null,
   page: 1,
   page_size: 10
@@ -489,6 +487,7 @@ const handleRegionChange = (region: string): void => {
   }
   // 当地区变化时自动刷新数据
   fetchData()
+  loadOwnerOptions()
 }
 
 // 处理运营商选择变化
@@ -502,6 +501,7 @@ const handleCPChange = (cp: string): void => {
   }
   // 当运营商变化时自动刷新数据
   fetchData()
+  loadOwnerOptions()
 }
 
 // 处理学校选择变化
@@ -511,13 +511,13 @@ const handleSchoolChange = (schoolId: string): void => {
   // 例如，根据学校ID获取更多详细信息等
   // 当学校变化时自动刷新数据
   fetchData()
+  loadOwnerOptions()
 }
 
 // 处理费用归属选择变化（仅用户）：仅设置 channel_owner_user_id，用后端统一 OR 过滤四个归属字段
 const handleOwnerChange = (val: string | null): void => {
   console.log('费用归属选择变化:', val)
   // 重置两个字段
-  filterForm.owner_entity_id = null
   filterForm.channel_owner_user_id = null
   if (val && typeof val === 'string') {
     const id = Number(val)
@@ -528,45 +528,21 @@ const handleOwnerChange = (val: string | null): void => {
   fetchData()
 }
 
-// 加载费用归属（仅用户）：汇总 settlement_customer 四个归属字段中被使用过的用户ID
+// 加载费用归属（用户）：统一从后端 /owner-subjects 获取，并只保留 type==='user'
 const loadOwnerOptions = async () => {
   try {
-    // 1) 先取后端提供的渠道归属用户（作为基础）
-    const baseUsers: any[] = await (api as any).settlementData.usedChannelOwners()
-    const idSet = new Set<number>(Array.isArray(baseUsers) ? baseUsers.map(u => Number((u as any).id)).filter((n: any) => Number.isFinite(n) && n > 0) : [])
-    // 2) 基于当前筛选范围，分页拉取结算明细，收集四个归属字段中的用户ID
     const params: any = {
-      page: 1,
-      page_size: 1000,
       region: filterForm.region || undefined,
       cp: filterForm.cp || undefined,
       start_service_date: filterForm.start_service_date || undefined,
       end_service_date: filterForm.end_service_date || undefined,
     }
-    let total = 0
-    while (true) {
-      const res: any = await (api as any).settlementData.list(params)
-      const items: any[] = Array.isArray(res) ? res : (Array.isArray(res?.items) ? res.items : [])
-      if (typeof res?.total === 'number') total = res.total
-      for (const r of items) {
-        const push = (v: any) => { const n = Number(v); if (!Number.isNaN(n) && n > 0) idSet.add(n) }
-        push(r?.customer_fee_owner_id)
-        push(r?.network_line_fee_owner_id)
-        push(r?.node_deduction_fee_owner_id)
-        push(r?.channel_owner_user_id)
-      }
-      if (items.length < (params.page_size || 1000)) break
-      if (total > 0 && (params.page * params.page_size) >= total) break
-      params.page += 1
-    }
-    if (idSet.size === 0) { ownerOptions.value = []; return }
-    // 3) 批量查询用户信息
-    const resUsers: any = await (api as any).system.users.list({ ids: Array.from(idSet).join(',') })
-    const list: any[] = Array.isArray(resUsers?.items) ? resUsers.items : []
-    ownerOptions.value = list
-      .map(u => ({ id: Number(u.id), name: String(u.alias || u.display_name || u.username || ''), label: String(u.alias || u.display_name || u.username || `用户#${u.id}`) }))
-      .filter(it => Number.isFinite(it.id) && it.label)
-      .sort((a, b) => String(a.label).localeCompare(String(b.label)))
+    const items: any[] = await (api as any).settlementData.ownerSubjects(params)
+    const list = (Array.isArray(items) ? items : [])
+      .filter((it: any) => it && String(it.type) === 'user')
+      .map((it: any) => ({ id: Number(it.id), name: String(it.label || `用户#${it.id}`), label: String(it.label || `用户#${it.id}`) }))
+      .filter((u: OwnerOption) => Number.isFinite(u.id) && !!u.label)
+    ownerOptions.value = list.sort((a, b) => String(a.label).localeCompare(String(b.label)))
   } catch (e) {
     console.warn('加载费用归属下拉失败', e)
     ownerOptions.value = []
@@ -590,6 +566,7 @@ const handleDateRangeChange = (val: [string, string] | null) => {
   setTimeout(() => {
     console.log('日期范围变化，自动触发数据查询')
     fetchData()
+    loadOwnerOptions()
   }, 0)
 }
 
@@ -606,7 +583,6 @@ const fetchData = async () => {
       school_name?: string;
       start_service_date?: string;
       end_service_date?: string;
-      owner_entity_id?: number;
       channel_owner_user_id?: number;
       page?: number;
       page_size?: number;
@@ -632,7 +608,6 @@ const fetchData = async () => {
     if (filterForm.cp) {
       params.cp = filterForm.cp
     }
-    if (filterForm.owner_entity_id != null) params.owner_entity_id = filterForm.owner_entity_id
     if (filterForm.channel_owner_user_id != null) params.channel_owner_user_id = filterForm.channel_owner_user_id
     
     console.log('最终请求参数:', params)
@@ -651,10 +626,7 @@ const fetchData = async () => {
     } else {
       settlementData.value = { items: [], total: 0 }
     }
-    // 加载映射用于归属显示
-    if (!entityMap.value || Object.keys(entityMap.value).length === 0) {
-      await loadEntityMap()
-    }
+    // 加载用户映射用于归属显示
     await loadUsersForItems()
     try {
       const ids = new Set<number>()
@@ -698,13 +670,13 @@ const resetFilter = () => {
   filterForm.cp = ''
   filterForm.start_service_date = ''
   filterForm.end_service_date = ''
-  filterForm.owner_entity_id = null
   filterForm.channel_owner_user_id = null
   ownerSelect.value = null
   dateRange.value = null
   currentPage.value = 1
   pageSize.value = 10
   fetchData()
+  loadOwnerOptions()
 }
 
 // 处理页码变化
@@ -793,7 +765,6 @@ async function fetchAllDataForExport(onProgress?: (p: number, meta?: { processed
   }
   if (filterForm.region) params.region = filterForm.region
   if (filterForm.cp) params.cp = filterForm.cp
-  if (filterForm.owner_entity_id != null) params.owner_entity_id = filterForm.owner_entity_id
   if (filterForm.channel_owner_user_id != null) params.channel_owner_user_id = filterForm.channel_owner_user_id
   if (filterForm.school_id) {
     const s = (schools.value || []).find(x => x.school_id === filterForm.school_id)
@@ -1092,26 +1063,8 @@ onMounted(() => {
   fetchData()
 })
 
-// 业务对象/系统用户映射，用于归属显示
-const entityMap = ref<Record<number, string>>({})
+// 系统用户映射，用于归属显示
 const userMap = ref<Record<number, { id:number; alias?:string; display_name?:string; username:string }>>({})
-
-const loadEntityMap = async () => {
-  try {
-    const pageSize = 1000
-    let page = 1
-    const map: Record<number, string> = {}
-    while (true) {
-      const res = await (api as any).settlementEntities.list({ page, page_size: pageSize })
-      const list = (res?.items || []) as BusinessEntity[]
-      for (const e of list) { if (e && typeof e.id === 'number') map[e.id] = e.entity_name }
-      const total = Number(res?.total || 0)
-      if (page * pageSize >= total || list.length === 0) break
-      page += 1
-    }
-    entityMap.value = map
-  } catch {}
-}
 
 const loadUsersForItems = async () => {
   const ids = new Set<number>()
@@ -1132,11 +1085,6 @@ const loadUsersForItems = async () => {
   } catch { userMap.value = {} }
 }
 
-function displayEntity(id?: number | null): string {
-  if (id == null) return '-'
-  const key = Number(id)
-  return entityMap.value[key] || `#${key}`
-}
 function displayUser(id?: number | null): string {
   if (!id) return '-'
   const key = Number(id)

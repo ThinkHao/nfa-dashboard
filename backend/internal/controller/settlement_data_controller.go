@@ -11,6 +11,7 @@ import (
 	"nfa-dashboard/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type SettlementDataController struct {
@@ -53,6 +54,108 @@ func (c *SettlementDataController) ListUsedChannelOwners(ctx *gin.Context) {
 		}
 		out = append(out, item{ID: u.ID, DisplayName: name})
 	}
+	ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "OK", "data": gin.H{"items": out}})
+}
+
+// ListUsedOwnerSubjects GET /api/v1/settlement/data/customer/owner-subjects
+// 统一返回四类归属主体的去重列表：entity(业务对象) 与 user(系统用户)
+func (c *SettlementDataController) ListUsedOwnerSubjects(ctx *gin.Context) {
+	region := ctx.Query("region")
+	cp := ctx.Query("cp")
+	school := ctx.Query("school_name")
+	startS := ctx.Query("start_service_date")
+	endS := ctx.Query("end_service_date")
+
+	var startPtr *time.Time
+	var endPtr *time.Time
+	if startS != "" {
+		if t, err := time.Parse("2006-01-02", startS); err == nil {
+			startPtr = &t
+		}
+	}
+	if endS != "" {
+		if t, err := time.Parse("2006-01-02", endS); err == nil {
+			endPtr = &t
+		}
+	}
+
+	qbBase := func() *gorm.DB {
+		q := model.DB.Model(&model.SettlementCustomer{})
+		if region != "" {
+			q = q.Where("region = ?", region)
+		}
+		if cp != "" {
+			q = q.Where("cp = ?", cp)
+		}
+		if school != "" {
+			q = q.Where("school_name LIKE ?", "%"+school+"%")
+		}
+		if startPtr != nil {
+			q = q.Where("DATE(service_date) >= ?", startPtr.Format("2006-01-02"))
+		}
+		if endPtr != nil {
+			q = q.Where("DATE(service_date) <= ?", endPtr.Format("2006-01-02"))
+		}
+		return q
+	}
+
+	// 统一按“用户”聚合：四列均视为用户ID来源
+	var uids1, uids2, uids3, uids4 []uint64
+	_ = qbBase().Where("customer_fee_owner_id IS NOT NULL").Distinct().Pluck("customer_fee_owner_id", &uids1).Error
+	_ = qbBase().Where("network_line_fee_owner_id IS NOT NULL").Distinct().Pluck("network_line_fee_owner_id", &uids2).Error
+	_ = qbBase().Where("node_deduction_fee_owner_id IS NOT NULL").Distinct().Pluck("node_deduction_fee_owner_id", &uids3).Error
+	_ = qbBase().Where("channel_owner_user_id IS NOT NULL").Distinct().Pluck("channel_owner_user_id", &uids4).Error
+
+	userSet := make(map[uint64]struct{})
+	for _, id := range uids1 {
+		if id > 0 {
+			userSet[id] = struct{}{}
+		}
+	}
+	for _, id := range uids2 {
+		if id > 0 {
+			userSet[id] = struct{}{}
+		}
+	}
+	for _, id := range uids3 {
+		if id > 0 {
+			userSet[id] = struct{}{}
+		}
+	}
+	for _, id := range uids4 {
+		if id > 0 {
+			userSet[id] = struct{}{}
+		}
+	}
+
+	type outItem struct {
+		Type  string `json:"type"`
+		ID    uint64 `json:"id"`
+		Label string `json:"label"`
+	}
+
+	out := make([]outItem, 0, len(userSet))
+	if len(userSet) > 0 {
+		ids := make([]uint64, 0, len(userSet))
+		for id := range userSet {
+			ids = append(ids, id)
+		}
+		var users []model.User
+		if err := model.DB.Where("id IN ?", ids).Find(&users).Error; err == nil {
+			for _, u := range users {
+				name := ""
+				if u.Alias != nil && strings.TrimSpace(*u.Alias) != "" {
+					name = strings.TrimSpace(*u.Alias)
+				} else if strings.TrimSpace(u.Username) != "" {
+					name = strings.TrimSpace(u.Username)
+				} else {
+					name = fmt.Sprintf("用户#%d", u.ID)
+				}
+				out = append(out, outItem{Type: "user", ID: u.ID, Label: name})
+			}
+		}
+	}
+
 	ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "OK", "data": gin.H{"items": out}})
 }
 

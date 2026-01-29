@@ -600,6 +600,12 @@ export default {
         .get('/api/v1/settlement/data/customer', { params })
         .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
+    // 统一的费用归属主体（entity/user）下拉
+    ownerSubjects(params?: any): Promise<Array<{ type: string; id: number; label: string }>> {
+      return api
+        .get('/api/v1/settlement/data/customer/owner-subjects', { params })
+        .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (((d as any).data?.items) ?? []) : (Array.isArray(d) ? d : [])))
+    },
     // 导出 CSV
     export(params?: any): Promise<Blob> {
       return api

@@ -130,6 +130,15 @@ const currentPage = ref(1)
 const pageSize = ref(10)
 const currentGranularity = ref('5m') // 当前使用的时间粒度
 
+const pagedTrafficData = computed(() => {
+  const list = trafficData.value as any[]
+  const size = Number(pageSize.value) || 10
+  const page = Math.max(1, Number(currentPage.value) || 1)
+  const start = (page - 1) * size
+  const end = start + size
+  return list.slice(start, end)
+})
+
 // 查询表单
 const queryForm = reactive({
   school_name: '',
@@ -160,12 +169,6 @@ const timeRangeOptions = [
 
 // 图表选项
 const chartOption = computed(() => {
-  // 添加调试信息
-  console.log('构建图表选项，数据长度:', trafficData.value.length)
-  if (trafficData.value.length > 0) {
-    console.log('第一条数据:', trafficData.value[0])
-  }
-  
   // 无筛选时，不显示图表数据
   if (!hasFilter.value) {
     return {
@@ -192,16 +195,8 @@ const chartOption = computed(() => {
       series: []
     }
   }
-  
-  // 按时间升序排序数据（优先使用我们生成的 minute key 字符串，避免 Date 解析差异）
-  const sortedData = [...trafficData.value].sort((a, b) => {
-    const ak = String((a as any).time_str || (a as any).create_time || '')
-    const bk = String((b as any).time_str || (b as any).create_time || '')
-    if (ak === bk) return 0
-    return ak < bk ? -1 : 1
-  })
-  
-  console.log('排序后数据长度:', sortedData.length)
+  // 数据已由服务端按时间升序返回，避免对大数组再次排序
+  const sortedData = trafficData.value as any[]
   
   // 提取时间点标签：使用我们生成的 minute key 字符串
   const times = sortedData.map(item => {
@@ -209,23 +204,24 @@ const chartOption = computed(() => {
     return key.replace('T', ' ').replace('Z', '').slice(0, 16)
   })
   
-  console.log('时间点数组:', times)
+  // 在大数据量情况下避免打印
   
   // 将原始数据转换为 bits/s，并与时间戳配对，供 time 轴渲染
   const points = sortedData.map(item => {
     const ms = typeof item.create_time === 'number' ? item.create_time : parseTime(item.create_time).getTime()
     return {
       t: ms,
-      recv: convertToBitsPerSecond(item.total_recv),
-      send: convertToBitsPerSecond(item.total_send),
+      recv: (item as any).recv_bps != null ? Number((item as any).recv_bps) : convertToBitsPerSecond((item as any).total_recv),
+      send: (item as any).send_bps != null ? Number((item as any).send_bps) : convertToBitsPerSecond((item as any).total_send),
     }
   }).filter(p => !isNaN(p.t))
 
-  const serviceData = points.map(p => [p.t, p.recv])
-  const backSourceData = points.map(p => [p.t, p.send])
-  
-  console.log('服务流速数组:', serviceData)
-  console.log('回源流速数组:', backSourceData)
+  const maxPlotPoints = 5000
+  const plotStep = points.length > maxPlotPoints ? Math.ceil(points.length / maxPlotPoints) : 1
+  const plotPoints = plotStep > 1 ? points.filter((_, i) => i % plotStep === 0) : points
+
+  const serviceData = plotPoints.map(p => [p.t, p.recv])
+  const backSourceData = plotPoints.map(p => [p.t, p.send])
   
   // 格式化粒度显示
   const formatGranularity = (gran) => {
@@ -238,6 +234,7 @@ const chartOption = computed(() => {
     }
   }
   
+  const heavy = (trafficData.value?.length || 0) > 5000
   return {
     title: {
       text: `学校流量监控 (bits/s) - ${formatGranularity(currentGranularity.value)}`,
@@ -245,6 +242,7 @@ const chartOption = computed(() => {
     },
     tooltip: {
       trigger: 'axis',
+      triggerOn: heavy ? 'click' : 'mousemove|click',
       formatter: function(params) {
         let result = ''
         if (params && params.length) {
@@ -281,11 +279,13 @@ const chartOption = computed(() => {
       {
         type: 'inside',
         start: 0,
-        end: 100
+        end: 100,
+        throttle: 50
       },
       {
         start: 0,
-        end: 100
+        end: 100,
+        throttle: 50
       }
     ],
     xAxis: {
@@ -308,7 +308,13 @@ const chartOption = computed(() => {
         data: serviceData,
         smooth: true,
         showSymbol: false,
-        areaStyle: { opacity: 0.1 }
+        areaStyle: { opacity: 0.1 },
+        sampling: 'lttb',
+        large: true,
+        largeThreshold: 2000,
+        progressive: 4000,
+        progressiveThreshold: 10000,
+        animation: false
       },
       {
         name: '回源流速',
@@ -316,7 +322,13 @@ const chartOption = computed(() => {
         data: backSourceData,
         smooth: true,
         showSymbol: false,
-        areaStyle: { opacity: 0.1 }
+        areaStyle: { opacity: 0.1 },
+        sampling: 'lttb',
+        large: true,
+        largeThreshold: 2000,
+        progressive: 4000,
+        progressiveThreshold: 10000,
+        animation: false
       }
     ]
   }
@@ -532,15 +544,41 @@ async function loadTrafficData() {
     console.log(`查询时间范围: ${startDate.toLocaleString()} 至 ${endDate.toLocaleString()}, 共${diffDays.toFixed(1)}天 (${diffHours.toFixed(1)}小时)`)
     console.log('详细查询参数:', params, '限制数量:', limit)
     
-    // 使用真实的API调用
-    const res = await (api as any).v2.getTrafficData(params) as any
+    // 分片加载：大范围拆分为多个窗口，降低单次响应体积与解析成本（仍为5分钟粒度）
     let rawList: any[] = []
-    if (Array.isArray(res)) {
-      rawList = res
-    } else if (res && Array.isArray(res.items)) {
-      rawList = res.items
+    const windowMs = diffDays > 30 ? (10 * 24 * 60 * 60 * 1000) : (diffDays > 7 ? (7 * 24 * 60 * 60 * 1000) : 0)
+    if (windowMs > 0) {
+      let cursor = new Date(startDate.getTime())
+      let idx = 0
+      while (cursor.getTime() < endDate.getTime()) {
+        const chunkStart = new Date(cursor.getTime())
+        const chunkEnd = new Date(Math.min(cursor.getTime() + windowMs, endDate.getTime()))
+        const chunkDiffMinutes = (chunkEnd.getTime() - chunkStart.getTime()) / (1000 * 60)
+        const chunkExpected = Math.ceil(chunkDiffMinutes / 5) + 100
+        const chunkParams: Record<string, any> = {
+          ...params,
+          start_time: toRFC3339Seconds(chunkStart),
+          end_time: toRFC3339Seconds(chunkEnd),
+          limit: chunkExpected,
+          mode: 'compact',            // 未来后端可返回紧凑格式
+          fields: 't,recv_bps,send_bps' // 最小列集请求（后端未实现时会被忽略）
+        }
+        console.log(`分片请求[${++idx}]`, chunkParams)
+        const res = await (api as any).v2.getTrafficData(chunkParams) as any
+        let list: any[] = []
+        if (Array.isArray(res)) { list = res }
+        else if (res && Array.isArray(res.items)) { list = res.items }
+        rawList = rawList.concat(list)
+        // 前移1秒避免边界重复
+        cursor = new Date(chunkEnd.getTime() + 1000)
+      }
+      console.log(`分片完成，合并总数: ${rawList.length}`)
     } else {
-      rawList = []
+      // 小范围直接一次性请求
+      const res = await (api as any).v2.getTrafficData(params) as any
+      if (Array.isArray(res)) { rawList = res }
+      else if (res && Array.isArray(res.items)) { rawList = res.items }
+      else { rawList = [] }
     }
 
     if (!Array.isArray(rawList)) {
@@ -626,8 +664,14 @@ async function loadTrafficData() {
         console.log(`合并后的数据点数量: ${finalData.length}, 原始数据点数量: ${filteredData.length}`)
       }
       
-      trafficData.value = finalData
-      total.value = finalData.length
+      // 预计算 bps，减少渲染与 tooltip 阶段的重复换算
+      const withBps = finalData.map((it: any) => ({
+        ...it,
+        recv_bps: it && it.recv_bps != null ? Number(it.recv_bps) : convertToBitsPerSecond(it.total_recv),
+        send_bps: it && it.send_bps != null ? Number(it.send_bps) : convertToBitsPerSecond(it.total_send),
+      }))
+      trafficData.value = withBps
+      total.value = withBps.length
       
       console.log(`加载流量数据成功: 原始${rawList.length}条, 处理后${processedData.length}条, 过滤后${filteredData.length}条`)
       
@@ -947,7 +991,7 @@ function formatDate(date: Date | string, granularity: string) {
     
     <!-- 流量数据表格 -->
     <ElCard class="data-card">
-      <ElTable :data="trafficData" border stripe v-loading="loading">
+      <ElTable :data="pagedTrafficData" border stripe v-loading="loading">
         <ElTableColumn prop="create_time" label="时间" width="200">
           <template #default="scope">
             {{ typeof scope.row.create_time === 'number' 
@@ -960,12 +1004,12 @@ function formatDate(date: Date | string, granularity: string) {
         <ElTableColumn prop="cp" label="内容方" />
         <ElTableColumn prop="total_recv" label="服务流速">
           <template #default="scope">
-            {{ formatBitRate(convertToBitsPerSecond(scope.row.total_recv)) }}
+            {{ formatBitRate(Number(scope.row.recv_bps != null ? scope.row.recv_bps : convertToBitsPerSecond(scope.row.total_recv))) }}
           </template>
         </ElTableColumn>
         <ElTableColumn prop="total_send" label="回源流速">
           <template #default="scope">
-            {{ formatBitRate(convertToBitsPerSecond(scope.row.total_send)) }}
+            {{ formatBitRate(Number(scope.row.send_bps != null ? scope.row.send_bps : convertToBitsPerSecond(scope.row.total_send))) }}
           </template>
         </ElTableColumn>
       </ElTable>
