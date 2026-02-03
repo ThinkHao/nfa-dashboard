@@ -860,6 +860,15 @@ async function doExport() {
           : `${r?.region || ''}__${r?.school_name || ''}__${r?.cp || ''}`
         if (!group.has(gk)) {
           const g: Agg = { base: { school_name: r?.school_name, region: r?.region, cp: r?.cp }, traf: {}, money: {} }
+          // 基础字段（聚合允许的）按勾选顺序填充一次
+          const allowedBase = new Set(['school_name','region','cp','customer_fee_owner_name','network_line_fee_owner_name','node_deduction_fee_owner_name','channel_owner_name'])
+          const baseSelectedKeysAll = exportForm.selectedFields.filter(k => allowedBase.has(k))
+          for (const k of baseSelectedKeysAll) {
+            if (g.base[k] != null && g.base[k] !== '') continue
+            const def = allFieldDefs.find(f => f.key === k)
+            const val = def && def.getter ? def.getter(r) : (r as any)?.[k]
+            g.base[k] = val ?? ''
+          }
           for (const def of metricDefs) {
             if (def.type === 'traffic') g.traf[def.key] = { sum: Array(months.length).fill(0), cnt: Array(months.length).fill(0) }
             else g.money[def.key] = Array(months.length).fill(0)
@@ -878,7 +887,8 @@ async function doExport() {
           if (!Number.isNaN(v)) g.money[k][idx] += v
         }
       }
-      const baseSelectedKeys = exportForm.selectedFields.filter(k => ['school_name', 'region', 'cp'].includes(k))
+      const allowedBase = new Set(['school_name','region','cp','customer_fee_owner_name','network_line_fee_owner_name','node_deduction_fee_owner_name','channel_owner_name'])
+      const baseSelectedKeys = exportForm.selectedFields.filter(k => allowedBase.has(k))
       header = baseSelectedKeys.map(k => (allFieldDefs.find(f => f.key === k)?.label || k))
       for (const def of metricDefs) {
         const name = stripLabel(def.label)
@@ -911,12 +921,20 @@ async function doExport() {
       // 非按月，但按学校+CP聚合：金额字段求和，流量字段取平均
       const metricDefs = selectedDefs.filter(f => f.type === 'traffic' || f.type === 'money')
       const selectedTrafficKeys = new Set(metricDefs.filter(f => f.type === 'traffic').map(f => f.key))
-      type Agg2 = { base: { school_name: string; region: string; cp: string }; traf: Record<string, { sum: number; cnt: number }>; money: Record<string, number> }
+      type Agg2 = { base: { [k:string]: any; school_name: string; region: string; cp: string }; traf: Record<string, { sum: number; cnt: number }>; money: Record<string, number> }
       const group2 = new Map<string, Agg2>()
       for (const r of data) {
         const gk = `${r?.school_name || ''}__${r?.cp || ''}`
         if (!group2.has(gk)) {
           const g: Agg2 = { base: { school_name: r?.school_name || '', region: r?.region || '', cp: r?.cp || '' }, traf: {}, money: {} }
+          const allowedBase = new Set(['school_name','region','cp','customer_fee_owner_name','network_line_fee_owner_name','node_deduction_fee_owner_name','channel_owner_name'])
+          const baseSelectedKeysAll = exportForm.selectedFields.filter(k => allowedBase.has(k))
+          for (const k of baseSelectedKeysAll) {
+            if (g.base[k] != null && g.base[k] !== '') continue
+            const def = allFieldDefs.find(f => f.key === k)
+            const val = def && def.getter ? def.getter(r) : (r as any)?.[k]
+            g.base[k] = val ?? ''
+          }
           for (const def of metricDefs) {
             if (def.type === 'traffic') g.traf[def.key] = { sum: 0, cnt: 0 }
             else g.money[def.key] = 0
@@ -935,7 +953,8 @@ async function doExport() {
           if (!Number.isNaN(v)) g.money[k] += v
         }
       }
-      const baseSelectedKeys2 = exportForm.selectedFields.filter(k => ['school_name', 'region', 'cp'].includes(k))
+      const allowedBase2 = new Set(['school_name','region','cp','customer_fee_owner_name','network_line_fee_owner_name','node_deduction_fee_owner_name','channel_owner_name'])
+      const baseSelectedKeys2 = exportForm.selectedFields.filter(k => allowedBase2.has(k))
       header = baseSelectedKeys2.map(k => (allFieldDefs.find(f => f.key === k)?.label || k))
       for (const def of metricDefs) header.push(def.label)
       const lines2: string[] = []
