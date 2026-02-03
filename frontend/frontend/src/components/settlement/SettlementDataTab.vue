@@ -806,7 +806,9 @@ async function doExport() {
     taskId = `export:${Date.now()}`
     tasks.start({ id: taskId, type: 'export', title: '结算数据导出', status: 'running', progress: 0 })
     const data = await fetchAllDataForExport((p, meta) => { tasks.update(taskId, { progress: p, status: 'running', processed: meta?.processed ?? null, total: meta?.total ?? null }) })
-    const selectedDefs = allFieldDefs.filter(f => exportForm.selectedFields.includes(f.key))
+    const selectedDefs = exportForm.selectedFields
+      .map(k => allFieldDefs.find(f => f.key === k))
+      .filter((x): x is FieldDef => !!x)
     let header: string[] = []
 
     let rows: string[] = []
@@ -876,16 +878,15 @@ async function doExport() {
           if (!Number.isNaN(v)) g.money[k][idx] += v
         }
       }
-      header = exportForm.groupBySchoolCp ? ['学校名称', 'CP'] : ['学校名称', '地区', 'CP']
+      const baseSelectedKeys = exportForm.selectedFields.filter(k => ['school_name', 'region', 'cp'].includes(k))
+      header = baseSelectedKeys.map(k => (allFieldDefs.find(f => f.key === k)?.label || k))
       for (const def of metricDefs) {
         const name = stripLabel(def.label)
         for (const mo of months) header.push(`${mo.label}${name}`)
       }
       const lines: string[] = []
       for (const [, g] of group) {
-        const rowBase: string[] = exportForm.groupBySchoolCp
-          ? [csvEscape(g.base.school_name), csvEscape(g.base.cp)]
-          : [csvEscape(g.base.school_name), csvEscape(g.base.region), csvEscape(g.base.cp)]
+        const rowBase: string[] = baseSelectedKeys.map(k => csvEscape(g.base[k]))
         const row: string[] = [...rowBase]
         for (const def of metricDefs) {
           if (def.type === 'traffic') {
@@ -910,12 +911,12 @@ async function doExport() {
       // 非按月，但按学校+CP聚合：金额字段求和，流量字段取平均
       const metricDefs = selectedDefs.filter(f => f.type === 'traffic' || f.type === 'money')
       const selectedTrafficKeys = new Set(metricDefs.filter(f => f.type === 'traffic').map(f => f.key))
-      type Agg2 = { base: { school_name: string; cp: string }; traf: Record<string, { sum: number; cnt: number }>; money: Record<string, number> }
+      type Agg2 = { base: { school_name: string; region: string; cp: string }; traf: Record<string, { sum: number; cnt: number }>; money: Record<string, number> }
       const group2 = new Map<string, Agg2>()
       for (const r of data) {
         const gk = `${r?.school_name || ''}__${r?.cp || ''}`
         if (!group2.has(gk)) {
-          const g: Agg2 = { base: { school_name: r?.school_name || '', cp: r?.cp || '' }, traf: {}, money: {} }
+          const g: Agg2 = { base: { school_name: r?.school_name || '', region: r?.region || '', cp: r?.cp || '' }, traf: {}, money: {} }
           for (const def of metricDefs) {
             if (def.type === 'traffic') g.traf[def.key] = { sum: 0, cnt: 0 }
             else g.money[def.key] = 0
@@ -934,11 +935,12 @@ async function doExport() {
           if (!Number.isNaN(v)) g.money[k] += v
         }
       }
-      header = ['学校名称', 'CP']
+      const baseSelectedKeys2 = exportForm.selectedFields.filter(k => ['school_name', 'region', 'cp'].includes(k))
+      header = baseSelectedKeys2.map(k => (allFieldDefs.find(f => f.key === k)?.label || k))
       for (const def of metricDefs) header.push(def.label)
       const lines2: string[] = []
       for (const [, g] of group2) {
-        const row: string[] = [csvEscape(g.base.school_name), csvEscape(g.base.cp)]
+        const row: string[] = baseSelectedKeys2.map(k => csvEscape(g.base[k]))
         for (const def of metricDefs) {
           if (def.type === 'traffic') {
             const tt = g.traf[def.key]
