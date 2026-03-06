@@ -835,7 +835,7 @@ function convertToBitsPerSecond(bytes) {
   // *8 是将字节转换为比特
   // /60 是将每分钟的数据转换为每秒的数据
   // 我们始终使用原始5分钟粒度，所以因子始终是60
-  const factor = 300
+  const factor = 60
   
   // 将字节转换为比特，然后除以时间因子
   return (bytes * 8) / factor
