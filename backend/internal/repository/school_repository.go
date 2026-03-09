@@ -224,6 +224,16 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 		log.Printf("短时间范围查询(%.2f天)，建议最少%d条", timeDiffDays, minLimit)
 	}
 
+	// For school-based queries, duplicate rows at the same timestamp can under-estimate a 5m-based limit.
+	// Use a safer per-minute lower bound to avoid long-range gaps caused by LIMIT truncation.
+	if filter.SchoolName != "" {
+		schoolSafeMinLimit := int(timeDiffMinutes) + 200
+		if schoolSafeMinLimit > minLimit {
+			minLimit = schoolSafeMinLimit
+			log.Printf("school-based query raises min limit to %d (per-minute safe bound)", minLimit)
+		}
+	}
+
 	// 使用前端请求的限制和最小限制中的较大值
 	if filter.Limit < minLimit {
 		filter.Limit = minLimit
@@ -234,7 +244,21 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 
 	var query string
 	var args []interface{}
-	query = `
+	if filter.SchoolName != "" {
+		// 按学校查询时，按时间+维度聚合，规避同校同时间多 school_id/hash_uuid 造成的重复点
+		query = `
+            SELECT
+                create_time,
+                MIN(school_id) AS school_id,
+                school_name,
+                region,
+                cp,
+                SUM(total_recv) AS total_recv,
+                SUM(total_send) AS total_send
+            FROM nfa_school_traffic FORCE INDEX (idx_traffic_rcn_name_time_cov)
+            WHERE create_time BETWEEN ? AND ?`
+	} else {
+		query = `
             SELECT 
                 create_time,
                 school_id,
@@ -245,6 +269,7 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
                 total_send
             FROM nfa_school_traffic FORCE INDEX (idx_traffic_rcn_name_time_cov)
             WHERE create_time BETWEEN ? AND ?`
+	}
 
 	// 初始化参数
 	args = []interface{}{filter.StartTime, filter.EndTime}
@@ -274,8 +299,12 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 		args = append(args, *filter.UserID)
 	}
 
-	// 添加排序
-	query += " ORDER BY create_time ASC"
+	// 按学校查询时先聚合再排序，其余查询保持明细
+	if filter.SchoolName != "" {
+		query += " GROUP BY create_time, school_name, region, cp ORDER BY create_time ASC"
+	} else {
+		query += " ORDER BY create_time ASC"
+	}
 
 	// 添加限制
 	if filter.Limit > 0 {

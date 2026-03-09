@@ -510,10 +510,18 @@ async function loadTrafficData() {
     // 始终使用原始5分钟粒度
     const granularity = '5m'
 
-    // 按5分钟粒度精确计算所需点数，并留出缓冲，避免服务端降采样或返回不足
+    // 估算查询上限：
+    // 当库中存在同一时间点多条记录时，按5分钟估算会低估并触发 LIMIT 截断，导致长周期断点。
+    // 这里按“每分钟1条”的保守估算，并与5分钟估算取较大值。
+    const estimateLimit = (minutes: number) => {
+      const safeMinutes = Math.max(0, Number(minutes) || 0)
+      const by5m = Math.ceil(safeMinutes / 5) + 100
+      const by1m = Math.ceil(safeMinutes) + 200
+      return Math.max(by5m, by1m)
+    }
     const expectedPoints = Math.ceil(diffMinutes / 5)
-    const limit = expectedPoints + 100
-    console.log(`按5分钟粒度查询，预期点数: ${expectedPoints}，limit: ${limit}`)
+    const limit = estimateLimit(diffMinutes)
+    console.log(`按5分钟粒度查询，预期点数: ${expectedPoints}，安全limit: ${limit}`)
     
     // 构建查询参数
     const params: Record<string, any> = {
@@ -560,7 +568,7 @@ async function loadTrafficData() {
         const chunkStart = new Date(cursor.getTime())
         const chunkEnd = new Date(Math.min(cursor.getTime() + windowMs, endDate.getTime()))
         const chunkDiffMinutes = (chunkEnd.getTime() - chunkStart.getTime()) / (1000 * 60)
-        const chunkExpected = Math.ceil(chunkDiffMinutes / 5) + 100
+        const chunkExpected = estimateLimit(chunkDiffMinutes)
         const chunkParams: Record<string, any> = {
           ...params,
           start_time: toRFC3339Seconds(chunkStart),
@@ -617,7 +625,7 @@ async function loadTrafficData() {
 
       // 聚合策略：
       // 1) 无任何筛选（学校/地区/运营商均为空）时，按时间点聚合求和，显示整体“总服务/总回源流速”。
-      // 2) 选择了学校但未选择内容方时，按时间点聚合该学校的所有内容方数据。
+      // 2) 选择了学校时（无论是否选择内容方），都按时间点聚合，避免同校同时间重复记录导致锯齿。
       let finalData = filteredData
       if (!queryForm.school_name && !queryForm.region && !queryForm.cp) {
         console.log('检测到无任何筛选条件，按时间点聚合全量数据')
@@ -640,8 +648,8 @@ async function loadTrafficData() {
         finalData = Object.values(dataByTimeAll).sort((a: any, b: any) => (a.create_time as string).localeCompare(b.create_time as string))
         try { console.log('无筛选聚合桶数:', Object.keys(dataByTimeAll).length) } catch {}
         console.log(`无筛选聚合后数据点: ${finalData.length}, 原始: ${filteredData.length}`)
-      } else if (queryForm.school_name && !queryForm.cp) {
-        console.log('检测到选择了学校但未选择内容方，将进行数据合并处理')
+      } else if (queryForm.school_name) {
+        console.log('检测到选择了学校，将按时间点聚合去重')
         
         // 按时间点分组数据
         const dataByTime: Record<string, any> = {}
@@ -653,6 +661,7 @@ async function loadTrafficData() {
               create_time: key,
               school_name: queryForm.school_name,
               region: item.region || '',
+              cp: queryForm.cp || item.cp || '',
               total_recv: 0,
               total_send: 0,
               time_str: key
