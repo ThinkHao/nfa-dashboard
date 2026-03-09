@@ -361,7 +361,7 @@ onMounted(async () => {
     await loadSchools()
     // 若未能从接口获得地区/运营商，则基于学校数据兜底派生
     if ((!regions.value || regions.value.length === 0) || (!cps.value || cps.value.length === 0)) {
-      computeRegionCpOptions()
+      computeRegionCpOptions(true)
     }
     
     // 默认不加载流量数据，待用户选择筛选条件后点击查询
@@ -392,7 +392,7 @@ watch(
 )
 
 // 基于当前 schools 列表动态派生地区/运营商选项（仅限可见院校）
-function computeRegionCpOptions() {
+function computeRegionCpOptions(forceOverwrite = false) {
   try {
     const rset = new Set<string>()
     const cset = new Set<string>()
@@ -400,12 +400,18 @@ function computeRegionCpOptions() {
       if (s && typeof s.region === 'string' && s.region && s.region !== 'NULL') rset.add(s.region)
       if (s && typeof s.cp === 'string' && s.cp && s.cp !== 'NULL') cset.add(s.cp)
     })
-    regions.value = Array.from(rset).sort()
-    cps.value = Array.from(cset).sort()
+    const nextRegions = Array.from(rset).sort()
+    const nextCPs = Array.from(cset).sort()
+    if (forceOverwrite || !Array.isArray(regions.value) || regions.value.length === 0) {
+      regions.value = nextRegions
+    }
+    if (forceOverwrite || !Array.isArray(cps.value) || cps.value.length === 0) {
+      cps.value = nextCPs
+    }
   } catch (e) {
     console.warn('派生地区/运营商选项失败:', e)
-    regions.value = []
-    cps.value = []
+    if (forceOverwrite || !Array.isArray(regions.value) || regions.value.length === 0) regions.value = []
+    if (forceOverwrite || !Array.isArray(cps.value) || cps.value.length === 0) cps.value = []
   }
 }
 
@@ -471,7 +477,7 @@ async function loadSchools(region = '', cp = '') {
       console.log(`学校${index + 1}:`, school.school_name, '运营商:', school.cp, '地区:', school.region)
     })
     
-    // 根据最新学校数据刷新地区/运营商选项
+    // 仅在接口未返回地区/运营商时，才基于学校数据兜底填充
     computeRegionCpOptions()
 
     // 如果没有数据，不再使用测试数据，而是显示错误提示
@@ -710,16 +716,16 @@ function handleQuery() {
 // 当选择省份变化时重新加载学校列表
 function handleRegionChange(region) {
   queryForm.school_name = ''
-  // 先按地区/运营商重新加载学校，然后刷新选项集合
-  loadSchools(region, queryForm.cp).then(() => computeRegionCpOptions())
+  // 按地区/运营商重新加载学校，不覆盖已有地区/运营商完整下拉
+  loadSchools(region, queryForm.cp)
   console.log('基于地区筛选学校:', region, queryForm.cp)
 }
 
 // 当选择运营商变化时重新加载学校列表
 function handleCPChange(cp) {
   queryForm.school_name = ''
-  // 先按地区/运营商重新加载学校，然后刷新选项集合
-  loadSchools(queryForm.region, cp).then(() => computeRegionCpOptions())
+  // 按地区/运营商重新加载学校，不覆盖已有地区/运营商完整下拉
+  loadSchools(queryForm.region, cp)
   console.log('基于运营商筛选学校:', queryForm.region, cp)
 }
 
@@ -1069,3 +1075,4 @@ function formatDate(date: Date | string, granularity: string) {
   width: 180px !important;
 }
 </style>
+
