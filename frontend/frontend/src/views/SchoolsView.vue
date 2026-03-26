@@ -2,8 +2,10 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import FilterPanel from '@/components/ui/FilterPanel.vue'
+import SectionCard from '@/components/ui/SectionCard.vue'
 import { 
-  ElCard, 
   ElTable, 
   ElTableColumn, 
   ElPagination, 
@@ -178,14 +180,14 @@ function goTraffic(row: any) {
 </script>
 
 <template>
-  <div class="schools-container">
-    <h1 class="page-title">学校管理</h1>
+  <div class="page-container">
+    <PageHeader title="学校管理" description="按地区、CP、学校名称筛选并查看流量入口。" />
     
     <!-- 查询表单 -->
-    <ElCard class="query-card">
+    <FilterPanel>
       <ElForm :model="queryForm" label-width="80px" inline class="filter-form">
         <ElFormItem label="地区">
-          <ElSelect v-model="queryForm.region" placeholder="选择地区" clearable @change="handleRegionChange">
+          <ElSelect v-model="queryForm.region" placeholder="选择地区" clearable @change="handleRegionChange" class="field-sm">
             <ElOption 
               v-for="region in regions" 
               :key="region" 
@@ -196,7 +198,7 @@ function goTraffic(row: any) {
         </ElFormItem>
         
         <ElFormItem label="CP">
-          <ElSelect v-model="queryForm.cp" placeholder="选择 CP" clearable @change="handleCPChange">
+          <ElSelect v-model="queryForm.cp" placeholder="选择 CP" clearable @change="handleCPChange" class="field-sm">
             <ElOption 
               v-for="cp in cps" 
               :key="cp" 
@@ -207,7 +209,7 @@ function goTraffic(row: any) {
         </ElFormItem>
         
         <ElFormItem label="学校名称">
-          <ElInput v-model="queryForm.school_name" placeholder="输入学校名称" clearable />
+          <ElInput v-model="queryForm.school_name" placeholder="输入学校名称" clearable class="field-sm" />
         </ElFormItem>
         
         <ElFormItem>
@@ -215,10 +217,10 @@ function goTraffic(row: any) {
           <ElButton @click="handleReset">重置</ElButton>
         </ElFormItem>
       </ElForm>
-    </ElCard>
+    </FilterPanel>
     
     <!-- 学校数据表格 -->
-    <ElCard class="data-card">
+    <SectionCard title="学校列表">
       <ElTable :data="schools" border stripe v-loading="loading">
         <ElTableColumn prop="school_id" label="学校ID" width="100" />
         <ElTableColumn prop="school_name" label="学校名称" />
@@ -252,23 +254,11 @@ function goTraffic(row: any) {
           @current-change="handlePageChange"
         />
       </div>
-    </ElCard>
+    </SectionCard>
   </div>
 </template>
 
 <style scoped>
-.schools-container {
-  padding: 1rem 0;
-}
-
-.query-card {
-  margin-bottom: 1.5rem;
-}
-
-.data-card {
-  margin-bottom: 1.5rem;
-}
-
 .pagination-container {
   margin-top: 1rem;
   display: flex;
@@ -277,11 +267,10 @@ function goTraffic(row: any) {
 
 .filter-form { row-gap: var(--form-item-gap); }
 
-:deep(.el-select) {
-  width: 180px !important;
-}
-
-:deep(.el-input) {
+.field-sm:deep(.el-select__wrapper),
+.field-sm:deep(.el-input__wrapper) {
   width: 180px !important;
 }
 </style>
+
+

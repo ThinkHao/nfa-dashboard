@@ -19,3 +19,5 @@ function goHome() {
 <style scoped>
 .forbidden { padding: 40px; display: flex; justify-content: center; }
 </style>
+
+

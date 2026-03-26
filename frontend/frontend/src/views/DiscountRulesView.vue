@@ -16,10 +16,10 @@
 
       <el-form :inline="true" :model="query" label-width="90px" class="filter-form">
         <el-form-item label="名称">
-          <el-input v-model="query.name" clearable placeholder="规则名" style="width: 220px" />
+          <el-input v-model="query.name" clearable placeholder="规则名" class="field-w-220" />
         </el-form-item>
         <el-form-item label="范围">
-          <el-select v-model="query.scope_type" clearable placeholder="选择范围" style="width: 160px">
+          <el-select v-model="query.scope_type" clearable placeholder="选择范围" class="field-w-160">
             <el-option label="global" value="global" />
             <el-option label="region" value="region" />
             <el-option label="cp" value="cp" />
@@ -27,7 +27,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="启用">
-          <el-select v-model="query.enabled" clearable placeholder="全部" style="width: 140px">
+          <el-select v-model="query.enabled" clearable placeholder="全部" class="field-w-140">
             <el-option label="是" :value="'true'" />
             <el-option label="否" :value="'false'" />
           </el-select>
@@ -35,7 +35,7 @@
       </el-form>
     </el-card>
 
-    <el-card shadow="never" class="box-card" style="margin-top: 16px">
+    <el-card shadow="never" class="box-card mt-2">
       <template #header>
         <div class="card-header"><span class="card-title">折损规则列表</span></div>
       </template>
@@ -87,7 +87,7 @@
           <el-input v-model="editForm.name" />
         </el-form-item>
         <el-form-item label="范围类型" required>
-          <el-select v-model="editForm.scope_type" style="width: 200px">
+          <el-select v-model="editForm.scope_type" class="field-w-200">
             <el-option label="global" value="global" />
             <el-option label="region" value="region" />
             <el-option label="cp" value="cp" />
@@ -95,12 +95,12 @@
           </el-select>
         </el-form-item>
         <el-form-item v-if="editForm.scope_type === 'region'" label="区域">
-          <el-select v-model="editForm.scope_key" filterable placeholder="选择区域" style="width: 240px">
+          <el-select v-model="editForm.scope_key" filterable placeholder="选择区域" class="field-w-240">
             <el-option v-for="r in regionOptions" :key="r" :label="r" :value="r" />
           </el-select>
         </el-form-item>
         <el-form-item v-if="editForm.scope_type === 'cp'" label="CP">
-          <el-select v-model="editForm.scope_key" filterable placeholder="选择 CP" style="width: 240px">
+          <el-select v-model="editForm.scope_key" filterable placeholder="选择 CP" class="field-w-240">
             <el-option v-for="c in cpOptions" :key="c" :label="c" :value="c" />
           </el-select>
         </el-form-item>
@@ -113,7 +113,7 @@
             :remote-method="remoteSearchSchools"
             :loading="schoolsLoading"
             placeholder="搜索学校"
-            style="width: 300px"
+            class="field-w-300"
           >
             <el-option v-for="s in schoolOptions" :key="s" :label="s" :value="s" />
           </el-select>
@@ -141,8 +141,8 @@
 
     <!-- 规则条目编辑弹窗 -->
     <el-dialog v-model="itemsVisible" title="编辑规则条目" width="960px" :append-to-body="true">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-        <div v-if="!itemsAdvancedJsonMode" style="display: flex; gap: 8px; align-items: center;">
+      <div class="d-flex items-center justify-between mb-8">
+        <div v-if="!itemsAdvancedJsonMode" class="d-flex items-center gap-8">
           <el-button @click="onQuickFillStandard">快速填充 100%/75%/25%</el-button>
           <el-button @click="addRow">新增区间</el-button>
         </div>
@@ -152,22 +152,22 @@
         <el-table :data="itemsRows" border size="small" max-height="480">
           <el-table-column label="开始年(from)" width="160">
             <template #default="{ row }">
-              <el-input-number v-model="row.from_year" size="small" :min="1" :step="1" controls-position="right" style="width: 120px" />
+              <el-input-number v-model="row.from_year" size="small" :min="1" :step="1" controls-position="right" class="field-w-120" />
             </template>
           </el-table-column>
           <el-table-column label="结束年(to)" width="220">
             <template #default="{ row }">
-              <div style="display:flex; gap:6px; align-items:center;">
-                <el-input-number v-model="row.to_year" size="small" :min="row.from_year || 1" :step="1" controls-position="right" style="width: 120px" />
+              <div class="d-flex items-center gap-6">
+                <el-input-number v-model="row.to_year" size="small" :min="row.from_year || 1" :step="1" controls-position="right" class="field-w-120" />
                 <el-button text type="primary" @click="row.to_year = null">无上限</el-button>
               </div>
             </template>
           </el-table-column>
           <el-table-column label="折损比率(0~1)" width="220">
             <template #default="{ row }">
-              <div style="display:flex; align-items:center; gap:6px;">
-                <el-input-number v-model="row.discount_rate" size="small" :min="0" :max="1" :step="0.01" :precision="2" controls-position="right" style="width: 140px" />
-                <span style="color:#888; min-width: 40px;">{{ Math.round((Number(row.discount_rate)||0)*100) }}%</span>
+              <div class="d-flex items-center gap-6">
+                <el-input-number v-model="row.discount_rate" size="small" :min="0" :max="1" :step="0.01" :precision="2" controls-position="right" class="field-w-140" />
+                <span class="rate-percent">{{ Math.round((Number(row.discount_rate)||0)*100) }}%</span>
               </div>
             </template>
           </el-table-column>
@@ -177,11 +177,11 @@
             </template>
           </el-table-column>
         </el-table>
-        <el-alert type="info" show-icon style="margin-top: 8px;"
+        <el-alert type="info" show-icon class="mt-8"
           title="区间按开始年升序；结束年为空表示无上限；比率范围 0~1，例如 0.75=75%" />
       </div>
       <div v-else>
-        <el-alert title='以 JSON 数组形式编辑条目：[ {"from_year":1, "to_year":3, "discount_rate":1 }, {"from_year":2, "to_year":2, "discount_rate":0.75 }, {"from_year":3, "discount_rate":0.25 } ]' type="info" show-icon style="margin-bottom: 8px" />
+        <el-alert title='以 JSON 数组形式编辑条目：[ {"from_year":1, "to_year":3, "discount_rate":1 }, {"from_year":2, "to_year":2, "discount_rate":0.75 }, {"from_year":3, "discount_rate":0.25 } ]' type="info" show-icon class="mb-8" />
         <el-input v-model="itemsText" type="textarea" :rows="12" placeholder='[ {"from_year":1, "to_year":3, "discount_rate":0.9} ]' />
       </div>
       <template #footer>
@@ -494,4 +494,7 @@ watch(() => route.query, () => { handleRouteOpen() })
 .card-header { display: flex; justify-content: space-between; align-items: center; }
 .filter-form { row-gap: var(--form-item-gap); }
 .pagination { display: flex; justify-content: flex-end; margin-top: 12px; }
+.rate-percent { color: var(--text-muted); min-width: 40px; }
 </style>
+
+

@@ -14,13 +14,13 @@
       </template>
       <el-form :inline="true" :model="query" label-width="90px" class="filter-form">
         <el-form-item label="编码">
-          <el-input v-model="query.code" clearable placeholder="如 customer" style="width: 200px" />
+          <el-input v-model="query.code" clearable placeholder="如 customer" class="field-w-200" />
         </el-form-item>
         <el-form-item label="名称">
-          <el-input v-model="query.name" clearable placeholder="名称" style="width: 200px" />
+          <el-input v-model="query.name" clearable placeholder="名称" class="field-w-200" />
         </el-form-item>
         <el-form-item label="启用">
-          <el-select v-model="query.enabled" clearable style="width: 140px" placeholder="全部">
+          <el-select v-model="query.enabled" clearable class="field-w-140" placeholder="全部">
             <el-option :value="true" label="启用" />
             <el-option :value="false" label="禁用" />
           </el-select>
@@ -28,7 +28,7 @@
       </el-form>
     </el-card>
 
-    <el-card shadow="never" class="box-card" style="margin-top: 16px">
+    <el-card shadow="never" class="box-card mt-2">
       <template #header>
         <div class="card-header"><span class="card-title">业务类型列表</span></div>
       </template>
@@ -206,3 +206,5 @@ onMounted(fetchData)
 .filter-form { row-gap: var(--form-item-gap); }
 .pagination { display: flex; justify-content: flex-end; margin-top: 12px; }
 </style>
+
+

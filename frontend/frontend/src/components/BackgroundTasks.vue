@@ -1,5 +1,5 @@
 <template>
-  <div class="bg-tasks">
+  <div :class="['bg-tasks', inline ? 'bg-tasks--inline' : 'bg-tasks--floating']">
     <el-popover placement="bottom-end" trigger="click" width="360">
       <template #reference>
         <el-badge :value="activeCount" :hidden="activeCount===0" type="primary">
@@ -35,6 +35,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useTasksStore } from '@/stores/tasks'
+withDefaults(defineProps<{ inline?: boolean }>(), { inline: false })
 
 const store = useTasksStore()
 const tasks = computed(() => store.tasks)
@@ -70,7 +71,17 @@ function etaText(t: any): string {
 </script>
 
 <style scoped>
-.bg-tasks { position: fixed; top: 12px; right: 16px; z-index: 3000; }
+.bg-tasks--floating {
+  position: fixed;
+  top: 64px;
+  right: 16px;
+  z-index: 3000;
+}
+.bg-tasks--inline {
+  position: static;
+  display: inline-flex;
+  align-items: center;
+}
 .tasks-list { max-height: 380px; overflow: auto; }
 .task-item { padding: 8px 4px; border-bottom: 1px solid var(--el-border-color-lighter); }
 .task-item:last-child { border-bottom: none; }
@@ -80,4 +91,20 @@ function etaText(t: any): string {
 .info { color: var(--text-muted); font-size: 12px; }
 .action-row { margin-top: 6px; }
 .meta { display:flex; gap:12px; color: var(--text-muted); font-size:12px; margin-top:4px; }
+
+@media (max-width: 992px) {
+  .bg-tasks--floating {
+    top: 62px;
+    right: 12px;
+  }
+}
+
+@media (max-width: 768px) {
+  .bg-tasks--floating {
+    top: 58px;
+    right: 10px;
+  }
+}
 </style>
+
+

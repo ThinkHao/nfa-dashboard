@@ -27,11 +27,11 @@ const themeStore = useThemeStore()
       <div class="row">
         <span>主色</span>
         <div class="colors">
-          <button class="color-swatch" style="background:#1890ff" @click="themeStore.setPrimary('#1890ff')"></button>
-          <button class="color-swatch" style="background:#409EFF" @click="themeStore.setPrimary('#409EFF')"></button>
-          <button class="color-swatch" style="background:#13c2c2" @click="themeStore.setPrimary('#13c2c2')"></button>
-          <button class="color-swatch" style="background:#722ed1" @click="themeStore.setPrimary('#722ed1')"></button>
-          <button class="color-swatch" style="background:#52c41a" @click="themeStore.setPrimary('#52c41a')"></button>
+          <button class="color-swatch swatch-primary" @click="themeStore.setPrimary('#2563eb')"></button>
+          <button class="color-swatch swatch-teal" @click="themeStore.setPrimary('#0f766e')"></button>
+          <button class="color-swatch swatch-sky" @click="themeStore.setPrimary('#0369a1')"></button>
+          <button class="color-swatch swatch-amber" @click="themeStore.setPrimary('#b45309')"></button>
+          <button class="color-swatch swatch-slate" @click="themeStore.setPrimary('#334155')"></button>
         </div>
       </div>
     </div>
@@ -44,3 +44,5 @@ const themeStore = useThemeStore()
 .settings-panel .colors { display: flex; gap: 8px; }
 .settings-panel .color-swatch { width: 20px; height: 20px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.15); cursor: pointer; padding: 0; }
 </style>
+
+

@@ -15,18 +15,18 @@
 
       <el-form :inline="true" :model="query" label-width="90px" class="filter-form">
         <el-form-item label="区域">
-          <el-input v-model="query.region" clearable placeholder="如 华东" style="width: 160px" />
+          <el-input v-model="query.region" clearable placeholder="如 华东" class="field-w-160" />
         </el-form-item>
         <el-form-item label="CP">
-          <el-input v-model="query.cp" clearable placeholder="如 CMCC" style="width: 160px" />
+          <el-input v-model="query.cp" clearable placeholder="如 CMCC" class="field-w-160" />
         </el-form-item>
         <el-form-item label="结算类型">
-          <el-input v-model="query.settlement_type" clearable placeholder="如 IDC" style="width: 160px" />
+          <el-input v-model="query.settlement_type" clearable placeholder="如 IDC" class="field-w-160" />
         </el-form-item>
       </el-form>
     </el-card>
 
-    <el-card shadow="never" class="box-card" style="margin-top: 16px">
+    <el-card shadow="never" class="box-card mt-2">
       <template #header>
         <div class="card-header"><span class="card-title">费率列表</span></div>
       </template>
@@ -182,3 +182,5 @@ onMounted(fetchData)
 .filter-form { row-gap: var(--form-item-gap); }
 .pagination { display: flex; justify-content: flex-end; margin-top: 12px; }
 </style>
+
+

@@ -1,0 +1,83 @@
+:root {
+  --font-sans: 'Plus Jakarta Sans', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+
+  --color-primary: #2563eb;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-danger: #dc2626;
+  --color-info: #64748b;
+
+  --text-strong: #0f172a;
+  --text-default: #1e293b;
+  --text-muted: #475569;
+  --text-placeholder: #94a3b8;
+  --text-color: var(--text-default);
+
+  --bg-page: #f6f8fc;
+  --bg-header: #ffffff;
+  --bg-sidebar: #f8fafc;
+  --bg-card: #ffffff;
+  --bg-subtle: #f1f5f9;
+  --bg-footer: #f8fafc;
+  --border-color: #e2e8f0;
+  --border-color-strong: #cbd5e1;
+  --shadow-1: 0 8px 24px rgba(15, 23, 42, 0.06);
+
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  --title-font-size: clamp(20px, 2vw, 28px);
+  --title-weight: 700;
+  --title-margin-bottom: 16px;
+  --form-item-gap: 10px;
+  --table-row-padding-y: 10px;
+  --table-row-padding-x: 12px;
+
+  --el-color-primary: var(--color-primary);
+  --el-color-success: var(--color-success);
+  --el-color-warning: var(--color-warning);
+  --el-color-danger: var(--color-danger);
+  --el-color-info: var(--color-info);
+  --el-text-color-regular: var(--text-default);
+  --el-border-radius-base: var(--radius-sm);
+  --el-border-radius-round: 9999px;
+  --el-box-shadow-light: var(--shadow-1);
+
+  --primary-color: var(--color-primary);
+  --secondary-color: var(--color-success);
+  --light-color: var(--bg-page);
+}
+
+[data-theme='dark'] {
+  --text-strong: #f8fafc;
+  --text-default: #e2e8f0;
+  --text-muted: #94a3b8;
+  --text-placeholder: #64748b;
+  --text-color: var(--text-default);
+
+  --bg-page: #090f1a;
+  --bg-header: #0f172a;
+  --bg-sidebar: #0f172a;
+  --bg-card: #111c31;
+  --bg-subtle: #16243a;
+  --bg-footer: #0f172a;
+  --border-color: #22314a;
+  --border-color-strong: #334155;
+  --shadow-1: 0 14px 28px rgba(2, 6, 23, 0.32);
+}
+
+[data-density='compact'] {
+  --form-item-gap: 8px;
+  --table-row-padding-y: 6px;
+  --table-row-padding-x: 8px;
+}

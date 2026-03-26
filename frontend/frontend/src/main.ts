@@ -1,3 +1,4 @@
+import './styles/design-tokens.css'
 import './assets/main.css'
 import './assets/theme.css'
 import './styles/variables.css'

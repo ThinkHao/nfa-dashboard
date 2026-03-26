@@ -1,37 +1,8 @@
 @import './base.css';
 
-:root {
-  --primary-color: #1890ff;
-  --secondary-color: #52c41a;
-  --dark-color: #001529;
-  --light-color: #f0f2f5;
-  --text-color: #333;
-  --border-color: #e8e8e8;
-  /* Element Plus theme overrides */
-  --el-color-primary: #3b82f6; /* modern blue */
-  --el-color-success: #10b981;
-  --el-color-warning: #f59e0b;
-  --el-color-danger:  #ef4444;
-  --el-color-info:    #64748b;
-  --el-border-radius-base: 10px;
-  --el-border-radius-small: 8px;
-  --el-border-radius-round: 9999px;
-  --el-box-shadow-light: 0 6px 20px rgba(0,0,0,0.06);
-  --el-box-shadow:       0 10px 30px rgba(0,0,0,0.08);
-  --el-box-shadow-dark:  0 16px 40px rgba(0,0,0,0.12);
-}
-
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
 body {
-  font-family: 'Inter', 'SF Pro Text', 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', '微软雅黑', Arial, sans-serif;
-  color: var(--text-color);
-  background-color: var(--light-color);
-  line-height: 1.5;
+  color: var(--text-default);
+  background-color: var(--bg-page);
 }
 
 #app {
@@ -41,12 +12,12 @@ body {
 
 a {
   text-decoration: none;
-  color: var(--primary-color);
-  transition: color 0.3s;
+  color: var(--color-primary);
+  transition: color 0.2s ease;
 }
 
 a:hover {
-  color: #40a9ff;
+  color: color-mix(in srgb, var(--color-primary) 84%, black);
 }
 
 /* 常用工具类 */
@@ -84,22 +55,22 @@ a:hover {
 
 /* 自定义滚动条样式 */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: transparent;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
+  background: color-mix(in srgb, var(--text-muted) 50%, transparent);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
+  background: color-mix(in srgb, var(--text-muted) 72%, transparent);
 }
 
 /* 响应式调整 */
@@ -115,17 +86,17 @@ a:hover {
 
 /* Page helpers */
 .page-container {
-  max-width: 1280px;
+  max-width: none;
   width: 100%;
-  margin: 0 auto;
-  padding: 24px;
+  margin: 0;
+  padding: 20px 24px 24px;
 }
 
 .page-card {
   border: 1px solid var(--border-color);
-  border-radius: var(--el-border-radius-base);
-  background: #fff;
-  box-shadow: var(--el-box-shadow-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-1);
 }
 
 .toolbar {
@@ -135,8 +106,6 @@ a:hover {
 }
 
 .glass-header {
-  background: rgba(17, 24, 39, 0.7);
-  backdrop-filter: saturate(180%) blur(8px);
-  -webkit-backdrop-filter: saturate(180%) blur(8px);
-  border-bottom: 1px solid rgba(255,255,255,0.08);
+  background: var(--bg-header);
+  border-bottom: 1px solid var(--border-color);
 }

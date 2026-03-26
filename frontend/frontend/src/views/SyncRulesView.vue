@@ -16,10 +16,10 @@
 
       <el-form :inline="true" :model="query" label-width="90px" class="filter-form">
         <el-form-item label="规则名">
-          <el-input v-model="query.name" placeholder="按名称模糊查询" style="width: 240px" />
+          <el-input v-model="query.name" placeholder="按名称模糊查询" class="field-w-240" />
         </el-form-item>
         <el-form-item label="是否启用">
-          <el-select v-model="query.enabled" clearable placeholder="全部" style="width: 160px">
+          <el-select v-model="query.enabled" clearable placeholder="全部" class="field-w-160">
             <el-option :value="true" label="启用" />
             <el-option :value="false" label="禁用" />
           </el-select>
@@ -31,7 +31,7 @@
       </el-form>
     </el-card>
 
-    <el-card shadow="never" class="box-card" style="margin-top: 16px">
+    <el-card shadow="never" class="box-card mt-2">
       <template #header>
         <div class="card-header"><span class="card-title">规则列表</span></div>
       </template>
@@ -94,11 +94,11 @@
           <el-input v-model="form.condition_expr" placeholder="可选：如 region == '华北' && cp in ['CT','CM']" />
         </el-form-item>
         <el-form-item label="范围-Region">
-          <el-select v-model="scopeRegion" multiple filterable :reserve-keyword="false" allow-create default-first-option clearable placeholder="如：华北、华南" style="width: 100%" />
+          <el-select v-model="scopeRegion" multiple filterable :reserve-keyword="false" allow-create default-first-option clearable placeholder="如：华北、华南" class="field-w-full" />
           <div class="help">留空表示不限</div>
         </el-form-item>
         <el-form-item label="范围-CP">
-          <el-select v-model="scopeCP" multiple filterable :reserve-keyword="false" allow-create default-first-option clearable placeholder="如：CT、CM" style="width: 100%" />
+          <el-select v-model="scopeCP" multiple filterable :reserve-keyword="false" allow-create default-first-option clearable placeholder="如：CT、CM" class="field-w-full" />
           <div class="help">留空表示不限</div>
         </el-form-item>
 
@@ -109,8 +109,8 @@
           </el-radio-group>
           <div v-if="fieldsUpdateMode==='simple'" class="kv-list">
             <div v-for="(row, idx) in kvRows" :key="idx" class="kv-row">
-              <el-input v-model="row.key" placeholder="键（保存在 extra 下，如 remark）" style="width: 220px" />
-              <el-input v-model="row.value" placeholder="值" style="width: 260px; margin-left: 8px;" />
+              <el-input v-model="row.key" placeholder="键（保存在 extra 下，如 remark）" class="field-w-220" />
+              <el-input v-model="row.value" placeholder="值" class="field-w-260 ml-8" />
               <el-button link type="danger" @click="removeKv(idx)">删除</el-button>
             </div>
             <div class="kv-actions">
@@ -500,3 +500,5 @@ function goBack() {
 .label-tip { margin-left: 6px; cursor: help; color: var(--text-muted); }
 .kv-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }
 </style>
+
+

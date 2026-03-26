@@ -1,50 +1,17 @@
 <template>
   <div class="login-page">
     <div class="login-shell">
-      <section class="login-hero">
-        <div class="hero-signet">
-          <span class="halo"></span>
-          <span class="core">NFA</span>
-        </div>
-        <div class="hero-copy">
-          <h1 class="hero-title">NFA Dashboard</h1>
-          <p class="hero-subtitle">自研费率引擎与实时风控中枢，赋能大型教育集团的全链路流量与结算治理。</p>
-          <ul class="hero-highlights">
-            <li>
-              <span class="dot"></span>
-              <div class="text">双模式费率策略 · 自动与人工协同，分钟级生效</div>
-            </li>
-            <li>
-              <span class="dot"></span>
-              <div class="text">多维权限矩阵 · 精准控制用户、角色与操作日志</div>
-            </li>
-            <li>
-              <span class="dot"></span>
-              <div class="text">高保真可视化 · 结算、流量、院校画像一目了然</div>
-            </li>
-          </ul>
-          <div class="hero-stats">
-            <div class="stat-card">
-              <span class="label">日请求峰值</span>
-              <span class="value">8.6M</span>
-            </div>
-            <div class="stat-card">
-              <span class="label">活跃院校</span>
-              <span class="value">1,200+</span>
-            </div>
-            <div class="stat-card">
-              <span class="label">费率策略</span>
-              <span class="value">320+</span>
-            </div>
-          </div>
-        </div>
+      <section class="login-brand">
+        <div class="brand-mark">NFA</div>
+        <h1 class="brand-title">NFA Dashboard</h1>
+        <p class="brand-subtitle">学校流量监控与结算管理后台</p>
       </section>
 
-      <section class="login-panel glass-surface">
+      <section class="login-panel">
         <el-card class="login-card" shadow="never">
           <div class="card-head">
-            <h2 class="page-title login-title">欢迎登录</h2>
-            <p class="card-subtitle">请使用系统分配的账号完成身份验证</p>
+            <h2 class="page-title login-title">登录系统</h2>
+            <p class="card-subtitle">请输入账号信息，登录后进入工作台</p>
           </div>
           <el-form
             :model="form"
@@ -108,7 +75,6 @@ async function onSubmit() {
   loading.value = true
   try {
     await auth.login(form.username, form.password)
-    // 登录后加载用户信息（保险）
     await auth.loadProfile()
     const redirect = (route.query.redirect as string) || '/'
     router.replace(redirect)
@@ -126,334 +92,108 @@ async function onSubmit() {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: clamp(24px, 5vw, 48px);
-  background:
-    radial-gradient(1200px 600px at 10% 10%, rgba(59, 130, 246, 0.18), transparent 45%),
-    radial-gradient(1000px 600px at 90% 0%, rgba(20, 184, 166, 0.14), transparent 52%),
-    linear-gradient(135deg, rgba(245, 248, 255, 0.92) 0%, rgba(237, 244, 252, 0.92) 50%, rgba(245, 248, 255, 0.92) 100%),
-    url('https://images.unsplash.com/photo-1522199991221-88ee027bcefd?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80');
-  background-size: cover;
-  background-position: center;
-  background-attachment: fixed;
-}
-
-:global([data-theme="dark"]) .login-page {
-  background:
-    radial-gradient(1200px 600px at 10% 10%, rgba(59, 130, 246, 0.22), transparent 45%),
-    radial-gradient(1000px 600px at 90% 0%, rgba(20, 184, 166, 0.18), transparent 52%),
-    linear-gradient(135deg, rgba(10, 18, 32, 0.96) 0%, rgba(12, 26, 45, 0.96) 50%, rgba(10, 18, 32, 0.96) 100%),
-    url('https://images.unsplash.com/photo-1522199991221-88ee027bcefd?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80');
-  background-size: cover;
-  background-position: center;
-  background-attachment: fixed;
+  padding: clamp(20px, 4vw, 36px);
+  background: linear-gradient(180deg, var(--bg-page) 0%, color-mix(in srgb, var(--bg-page) 92%, white) 100%);
 }
 
 .login-shell {
-  max-width: 1120px;
+  max-width: 920px;
   width: 100%;
   display: grid;
-  grid-template-columns: 1.05fr 0.95fr;
-  gap: 48px;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
   align-items: stretch;
-  position: relative;
 }
 
-.login-hero {
-  position: relative;
-  padding: clamp(32px, 6vw, 52px);
-  border-radius: 28px;
-  background: linear-gradient(140deg, rgba(255, 255, 255, 0.82), rgba(224, 241, 255, 0.65));
-  border: 1px solid rgba(59, 130, 246, 0.12);
-  box-shadow: 0 25px 60px rgba(59, 130, 246, 0.18);
-  overflow: hidden;
-}
-
-:global([data-theme="dark"]) .login-hero {
-  background: linear-gradient(145deg, rgba(12, 22, 40, 0.88), rgba(26, 46, 78, 0.72));
-  border: 1px solid rgba(59, 130, 246, 0.24);
-  box-shadow: 0 30px 80px rgba(2, 6, 23, 0.55);
-}
-
-.login-hero::after {
-  content: '';
-  position: absolute;
-  inset: -20% -15% auto auto;
-  width: 320px;
-  height: 320px;
-  background: radial-gradient(circle, rgba(59, 130, 246, 0.22) 0%, rgba(59, 130, 246, 0) 70%);
-  filter: blur(6px);
-  transform: rotate(18deg);
-}
-
-.hero-signet {
-  position: relative;
-  width: 84px;
-  height: 84px;
-  border-radius: 26px;
-  background: linear-gradient(135deg, rgba(30, 64, 175, 0.85), rgba(37, 99, 235, 0.55));
-  display: grid;
-  place-items: center;
-  margin-bottom: 28px;
-  box-shadow: inset 0 0 28px rgba(59, 130, 246, 0.38), 0 16px 40px rgba(59, 130, 246, 0.4);
-  overflow: hidden;
-}
-
-.hero-signet .halo {
-  position: absolute;
-  inset: -30%;
-  background: radial-gradient(circle, rgba(96, 165, 250, 0.55), transparent 65%);
-  animation: breathe 6s ease-in-out infinite;
-}
-
-.hero-signet .core {
-  position: relative;
-  font-size: 28px;
-  font-weight: 700;
-  letter-spacing: 4px;
-  color: #fff;
-  z-index: 1;
-}
-
-.hero-copy {
-  position: relative;
-  z-index: 1;
+.login-brand {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  padding: clamp(28px, 5vw, 42px);
+  box-shadow: var(--shadow-1);
   display: flex;
   flex-direction: column;
-  gap: 20px;
-}
-
-.hero-title {
-  font-size: clamp(30px, 3.2vw, 42px);
-  font-weight: 800;
-  letter-spacing: 0.6px;
-  color: var(--text-strong);
-  margin: 0;
-}
-
-:global([data-theme="dark"]) .hero-title {
-  color: #e2e8f0;
-  text-shadow: 0 14px 30px rgba(15, 23, 42, 0.55);
-}
-
-.hero-subtitle {
-  font-size: 16px;
-  line-height: 1.7;
-  color: rgba(30, 64, 175, 0.75);
-  margin: 0;
-  max-width: 420px;
-}
-
-:global([data-theme="dark"]) .hero-subtitle {
-  color: rgba(191, 219, 254, 0.78);
-}
-
-.hero-highlights {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
+  justify-content: center;
   gap: 14px;
 }
 
-.hero-highlights li {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  color: rgba(30, 41, 59, 0.82);
-}
-
-:global([data-theme="dark"]) .hero-highlights li {
-  color: rgba(203, 213, 225, 0.82);
-}
-
-.hero-highlights .dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, rgba(59, 130, 246, 1), rgba(14, 165, 233, 0.8));
-  margin-top: 6px;
-  box-shadow: 0 0 14px rgba(59, 130, 246, 0.45);
-}
-
-.hero-stats {
+.brand-mark {
+  width: 54px;
+  height: 54px;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary);
+  color: #fff;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
-  margin-top: 12px;
-}
-
-.stat-card {
-  padding: 18px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45);
-  text-align: left;
-}
-
-:global([data-theme="dark"]) .stat-card {
-  background: rgba(30, 41, 59, 0.45);
-  border: 1px solid rgba(63, 131, 248, 0.32);
-  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.45);
-}
-
-.stat-card .label {
-  font-size: 12px;
-  letter-spacing: 1.8px;
-  text-transform: uppercase;
-  color: rgba(71, 85, 105, 0.75);
-}
-
-:global([data-theme="dark"]) .stat-card .label {
-  color: rgba(148, 163, 184, 0.72);
-}
-
-.stat-card .value {
-  display: block;
-  margin-top: 8px;
-  font-size: 22px;
+  place-items: center;
+  font-size: 18px;
   font-weight: 700;
-  letter-spacing: 0.4px;
-  color: var(--text-strong);
+  letter-spacing: 0.03em;
 }
 
-:global([data-theme="dark"]) .stat-card .value {
-  color: rgba(226, 232, 240, 0.95);
+.brand-title {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: clamp(28px, 3vw, 34px);
+  font-weight: 700;
+}
+
+.brand-subtitle {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.6;
 }
 
 .login-panel {
-  position: relative;
-  border-radius: 30px;
-  padding: 3px;
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.35), rgba(14, 165, 233, 0.22));
-  box-shadow: 0 25px 70px rgba(15, 23, 42, 0.18);
+  border-radius: var(--radius-lg);
 }
 
 .login-card {
-  border-radius: 26px;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(148, 163, 184, 0.28);
-}
-
-:global([data-theme="dark"]) .login-card {
-  background: rgba(12, 20, 35, 0.92);
-  border: 1px solid rgba(59, 130, 246, 0.28);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  height: 100%;
 }
 
 .login-card :deep(.el-card__body) {
-  padding: clamp(32px, 5vw, 48px);
+  height: 100%;
+  padding: clamp(28px, 4vw, 36px);
 }
 
 .card-head {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 20px;
-  text-align: left;
+  margin-bottom: 12px;
 }
 
 .login-title {
-  margin: 0;
-  text-align: left;
+  margin: 0 0 6px;
 }
 
 .card-subtitle {
   margin: 0;
-  color: rgba(71, 85, 105, 0.82);
-  font-size: 14px;
-}
-
-:global([data-theme="dark"]) .card-subtitle {
-  color: rgba(203, 213, 225, 0.78);
+  color: var(--text-muted);
+  font-size: 13px;
 }
 
 .login-form :deep(.el-form-item) {
-  margin-bottom: 18px;
-}
-
-.login-form :deep(.el-form-item__label) {
-  font-weight: 600;
-  letter-spacing: 0.4px;
-  color: rgba(71, 85, 105, 0.9) !important;
-}
-
-:global([data-theme="dark"]) .login-form :deep(.el-form-item__label) {
-  color: rgba(226, 232, 240, 0.92) !important;
-}
-
-.login-form :deep(.el-input__wrapper) {
-  border-radius: 14px;
-  padding: 4px 14px;
-  box-shadow: 0 1px 0 rgba(148, 163, 184, 0.18);
-}
-
-.login-form :deep(.el-input__wrapper.is-focus) {
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
+  margin-bottom: 14px;
 }
 
 .form-footer {
-  margin-top: 14px;
+  margin-top: 8px;
 }
 
 .submit-btn {
   width: 100%;
-  height: 48px;
-  font-size: 16px;
-  letter-spacing: 0.6px;
-  border-radius: 14px;
-  background-image: linear-gradient(120deg, #2563eb, #3b82f6);
-  box-shadow: 0 18px 40px rgba(37, 99, 235, 0.25);
+  height: 44px;
+  font-size: 15px;
+  font-weight: 600;
 }
 
-.submit-btn:hover {
-  filter: brightness(1.05);
-  box-shadow: 0 22px 50px rgba(37, 99, 235, 0.35);
-}
-
-@keyframes breathe {
-  0%, 100% {
-    transform: scale(1);
-    opacity: 0.65;
-  }
-  50% {
-    transform: scale(1.18);
-    opacity: 1;
-  }
-}
-
-@media (max-width: 1080px) {
+@media (max-width: 900px) {
   .login-shell {
     grid-template-columns: 1fr;
-    gap: 32px;
   }
-  .login-hero {
-    order: 2;
-  }
-  .login-panel {
-    order: 1;
-  }
-}
 
-@media (max-width: 640px) {
-  .login-page {
-    padding: 24px 16px;
-    background-attachment: scroll;
-  }
-  .login-hero {
-    padding: 26px;
-    border-radius: 20px;
-  }
-  .hero-stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .login-card {
-    border-radius: 20px;
-  }
-  .login-card :deep(.el-card__body) {
-    padding: 28px;
+  .login-brand {
+    padding: 24px;
   }
 }
 </style>
+
+

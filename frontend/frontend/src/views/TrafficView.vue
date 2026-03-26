@@ -2,13 +2,15 @@
 import { ref, reactive, onMounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import api from '../api'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import FilterPanel from '@/components/ui/FilterPanel.vue'
+import SectionCard from '@/components/ui/SectionCard.vue'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent, GridComponent, DataZoomComponent, ToolboxComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
 import { 
-  ElCard, 
   ElForm, 
   ElFormItem, 
   ElSelect, 
@@ -786,67 +788,43 @@ async function handleCPChange(cp) {
 
 // 处理预设时间范围变化
 function handleTimeRangeChange(value) {
-  console.log('选择时间范围:', value)
   const now = new Date()
   let startTime
-  
-  // 测试时间范围选择
-  ElMessage.info(`已选择时间范围: ${value}`)
-  
+
   switch (value) {
     case 'last1h':
       startTime = new Date(now.getTime() - 1 * 60 * 60 * 1000)
-      ElMessage.success('设置为过去1小时')
       break
     case 'last3h':
       startTime = new Date(now.getTime() - 3 * 60 * 60 * 1000)
-      ElMessage.success('设置为过去3小时')
       break
     case 'last6h':
       startTime = new Date(now.getTime() - 6 * 60 * 60 * 1000)
-      ElMessage.success('设置为过去6小时')
       break
     case 'last12h':
       startTime = new Date(now.getTime() - 12 * 60 * 60 * 1000)
-      ElMessage.success('设置为过去12小时')
       break
     case 'last24h':
       startTime = new Date(now.getTime() - 24 * 60 * 60 * 1000)
-      ElMessage.success('设置为过去24小时')
       break
     case 'last2d':
       startTime = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000)
-      ElMessage.success('设置为过去2天')
       break
     case 'last7d':
       startTime = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-      ElMessage.success('设置为过去7天')
       break
     case 'last30d':
       startTime = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-      ElMessage.success('设置为过去30天')
       break
     case 'custom':
-      // 如果是自定义时间，不自动设置时间范围
-      ElMessage.info('请手动选择时间范围')
       return
     default:
-      // 默认为最近1小时
       startTime = new Date(now.getTime() - 1 * 60 * 60 * 1000)
-      ElMessage.success('默认设置为过去1小时')
   }
   
   // 设置时间范围
   queryForm.start_time = toRFC3339Seconds(startTime)
   queryForm.end_time = toRFC3339Seconds(now)
-  
-  console.log('设置时间范围:', queryForm.start_time, '至', queryForm.end_time)
-  
-  // 测试时间范围设置是否生效
-  const startDate = new Date(queryForm.start_time)
-  const endDate = new Date(queryForm.end_time)
-  const diffHours = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60)
-  ElMessage.info(`时间范围设置成功，共${diffHours.toFixed(1)}小时`)
   
   // 重置分页到第一页
   currentPage.value = 1
@@ -967,14 +945,14 @@ function formatDate(date: Date | string, granularity: string) {
 </script>
 
 <template>
-  <div class="traffic-container">
-    <h1 class="page-title">流量监控</h1>
+  <div class="page-container">
+    <PageHeader title="流量监控" description="按地区、CP、学校和时间范围查询流速趋势与明细。" />
     
     <!-- 查询表单 -->
-    <ElCard class="query-card">
+    <FilterPanel>
       <ElForm :model="queryForm" label-width="80px" inline class="filter-form">
         <ElFormItem label="地区">
-          <ElSelect v-model="queryForm.region" placeholder="选择地区（可输入）" clearable filterable allow-create default-first-option @change="handleRegionChange">
+          <ElSelect v-model="queryForm.region" placeholder="选择地区（可输入）" clearable filterable allow-create default-first-option @change="handleRegionChange" class="field-sm">
             <ElOption 
               v-for="region in regions" 
               :key="region" 
@@ -985,7 +963,7 @@ function formatDate(date: Date | string, granularity: string) {
         </ElFormItem>
         
         <ElFormItem label="CP">
-          <ElSelect v-model="queryForm.cp" placeholder="选择 CP（可输入）" clearable filterable allow-create default-first-option @change="handleCPChange">
+          <ElSelect v-model="queryForm.cp" placeholder="选择 CP（可输入）" clearable filterable allow-create default-first-option @change="handleCPChange" class="field-sm">
             <ElOption 
               v-for="cp in cps" 
               :key="cp" 
@@ -996,7 +974,7 @@ function formatDate(date: Date | string, granularity: string) {
         </ElFormItem>
         
         <ElFormItem label="学校名称">
-          <ElSelect v-model="queryForm.school_name" placeholder="选择或输入学校" clearable filterable allow-create default-first-option :reserve-keyword="false" style="width: 300px">
+          <ElSelect v-model="queryForm.school_name" placeholder="选择或输入学校" clearable filterable allow-create default-first-option :reserve-keyword="false" class="field-lg">
             <ElOption 
               v-for="school in schools" 
               :key="school.school_name" 
@@ -1007,7 +985,7 @@ function formatDate(date: Date | string, granularity: string) {
         </ElFormItem>
         
         <ElFormItem label="时间范围">
-          <ElSelect v-model="queryForm.timeRange" placeholder="选择时间范围" @change="handleTimeRangeChange" style="width: 150px">
+          <ElSelect v-model="queryForm.timeRange" placeholder="选择时间范围" @change="handleTimeRangeChange" class="field-xs">
             <ElOption 
               v-for="option in timeRangeOptions" 
               :key="option.value" 
@@ -1043,15 +1021,15 @@ function formatDate(date: Date | string, granularity: string) {
           <ElButton @click="handleReset">重置</ElButton>
         </ElFormItem>
       </ElForm>
-    </ElCard>
+    </FilterPanel>
     
     <!-- 流量图表 -->
-    <ElCard class="chart-card" v-loading="chartLoading">
+    <SectionCard title="趋势图" v-loading="chartLoading">
       <v-chart class="traffic-chart" :option="chartOption" autoresize />
-    </ElCard>
+    </SectionCard>
     
     <!-- 流量数据表格 -->
-    <ElCard class="data-card">
+    <SectionCard title="流量明细">
       <ElTable :data="pagedTrafficData" border stripe v-loading="loading">
         <ElTableColumn prop="create_time" label="时间" width="200">
           <template #default="scope">
@@ -1084,30 +1062,14 @@ function formatDate(date: Date | string, granularity: string) {
           @current-change="currentPage = $event"
         />
       </div>
-    </ElCard>
+    </SectionCard>
   </div>
 </template>
 
 <style scoped>
-.traffic-container {
-  padding: 1rem 0;
-}
-
-.query-card {
-  margin-bottom: 1.5rem;
-}
-
-.chart-card {
-  margin-bottom: 1.5rem;
-}
-
 .traffic-chart {
   height: 400px;
   width: 100%;
-}
-
-.data-card {
-  margin-bottom: 1.5rem;
 }
 
 .pagination-container {
@@ -1122,12 +1084,22 @@ function formatDate(date: Date | string, granularity: string) {
 
 .filter-form { row-gap: var(--form-item-gap); }
 
-:deep(.el-select) {
+.field-sm:deep(.el-select__wrapper),
+.field-sm:deep(.el-input__wrapper),
+.field-sm:deep(.el-date-editor) {
   width: 180px !important;
 }
 
-:deep(.el-date-editor) {
-  width: 180px !important;
+.field-lg:deep(.el-select__wrapper),
+.field-lg:deep(.el-input__wrapper) {
+  width: 300px !important;
+}
+
+.field-xs:deep(.el-select__wrapper),
+.field-xs:deep(.el-input__wrapper) {
+  width: 150px !important;
 }
 </style>
+
+
 

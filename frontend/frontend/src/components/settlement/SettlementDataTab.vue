@@ -3,8 +3,8 @@
     <!-- 筛选条件区域 -->
     <el-card class="filter-section" shadow="hover">
       <el-form :model="filterForm" inline>
-        <el-form-item label="地区" style="min-width: 200px;">
-          <el-select v-model="filterForm.region" placeholder="选择地区" clearable style="width: 180px;" @change="handleRegionChange">
+        <el-form-item label="地区" class="min-w-200">
+          <el-select v-model="filterForm.region" placeholder="选择地区" clearable class="field-w-180" @change="handleRegionChange">
             <el-option
               v-for="region in regions"
               :key="region"
@@ -13,8 +13,8 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="CP" style="min-width: 200px;">
-          <el-select v-model="filterForm.cp" placeholder="选择 CP" clearable style="width: 180px;" @change="handleCPChange">
+        <el-form-item label="CP" class="min-w-200">
+          <el-select v-model="filterForm.cp" placeholder="选择 CP" clearable class="field-w-180" @change="handleCPChange">
             <el-option
               v-for="cp in cps"
               :key="cp"
@@ -23,8 +23,8 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="学校" style="min-width: 300px;">
-          <el-select v-model="filterForm.school_id" placeholder="选择学校" clearable style="width: 250px;" @change="handleSchoolChange">
+        <el-form-item label="学校" class="min-w-300">
+          <el-select v-model="filterForm.school_id" placeholder="选择学校" clearable class="field-w-250" @change="handleSchoolChange">
             <el-option
               v-for="school in schools"
               :key="school.school_id"
@@ -33,8 +33,8 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="费用归属" style="min-width: 300px;">
-          <el-select v-model="ownerSelect" placeholder="选择费用归属" clearable style="width: 250px;" @change="handleOwnerChange">
+        <el-form-item label="费用归属" class="min-w-300">
+          <el-select v-model="ownerSelect" placeholder="选择费用归属" clearable class="field-w-250" @change="handleOwnerChange">
             <el-option
               v-for="opt in ownerOptions"
               :key="opt.id"
@@ -43,13 +43,13 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="聚合粒度" style="min-width: 220px;">
-          <el-select v-model="granularity" style="width: 140px;" @change="handleGranularityChange">
+        <el-form-item label="聚合粒度" class="min-w-220">
+          <el-select v-model="granularity" class="field-w-140" @change="handleGranularityChange">
             <el-option label="按日" value="daily" />
             <el-option label="按月" value="monthly" />
           </el-select>
         </el-form-item>
-        <el-form-item label="服务时间" style="min-width: 400px;">
+        <el-form-item label="服务时间" class="min-w-400">
           <el-date-picker
             v-model="dateRange"
             type="daterange"
@@ -58,7 +58,7 @@
             end-placeholder="结束日期"
             format="YYYY-MM-DD"
             value-format="YYYY-MM-DD"
-            style="width: 300px;"
+            class="field-w-300"
             @change="handleDateRangeChange"
           />
         </el-form-item>
@@ -74,9 +74,9 @@
       <div class="table-header">
         <h3>
           结算数据列表
-          <el-tag v-if="currentDataSourceLabel" size="small" type="info" style="margin-left:8px;">来源：{{ currentDataSourceLabel }}</el-tag>
+          <el-tag v-if="currentDataSourceLabel" size="small" type="info" class="ml-8">来源：{{ currentDataSourceLabel }}</el-tag>
         </h3>
-        <div style="display:flex; gap:8px;">
+        <div class="d-flex gap-8">
           <el-button type="primary" @click="openExportDialog">导出</el-button>
           <el-button v-if="canRecalc && isMonthlyGranularity" type="success" @click="onRebuildMonthlySnapshot">重建月度快照</el-button>
           <el-button v-if="canRecalc" type="warning" @click="onRecalculate">复算</el-button>
@@ -88,7 +88,7 @@
         :data="settlementData.items"
         border
         stripe
-        style="width: 100%"
+        class="field-w-full"
         empty-text="暂无数据"
       >
         <!-- 调试信息 -->
@@ -120,7 +120,7 @@
           <template #default="{ row }">
             <el-tooltip placement="top">
               <template #content>
-                <pre style="white-space: pre-wrap; max-width: 420px; font-size:12px; line-height:1.3;">{{ amountDetail(row, 'customer_fee', 'customer_bill', '客户费率') }}</pre>
+                <pre class="amount-detail-pre">{{ amountDetail(row, 'customer_fee', 'customer_bill', '客户费率') }}</pre>
               </template>
               <span>{{ row.customer_bill != null ? row.customer_bill : '-' }}</span>
             </el-tooltip>
@@ -134,7 +134,7 @@
           <template #default="{ row }">
             <el-tooltip placement="top">
               <template #content>
-                <pre style="white-space: pre-wrap; max-width: 420px; font-size:12px; line-height:1.3;">{{ amountDetail(row, 'network_line_fee', 'network_line_bill', '线路费率') }}</pre>
+                <pre class="amount-detail-pre">{{ amountDetail(row, 'network_line_fee', 'network_line_bill', '线路费率') }}</pre>
               </template>
               <span>{{ row.network_line_bill != null ? row.network_line_bill : '-' }}</span>
             </el-tooltip>
@@ -148,7 +148,7 @@
           <template #default="{ row }">
             <el-tooltip placement="top">
               <template #content>
-                <pre style="white-space: pre-wrap; max-width: 420px; font-size:12px; line-height:1.3;">{{ amountDetail(row, 'node_deduction_fee', 'node_deduction_bill', '节点通用费率') }}</pre>
+                <pre class="amount-detail-pre">{{ amountDetail(row, 'node_deduction_fee', 'node_deduction_bill', '节点通用费率') }}</pre>
               </template>
               <span>{{ row.node_deduction_bill != null ? row.node_deduction_bill : '-' }}</span>
             </el-tooltip>
@@ -162,7 +162,7 @@
           <template #default="{ row }">
             <el-tooltip placement="top">
               <template #content>
-                <pre style="white-space: pre-wrap; max-width: 420px; font-size:12px; line-height:1.3;">{{ amountDetail(row, 'channel_rate', 'channel_bill', '渠道费率') }}</pre>
+                <pre class="amount-detail-pre">{{ amountDetail(row, 'channel_rate', 'channel_bill', '渠道费率') }}</pre>
               </template>
               <span>{{ row.channel_bill != null ? row.channel_bill : '-' }}</span>
             </el-tooltip>
@@ -194,26 +194,26 @@
     </el-card>
     <!-- 统一导出弹窗 -->
     <el-dialog v-model="exportDialogVisible" title="导出设置" width="720px">
-      <div style="display:flex; gap:24px; align-items:flex-start;">
-        <div style="flex:1;">
-          <div style="font-weight:600; margin-bottom:8px;">选择字段</div>
+      <div class="d-flex gap-24 items-start">
+        <div class="flex-1">
+          <div class="fw-600 mb-8">选择字段</div>
           <el-checkbox-group v-model="exportForm.selectedFields">
-            <div style="margin-bottom:6px;">基础字段</div>
+            <div class="mb-6">基础字段</div>
             <el-checkbox v-for="f in baseFields" :key="f.key" :label="f.key">{{ f.label }}</el-checkbox>
-            <el-divider style="margin:10px 0" />
-            <div style="margin-bottom:6px;">流量/金额字段</div>
+            <el-divider class="my-10" />
+            <div class="mb-6">流量/金额字段</div>
             <el-checkbox v-for="f in numericFields" :key="f.key" :label="f.key">{{ f.label }}</el-checkbox>
-            <el-divider style="margin:10px 0" />
-            <div style="margin-bottom:6px;">归属/其它</div>
+            <el-divider class="my-10" />
+            <div class="mb-6">归属/其它</div>
             <el-checkbox v-for="f in otherFields" :key="f.key" :label="f.key">{{ f.label }}</el-checkbox>
           </el-checkbox-group>
         </div>
-        <div style="width:220px;">
-          <div style="font-weight:600; margin-bottom:8px;">选项</div>
+        <div class="field-w-220">
+          <div class="fw-600 mb-8">选项</div>
           <el-checkbox v-model="exportForm.groupBySchoolCp">按学校+CP聚合</el-checkbox>
-          <div style="color: var(--text-muted); margin:6px 0 10px; font-size:12px;">金额字段将累加，流量字段取平均</div>
+          <div class="hint-text hint-text-inline">金额字段将累加，流量字段取平均</div>
           <el-checkbox v-model="exportForm.monthlyAvg" :disabled="monthlyAvgDisabled">按月聚合</el-checkbox>
-          <div style="color: var(--text-muted); margin-top:8px; font-size:12px;">仅对已勾选的流量/金额字段生效</div>
+          <div class="hint-text mt-8">仅对已勾选的流量/金额字段生效</div>
         </div>
       </div>
       <template #footer>
@@ -1394,4 +1394,13 @@ function displayUser(id?: number | null): string {
   display: flex;
   justify-content: flex-end;
 }
+
+.amount-detail-pre {
+  white-space: pre-wrap;
+  max-width: 420px;
+  font-size: 12px;
+  line-height: 1.3;
+}
 </style>
+
+

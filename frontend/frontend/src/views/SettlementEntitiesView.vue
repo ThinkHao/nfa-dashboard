@@ -15,17 +15,17 @@
 
       <el-form :inline="true" :model="query" label-width="90px" class="filter-form">
         <el-form-item label="类型">
-          <el-select v-model="query.entity_type" clearable filterable placeholder="选择类型" style="width: 220px">
+          <el-select v-model="query.entity_type" clearable filterable placeholder="选择类型" class="field-w-220">
             <el-option v-for="bt in btOptions" :key="bt.code" :label="`${bt.name} (${bt.code})`" :value="bt.code" />
           </el-select>
         </el-form-item>
         <el-form-item label="名称">
-          <el-input v-model="query.entity_name" clearable placeholder="对象名称" style="width: 240px" />
+          <el-input v-model="query.entity_name" clearable placeholder="对象名称" class="field-w-240" />
         </el-form-item>
       </el-form>
     </el-card>
 
-    <el-card shadow="never" class="box-card" style="margin-top: 16px">
+    <el-card shadow="never" class="box-card mt-2">
       <template #header>
         <div class="card-header"><span class="card-title">业务对象列表</span></div>
       </template>
@@ -204,3 +204,5 @@ onMounted(() => { loadBusinessTypes(); fetchData() })
 .filter-form { row-gap: var(--form-item-gap); }
 .pagination { display: flex; justify-content: flex-end; margin-top: 12px; }
 </style>
+
+

@@ -18,12 +18,12 @@
 
       <el-form :inline="true" :model="query" label-width="90px" class="filter-form">
         <el-form-item label="区域">
-          <el-select v-model="query.region" clearable filterable placeholder="选择区域" style="width: 180px">
+          <el-select v-model="query.region" clearable filterable placeholder="选择区域" class="field-w-180">
             <el-option v-for="r in regionOptions" :key="r" :label="r" :value="r" />
           </el-select>
         </el-form-item>
         <el-form-item label="CP">
-          <el-select v-model="query.cp" clearable filterable placeholder="选择 CP" style="width: 180px">
+          <el-select v-model="query.cp" clearable filterable placeholder="选择 CP" class="field-w-180">
             <el-option v-for="c in cpOptions" :key="c" :label="c" :value="c" />
           </el-select>
         </el-form-item>
@@ -36,7 +36,7 @@
             :remote-method="remoteSearchSchoolsFilter"
             :loading="schoolsLoading"
             placeholder="搜索学校"
-            style="width: 240px"
+            class="field-w-240"
           >
             <el-option v-for="s in schoolOptions" :key="s.name" :label="s.name" :value="s.name">
               <div class="school-option">
@@ -52,7 +52,7 @@
       </el-form>
     </el-card>
 
-    <el-card shadow="never" class="box-card" style="margin-top: 16px">
+    <el-card shadow="never" class="box-card mt-2">
       <template #header>
         <div class="card-header">
           <div class="header-left">
@@ -66,18 +66,18 @@
           <div class="header-right">
             <el-popover placement="bottom" trigger="click" width="360">
               <template #reference>
-                <el-button size="small" style="margin-left:8px">显示开关</el-button>
+                <el-button size="small" class="ml-8">显示开关</el-button>
               </template>
-              <div style="display:flex; gap:16px">
+              <div class="d-flex gap-16">
                 <div>
-                  <div style="font-weight:600; margin-bottom:4px">费率列</div>
+                  <div class="fw-600 mb-4">费率列</div>
                   <el-checkbox v-model="colVisible.customer_fee">客户费</el-checkbox>
                   <el-checkbox v-model="colVisible.network_line_fee">线路费</el-checkbox>
                   <el-checkbox v-model="colVisible.general_fee">节点通用费</el-checkbox>
                   <el-checkbox v-model="colVisible.channel_rate">渠道费率</el-checkbox>
                 </div>
                 <div>
-                  <div style="font-weight:600; margin-bottom:4px">归属/其它</div>
+                  <div class="fw-600 mb-4">归属/其它</div>
                   <el-checkbox v-model="colVisible.general_fee_owner">节点通用费归属</el-checkbox>
                   <el-checkbox v-model="colVisible.customer_fee_owner">客户费归属</el-checkbox>
                   <el-checkbox v-model="colVisible.network_line_fee_owner">线路费归属</el-checkbox>
@@ -91,13 +91,13 @@
                 </div>
               </div>
             </el-popover>
-            <el-button v-if="canExport" size="small" @click="onExport" style="margin-left:8px">导出</el-button>
-            <el-button v-if="canExport" size="small" @click="onExportXlsx" style="margin-left:4px">导出Excel</el-button>
-            <el-button v-if="canExport" size="small" @click="onDownloadTemplate" style="margin-left:4px">下载模板</el-button>
-            <el-button v-if="canImport" size="small" type="primary" @click="onImportClick" :loading="importing" style="margin-left:4px">导入</el-button>
-            <el-checkbox v-if="canImport" v-model="importValidateOnly" style="margin-left:8px">仅校验</el-checkbox>
-            <el-button v-if="lastImportErrors.length>0" size="small" type="danger" plain @click="onExportImportErrors" style="margin-left:4px">导出错误明细</el-button>
-            <input ref="fileInput" type="file" accept=".csv, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none" @change="onFileChange" />
+            <el-button v-if="canExport" size="small" @click="onExport" class="ml-8">导出</el-button>
+            <el-button v-if="canExport" size="small" @click="onExportXlsx" class="ml-4">导出Excel</el-button>
+            <el-button v-if="canExport" size="small" @click="onDownloadTemplate" class="ml-4">下载模板</el-button>
+            <el-button v-if="canImport" size="small" type="primary" @click="onImportClick" :loading="importing" class="ml-4">导入</el-button>
+            <el-checkbox v-if="canImport" v-model="importValidateOnly" class="ml-8">仅校验</el-checkbox>
+            <el-button v-if="lastImportErrors.length>0" size="small" type="danger" plain @click="onExportImportErrors" class="ml-4">导出错误明细</el-button>
+            <input ref="fileInput" type="file" accept=".csv, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden-input" @change="onFileChange" />
           </div>
         </div>
       </template>
@@ -212,12 +212,12 @@
     <el-dialog v-model="dialogVisible" title="新增/更新 客户业务费率" width="720px">
       <el-form :model="form" label-width="140px">
         <el-form-item label="区域" required>
-          <el-select v-model="form.region" filterable placeholder="选择区域" style="width: 240px">
+          <el-select v-model="form.region" filterable placeholder="选择区域" class="field-w-240">
             <el-option v-for="r in regionOptions" :key="r" :label="r" :value="r" />
           </el-select>
         </el-form-item>
         <el-form-item label="CP" required>
-          <el-select v-model="form.cp" filterable placeholder="选择 CP" style="width: 240px">
+          <el-select v-model="form.cp" filterable placeholder="选择 CP" class="field-w-240">
             <el-option v-for="c in cpOptions" :key="c" :label="c" :value="c" />
           </el-select>
         </el-form-item>
@@ -230,7 +230,7 @@
             :remote-method="remoteSearchSchoolsDialog"
             :loading="schoolsLoading"
             placeholder="搜索学校"
-            style="width: 300px"
+            class="field-w-300"
           >
             <el-option v-for="s in schoolOptions" :key="s.name" :label="s.name" :value="s.name">
               <div class="school-option">
@@ -320,7 +320,7 @@
                 :remote-method="remoteSearchSystemUsers"
                 :loading="ownerUserLoading"
                 placeholder="搜索销售用户（系统用户，受角色配置过滤）"
-                style="width: 300px"
+                class="field-w-300"
                 @visible-change="(v) => v && remoteSearchSystemUsers('')"
               >
                 <el-option
@@ -342,7 +342,7 @@
                 :remote-method="remoteSearchSystemUsersLine"
                 :loading="ownerUserLineLoading"
                 placeholder="搜索线路相关用户（按配置的线路角色过滤）"
-                style="width: 300px"
+                class="field-w-300"
                 @visible-change="(v) => v && remoteSearchSystemUsersLine('')"
               >
                 <el-option
@@ -364,7 +364,7 @@
                 :remote-method="remoteSearchSystemUsersNode"
                 :loading="ownerUserNodeLoading"
                 placeholder="搜索节点供应商（按配置的节点角色过滤）"
-                style="width: 300px"
+                class="field-w-300"
                 @visible-change="(v) => v && remoteSearchSystemUsersNode('')"
               >
                 <el-option
@@ -386,7 +386,7 @@
                 :remote-method="remoteSearchSystemUsersAny"
                 :loading="ownerUserAnyLoading"
                 placeholder="搜索渠道相关用户"
-                style="width: 300px"
+                class="field-w-300"
                 @visible-change="(v) => v && remoteSearchSystemUsersAny('')"
               >
                 <el-option v-for="u in ownerUserAnyOptions" :key="u.id" :label="u.label" :value="u.id" />
@@ -412,7 +412,7 @@
 
     <!-- 扩展字段查看弹窗 -->
     <el-dialog v-model="extraDialogVisible" title="扩展字段 JSON" width="600px">
-      <pre style="max-height: 400px; overflow: auto; white-space: pre-wrap;">{{ stringify(extraDialogContent) }}</pre>
+      <pre class="pre-scroll-400">{{ stringify(extraDialogContent) }}</pre>
       <template #footer>
         <el-button @click="extraDialogVisible=false">关闭</el-button>
       </template>
@@ -1338,3 +1338,5 @@ watch(() => (form as any).increment_start_at, (val) => {
 .school-option { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; }
 .school-option-tags { display: inline-flex; gap: 4px; }
 </style>
+
+

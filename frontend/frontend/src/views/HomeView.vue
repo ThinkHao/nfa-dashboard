@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
 import { ElCard, ElRow, ElCol, ElStatistic } from 'element-plus'
+import PageHeader from '@/components/ui/PageHeader.vue'
 
 const router = useRouter()
 const summary = ref({
@@ -60,9 +61,8 @@ const navigateTo = (path: string) => {
 </script>
 
 <template>
-  <div class="home-container">
-    <h1 class="page-title">学校流量监控系统</h1>
-    <p class="page-description">实时监控学校网络流量，提供数据分析和可视化</p>
+  <div class="page-container">
+    <PageHeader title="学校流量监控系统" description="概览系统核心数据并快速进入关键模块。" />
     
     <ElRow :gutter="20" class="dashboard-cards">
       <ElCol :span="8">
@@ -131,22 +131,6 @@ const navigateTo = (path: string) => {
 </template>
 
 <style scoped>
-.home-container {
-  padding: 2rem 0;
-}
-
-.page-title {
-  /* rely on global .page-title styles for color, size, spacing, and shadow */
-  text-align: center;
-}
-
-.page-description {
-  text-align: center;
-  font-size: 1.2rem;
-  color: var(--text-default);
-  margin-bottom: 3rem;
-}
-
 .dashboard-cards {
   margin-bottom: 2rem;
 }
@@ -201,11 +185,10 @@ const navigateTo = (path: string) => {
   font-size: 1.5rem;
   margin-bottom: 1rem;
   color: var(--text-strong);
-  text-shadow: 0 1px 2px rgba(0,0,0,0.35);
 }
 
 .feature-content p {
-  color: #666;
+  color: var(--text-muted);
   margin-bottom: 1.5rem;
 }
 
@@ -215,3 +198,5 @@ const navigateTo = (path: string) => {
   align-self: flex-end;
 }
 </style>
+
+

@@ -4,7 +4,7 @@
       <div class="toolbar">
         <div class="title">
           单用户结算查询
-          <el-tag v-if="currentDataSourceLabel" size="small" type="info" style="margin-left:8px;">来源：{{ currentDataSourceLabel }}</el-tag>
+      <el-tag v-if="currentDataSourceLabel" size="small" type="info" class="ml-8">来源：{{ currentDataSourceLabel }}</el-tag>
         </div>
         <div class="actions">
           <el-button type="primary" :loading="loading" @click="handleQuery">查询</el-button>
@@ -15,12 +15,12 @@
 
       <el-form :inline="true" class="query-form">
         <el-form-item label="用户" required>
-          <el-select v-model="filter.userId" filterable clearable placeholder="请选择用户" style="width: 240px;">
+          <el-select v-model="filter.userId" filterable clearable placeholder="请选择用户" class="field-w-240">
             <el-option v-for="u in userOptions" :key="u.id" :label="u.label" :value="u.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="粒度">
-          <el-select v-model="filter.granularity" style="width: 120px;">
+          <el-select v-model="filter.granularity" class="field-w-120">
             <el-option label="按月" value="monthly" />
             <el-option label="按日" value="daily" />
           </el-select>
@@ -34,22 +34,22 @@
             end-placeholder="结束月份"
             format="YYYY-MM"
             value-format="YYYY-MM"
-            style="width: 260px;"
+            class="field-w-260"
             @change="handleMonthRangeChange"
           />
         </el-form-item>
         <el-form-item label="地区">
-          <el-select v-model="filter.region" clearable filterable style="width: 160px;" @change="onRegionChange">
+          <el-select v-model="filter.region" clearable filterable class="field-w-160" @change="onRegionChange">
             <el-option v-for="r in regions" :key="r" :label="r" :value="r" />
           </el-select>
         </el-form-item>
         <el-form-item label="CP">
-          <el-select v-model="filter.cp" clearable filterable style="width: 160px;" @change="onCPChange">
+          <el-select v-model="filter.cp" clearable filterable class="field-w-160" @change="onCPChange">
             <el-option v-for="c in cps" :key="c" :label="c" :value="c" />
           </el-select>
         </el-form-item>
         <el-form-item label="学校">
-          <el-select v-model="filter.schoolName" clearable filterable style="width: 280px;">
+          <el-select v-model="filter.schoolName" clearable filterable class="field-w-280">
             <el-option v-for="s in schools" :key="s.school_name" :label="s.school_name" :value="s.school_name" />
           </el-select>
         </el-form-item>
@@ -57,7 +57,7 @@
     </el-card>
 
     <el-card class="table-card" shadow="hover">
-      <el-table v-loading="loading" :data="rows" border stripe style="width: 100%;">
+      <el-table v-loading="loading" :data="rows" border stripe class="field-w-full">
         <el-table-column prop="school_name" label="学校名称" min-width="180" />
         <el-table-column prop="region" label="地区" width="110" />
         <el-table-column prop="cp" label="CP" width="110" />
@@ -454,3 +454,5 @@ onMounted(async () => {
   justify-content: flex-end;
 }
 </style>
+
+

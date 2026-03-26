@@ -16,7 +16,7 @@
           v-model="keyword"
           placeholder="搜索：权限名/代码/描述"
           clearable
-          style="width: 360px; margin-right: 8px"
+          class="field-w-360 mr-8"
           @keyup.enter="onSearch"
           @clear="onSearch"
         />
@@ -25,7 +25,7 @@
       </div>
     </el-card>
 
-    <el-card class="page-card" shadow="always" style="margin-top: 16px">
+    <el-card class="page-card mt-2" shadow="always">
       <template #header>
         <div class="card-header">
           <span class="card-title">权限列表</span>
@@ -242,3 +242,5 @@ onMounted(fetchData)
 .filters { display: flex; align-items: center; gap: 8px; }
 .actions { display: flex; align-items: center; gap: 8px; }
 </style>
+
+

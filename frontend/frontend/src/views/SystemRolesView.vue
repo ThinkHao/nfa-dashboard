@@ -9,7 +9,7 @@
       </template>
     </el-card>
 
-    <el-card class="box-card" shadow="never" style="margin-top: 16px">
+    <el-card class="box-card mt-2" shadow="never">
       <template #header>
         <div class="card-header">
           <span class="card-title">角色列表</span>
@@ -22,7 +22,7 @@
       <el-table :data="items" border stripe height="600px" v-loading="loading" @expand-change="onExpandChange">
         <el-table-column type="expand">
           <template #default="{ row }">
-            <div style="padding: 8px 16px;">
+            <div class="p-8-16">
               <el-skeleton v-if="rolePermLoading[row.id]" :rows="4" animated />
               <el-empty v-else-if="!rolePermMap[row.id] || rolePermMap[row.id].length === 0" description="暂无权限" />
               <div v-else class="perm-tags">
@@ -101,8 +101,8 @@
 
     <!-- 设置权限弹窗 -->
     <el-dialog v-model="permVisible" title="设置权限" width="560px">
-      <div style="margin-bottom: 8px;">角色：{{ currentRole?.name }}</div>
-      <el-select v-model="selectedPermIds" multiple filterable placeholder="选择权限" style="width: 100%" @visible-change="onPermSelectVisible">
+      <div class="mb-8">角色：{{ currentRole?.name }}</div>
+      <el-select v-model="selectedPermIds" multiple filterable placeholder="选择权限" class="field-w-full" @visible-change="onPermSelectVisible">
         <el-option v-for="p in allPerms" :key="p.id" :label="p.name" :value="p.id" />
       </el-select>
       <template #footer>
@@ -115,7 +115,7 @@
 
     <!-- 权限预览抽屉 -->
     <el-drawer v-model="permPreviewVisible" title="角色权限" direction="rtl" size="40%">
-      <div style="margin-bottom: 8px;">角色：{{ previewRole?.name }}</div>
+      <div class="mb-8">角色：{{ previewRole?.name }}</div>
       <el-skeleton v-if="previewLoading" :rows="6" animated />
       <el-empty v-else-if="previewPerms.length === 0" description="暂无权限" />
       <el-scrollbar v-else height="60vh">
@@ -304,3 +304,5 @@ async function openPermPreview(row: Role) {
 .perm-tags { display: flex; flex-wrap: wrap; gap: 8px; }
 .perm-tag { margin-bottom: 6px; }
 </style>
+
+

@@ -15,21 +15,21 @@
 
       <el-form :inline="true" :model="query" label-width="90px" class="filter-form">
         <el-form-item label="用户ID">
-          <el-input v-model.number="query.user_id" placeholder="如 1" clearable style="width: 160px" />
+          <el-input v-model.number="query.user_id" placeholder="如 1" clearable class="field-w-160" />
         </el-form-item>
         <el-form-item label="方法">
-          <el-select v-model="query.method" placeholder="全部" clearable style="width: 140px">
+          <el-select v-model="query.method" placeholder="全部" clearable class="field-w-140">
             <el-option v-for="m in methods" :key="m" :label="m" :value="m" />
           </el-select>
         </el-form-item>
         <el-form-item label="路径">
-          <el-input v-model="query.path" placeholder="包含 ..." clearable style="width: 260px" />
+          <el-input v-model="query.path" placeholder="包含 ..." clearable class="field-w-260" />
         </el-form-item>
         <el-form-item label="状态码">
-          <el-input v-model.number="query.status_code" placeholder="如 200" clearable style="width: 140px" />
+          <el-input v-model.number="query.status_code" placeholder="如 200" clearable class="field-w-140" />
         </el-form-item>
         <el-form-item label="成功">
-          <el-select v-model="query.success" placeholder="全部" clearable style="width: 140px">
+          <el-select v-model="query.success" placeholder="全部" clearable class="field-w-140">
             <el-option label="成功" :value="1" />
             <el-option label="失败" :value="0" />
           </el-select>
@@ -45,12 +45,12 @@
           />
         </el-form-item>
         <el-form-item label="关键词">
-          <el-input v-model="query.keyword" placeholder="匹配 path / error" clearable style="width: 260px" />
+          <el-input v-model="query.keyword" placeholder="匹配 path / error" clearable class="field-w-260" />
         </el-form-item>
       </el-form>
     </el-card>
 
-    <el-card class="box-card" shadow="never" style="margin-top: 16px">
+    <el-card class="box-card mt-2" shadow="never">
       <template #header>
         <div class="card-header">
           <span class="card-title">日志列表</span>
@@ -274,3 +274,5 @@ async function onExport() {
 .filter-form { row-gap: var(--form-item-gap); }
 .pagination { display: flex; justify-content: flex-end; margin-top: 12px; }
 </style>
+
+

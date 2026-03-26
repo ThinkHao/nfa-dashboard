@@ -37,3 +37,5 @@ function onClick(path: string, idx: number) {
 .crumb-link { color: var(--text-muted); cursor: pointer; }
 .crumb-link:hover { color: var(--color-primary); }
 </style>
+
+

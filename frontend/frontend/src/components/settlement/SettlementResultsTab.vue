@@ -3,22 +3,22 @@
     <el-card class="filter-section" shadow="hover">
       <el-form :model="filterForm" inline label-width="84px">
         <el-form-item label="地区">
-          <el-input v-model="filterForm.region" placeholder="输入地区" clearable style="width: 180px" />
+          <el-input v-model="filterForm.region" placeholder="输入地区" clearable class="field-w-180" />
         </el-form-item>
         <el-form-item label="CP">
-          <el-input v-model="filterForm.cp" placeholder="输入 CP" clearable style="width: 180px" />
+          <el-input v-model="filterForm.cp" placeholder="输入 CP" clearable class="field-w-180" />
         </el-form-item>
         <el-form-item label="学校">
-          <el-input v-model="filterForm.school_name" placeholder="按名称搜索" clearable style="width: 200px" />
+          <el-input v-model="filterForm.school_name" placeholder="按名称搜索" clearable class="field-w-200" />
         </el-form-item>
         <el-form-item label="学校ID">
-          <el-input v-model="filterForm.school_id" placeholder="精确匹配" clearable style="width: 180px" />
+          <el-input v-model="filterForm.school_id" placeholder="精确匹配" clearable class="field-w-180" />
         </el-form-item>
         <el-form-item label="结算公式" required>
           <el-select
             v-model="filterForm.formula_id"
             placeholder="选择结算公式"
-            style="width: 220px"
+            class="field-w-220"
             :loading="formulasLoading"
           >
             <el-option
@@ -40,7 +40,7 @@
             value-format="YYYY-MM-DD"
             format="YYYY-MM-DD"
             :disabled-date="disableFutureDate"
-            style="width: 300px"
+            class="field-w-300"
             @change="handleDateRangeChange"
           />
         </el-form-item>
@@ -61,7 +61,7 @@
         :data="results.items"
         border
         stripe
-        style="width: 100%"
+        class="field-w-full"
         empty-text="暂无结算结果"
       >
         <el-table-column prop="school_name" label="学校" min-width="180" />
@@ -119,7 +119,7 @@
                 size="small"
                 type="warning"
                 effect="dark"
-                style="margin-right: 4px; margin-bottom: 4px"
+                class="mr-4 mb-4"
               >
                 {{ field }}
               </el-tag>
@@ -588,3 +588,5 @@ onMounted(async () => {
   justify-content: flex-end;
 }
 </style>
+
+

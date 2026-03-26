@@ -101,7 +101,11 @@ onBeforeUnmount(() => { document.removeEventListener('click', onGlobalClick) })
 </template>
 
 <style scoped>
-.tags-view { padding: 6px 12px 0; background: transparent; }
+.tags-view {
+  margin-left: 240px;
+  padding: 6px 20px 0;
+  background: var(--bg-page);
+}
 .tags-toolbar { display: flex; align-items: center; gap: 8px; padding: 0 0 6px; }
 .tags-toolbar .spacer { flex: 1; }
 .ctx-menu {
@@ -121,4 +125,19 @@ onBeforeUnmount(() => { document.removeEventListener('click', onGlobalClick) })
 }
 .ctx-item:hover { background: rgba(64, 158, 255, 0.12); }
 .ctx-item.danger:hover { background: rgba(255, 77, 79, 0.12); }
+
+@media (max-width: 992px) {
+  .tags-view {
+    margin-left: 216px;
+    padding: 6px 14px 0;
+  }
+}
+
+@media (max-width: 768px) {
+  .tags-view {
+    margin-left: 0;
+  }
+}
 </style>
+
+

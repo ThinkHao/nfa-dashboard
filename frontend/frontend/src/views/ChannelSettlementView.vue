@@ -16,10 +16,10 @@
 
       <el-form :inline="true" :model="filterForm" label-width="90px" class="filter-form">
         <el-form-item label="用户名称">
-          <el-input v-model="filterForm.user_name" placeholder="按用户名称模糊查询" style="width: 240px" />
+          <el-input v-model="filterForm.user_name" placeholder="按用户名称模糊查询" class="field-w-240" />
         </el-form-item>
         <el-form-item label="结算公式">
-          <el-select v-model="filterForm.formula_id" filterable placeholder="选择结算公式" style="width: 260px" :loading="formulasLoading">
+          <el-select v-model="filterForm.formula_id" filterable placeholder="选择结算公式" class="field-w-260" :loading="formulasLoading">
             <el-option v-for="f in formulas" :key="f.id" :label="f.name" :value="f.id" />
           </el-select>
         </el-form-item>
@@ -38,7 +38,7 @@
       </el-form>
     </el-card>
 
-    <el-card shadow="never" class="box-card" style="margin-top: 16px">
+    <el-card shadow="never" class="box-card mt-2">
       <template #header>
         <div class="card-header">
           <span class="card-title">结算结果</span>
@@ -54,7 +54,7 @@
           <template #default="{ row }">
             <el-tooltip placement="top">
               <template #content>
-                <pre style="margin:0; white-space: pre-wrap;">{{ renderBreakdownTooltip(row.breakdown_detail) }}</pre>
+                <pre class="pre-wrap-zero">{{ renderBreakdownTooltip(row.breakdown_detail) }}</pre>
               </template>
               <span>{{ formatCurrency(row.amount, row.currency) }}</span>
             </el-tooltip>
@@ -351,3 +351,5 @@ onMounted(async () => {
 .token-preview { color: var(--text-muted); font-size: 12px; }
 .pagination { display: flex; justify-content: flex-end; margin-top: 12px; }
 </style>
+
+

@@ -4,7 +4,7 @@
     <el-card class="filter-section">
       <el-form :model="filterForm" inline>
         <el-form-item label="任务类型">
-          <el-select v-model="filterForm.task_type" placeholder="选择任务类型" clearable style="width: 180px">
+          <el-select v-model="filterForm.task_type" placeholder="选择任务类型" clearable class="field-w-180">
             <el-option label="日结算" value="daily" />
             <el-option label="周结算" value="weekly" />
             <el-option label="初算" value="customer_init" />
@@ -12,7 +12,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="任务状态">
-          <el-select v-model="filterForm.status" placeholder="选择任务状态" clearable style="width: 160px">
+          <el-select v-model="filterForm.status" placeholder="选择任务状态" clearable class="field-w-160">
             <el-option label="等待中" value="pending" />
             <el-option label="执行中" value="running" />
             <el-option label="已完成" value="success" />
@@ -55,7 +55,7 @@
         :data="taskData.items"
         border
         stripe
-        style="width: 100%"
+        class="field-w-full"
       >
         <el-table-column prop="id" label="任务ID" width="80" />
         <el-table-column prop="task_type" label="任务类型" width="120">
@@ -659,3 +659,5 @@ onUnmounted(() => {
   word-break: break-all;
 }
 </style>
+
+

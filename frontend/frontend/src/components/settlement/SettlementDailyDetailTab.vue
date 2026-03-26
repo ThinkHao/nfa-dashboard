@@ -3,8 +3,8 @@
     <!-- 筛选条件区域 -->
     <el-card class="filter-section">
       <el-form :model="filterForm" inline>
-        <el-form-item label="地区" style="min-width: 200px;">
-          <el-select v-model="filterForm.region" placeholder="选择地区" clearable style="width: 180px;" @change="handleRegionChange">
+        <el-form-item label="地区" class="min-w-200">
+          <el-select v-model="filterForm.region" placeholder="选择地区" clearable class="field-w-180" @change="handleRegionChange">
             <el-option
               v-for="region in regions"
               :key="region"
@@ -13,8 +13,8 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="CP" style="min-width: 200px;">
-          <el-select v-model="filterForm.cp" placeholder="选择 CP" clearable style="width: 180px;" @change="handleCPChange">
+        <el-form-item label="CP" class="min-w-200">
+          <el-select v-model="filterForm.cp" placeholder="选择 CP" clearable class="field-w-180" @change="handleCPChange">
             <el-option
               v-for="cp in cps"
               :key="cp"
@@ -23,8 +23,8 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="学校" style="min-width: 300px;">
-          <el-select v-model="filterForm.school_id" placeholder="选择学校" clearable style="width: 250px;" @change="handleSchoolChange">
+        <el-form-item label="学校" class="min-w-300">
+          <el-select v-model="filterForm.school_id" placeholder="选择学校" clearable class="field-w-250" @change="handleSchoolChange">
             <el-option
               v-for="school in schools"
               :key="school.school_id"
@@ -33,7 +33,7 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="日期范围" style="min-width: 400px;">
+        <el-form-item label="日期范围" class="min-w-400">
           <el-date-picker
             v-model="dateRange"
             type="daterange"
@@ -42,7 +42,7 @@
             end-placeholder="结束日期"
             format="YYYY-MM-DD"
             value-format="YYYY-MM-DD"
-            style="width: 300px;"
+            class="field-w-300"
             @change="handleDateRangeChange"
           />
         </el-form-item>
@@ -67,7 +67,7 @@
         :data="dailyDetailData.items"
         border
         stripe
-        style="width: 100%"
+        class="field-w-full"
         empty-text="暂无数据"
       >
         <el-table-column prop="daily_date" label="日期" width="150">
@@ -468,3 +468,5 @@ onMounted(() => {
   justify-content: flex-end;
 }
 </style>
+
+

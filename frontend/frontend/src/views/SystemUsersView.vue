@@ -1,37 +1,29 @@
 <template>
-  <div class="sys-users-view">
-    <h1 class="page-title">用户管理</h1>
-    <el-card class="box-card" shadow="never">
-      <template #header>
-        <div class="card-header">
-          <span class="card-title">用户管理</span>
-          <div>
-            <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
-            <el-button @click="onReset">重置</el-button>
-            <el-button type="primary" plain @click="openCreateUser">新建用户</el-button>
-          </div>
+  <div class="page-container">
+    <PageHeader title="用户管理" description="维护系统用户、状态和角色分配。" />
+    <FilterPanel>
+      <div class="card-header">
+        <span class="card-title">查询条件</span>
+        <div>
+          <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
+          <el-button @click="onReset">重置</el-button>
+          <el-button type="primary" plain @click="openCreateUser">新建用户</el-button>
         </div>
-      </template>
+      </div>
       <el-form :inline="true" :model="query" label-width="90px" class="filter-form">
         <el-form-item label="用户名">
-          <el-input v-model="query.username" placeholder="支持包含匹配" clearable style="width: 220px" />
+          <el-input v-model="query.username" placeholder="支持包含匹配" clearable class="field-md" />
         </el-form-item>
         <el-form-item label="状态">
-          <el-select v-model="query.status" placeholder="全部" clearable style="width: 140px">
+          <el-select v-model="query.status" placeholder="全部" clearable class="field-sm">
             <el-option label="启用" :value="1" />
             <el-option label="禁用" :value="0" />
           </el-select>
         </el-form-item>
       </el-form>
-    </el-card>
+    </FilterPanel>
 
-    <el-card class="box-card" shadow="never" style="margin-top: 16px">
-      <template #header>
-        <div class="card-header">
-          <span class="card-title">用户列表</span>
-        </div>
-      </template>
-
+    <SectionCard title="用户列表">
       <el-table :data="items" border stripe height="600px" v-loading="loading">
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="username" label="用户名" width="180" />
@@ -77,7 +69,7 @@
           @current-change="onPageChange"
         />
       </div>
-    </el-card>
+    </SectionCard>
     <!-- 新建用户弹窗 -->
     <el-dialog v-model="createDialogVisible" title="新建用户" width="520px">
       <el-form label-width="90px">
@@ -97,13 +89,13 @@
           <el-input v-model="createForm.phone" placeholder="可选" />
         </el-form-item>
         <el-form-item label="状态">
-          <el-select v-model="createForm.status" style="width: 180px">
+          <el-select v-model="createForm.status" class="field-w-180">
             <el-option :value="1" label="启用" />
             <el-option :value="0" label="禁用" />
           </el-select>
         </el-form-item>
         <el-form-item label="角色">
-          <el-select v-model="createForm.role_ids" multiple filterable placeholder="选择角色" style="width: 100%" @visible-change="(v:boolean)=>{ if(v) ensureAllRolesLoaded() }">
+          <el-select v-model="createForm.role_ids" multiple filterable placeholder="选择角色" class="field-w-full" @visible-change="(v:boolean)=>{ if(v) ensureAllRolesLoaded() }">
             <el-option v-for="r in allRoles" :key="r.id" :label="r.name" :value="r.id" />
           </el-select>
         </el-form-item>
@@ -119,8 +111,8 @@
     <!-- 分配角色弹窗 -->
     <el-dialog v-model="roleDialogVisible" title="分配角色" width="520px">
       <div>
-        <div style="margin-bottom: 8px;">用户：{{ roleDialogUser?.username }}</div>
-        <el-select v-model="selectedRoleIds" multiple filterable placeholder="选择角色" style="width: 100%">
+        <div class="mb-8">用户：{{ roleDialogUser?.username }}</div>
+        <el-select v-model="selectedRoleIds" multiple filterable placeholder="选择角色" class="field-w-full">
           <el-option v-for="r in allRoles" :key="r.id" :label="r.name" :value="r.id" />
         </el-select>
       </div>
@@ -134,7 +126,7 @@
 
     <!-- 编辑别名弹窗 -->
     <el-dialog v-model="editAliasDialogVisible" title="编辑别名" width="420px">
-      <div style="margin-bottom: 8px;">用户：{{ editAliasUser?.username }}</div>
+      <div class="mb-8">用户：{{ editAliasUser?.username }}</div>
       <el-input v-model="editAliasValue" placeholder="留空可清除别名" maxlength="64" show-word-limit />
       <template #footer>
         <span class="dialog-footer">
@@ -151,6 +143,9 @@ import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api'
 import type { SystemUser, Role } from '@/types/api'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import FilterPanel from '@/components/ui/FilterPanel.vue'
+import SectionCard from '@/components/ui/SectionCard.vue'
 
 const loading = ref(false)
 const items = ref<SystemUser[]>([])
@@ -332,4 +327,10 @@ async function submitEditAlias() {
 .card-header { display: flex; justify-content: space-between; align-items: center; }
 .filter-form { row-gap: var(--form-item-gap); }
 .pagination { margin-top: 12px; display: flex; justify-content: flex-end; }
+.field-md:deep(.el-input__wrapper),
+.field-md:deep(.el-select__wrapper) { width: 220px !important; }
+.field-sm:deep(.el-input__wrapper),
+.field-sm:deep(.el-select__wrapper) { width: 140px !important; }
 </style>
+
+

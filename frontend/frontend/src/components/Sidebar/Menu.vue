@@ -2,10 +2,19 @@
 import { useRouter, useRoute } from 'vue-router'
 import { computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import * as Icons from '@element-plus/icons-vue'
 
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
+
+const fallbackIcon = Icons.Menu
+
+function resolveIcon(iconName?: string) {
+  if (!iconName) return fallbackIcon
+  const pack = Icons as Record<string, any>
+  return pack[iconName] || fallbackIcon
+}
 
 function hasMenuAccess(r: any): boolean {
   const required = (r.meta?.permissions as string[] | undefined) || []
@@ -83,15 +92,15 @@ const menus = computed(() => {
   <el-menu
     :default-active="route.path"
     router
-    background-color="transparent"
-    text-color="#e5e7eb"
-    active-text-color="#fff"
     class="menu"
   >
-    <el-menu-item index="/"><span class="menu-icon">🏠</span><span>首页</span></el-menu-item>
+    <el-menu-item index="/">
+      <el-icon class="menu-icon"><component :is="resolveIcon('House')" /></el-icon>
+      <span>首页</span>
+    </el-menu-item>
     <template v-for="item in menus.topLevel" :key="item.path">
       <el-menu-item :index="item.path">
-        <span v-if="(item as any).icon" class="menu-icon">{{ (item as any).icon }}</span>
+        <el-icon class="menu-icon"><component :is="resolveIcon((item as any).icon)" /></el-icon>
         <span>{{ item.title }}</span>
       </el-menu-item>
     </template>
@@ -100,7 +109,7 @@ const menus = computed(() => {
       <el-sub-menu :index="g.title">
         <template #title>{{ g.title }}</template>
         <el-menu-item v-for="c in g.children" :key="c.path" :index="c.path">
-          <span v-if="(c as any).icon" class="menu-icon">{{ (c as any).icon }}</span>
+          <el-icon class="menu-icon"><component :is="resolveIcon((c as any).icon)" /></el-icon>
           <span>{{ c.title }}</span>
         </el-menu-item>
       </el-sub-menu>
@@ -110,5 +119,7 @@ const menus = computed(() => {
 
 <style scoped>
 .menu { border-right: none; }
-.menu-icon { display: inline-flex; width: 18px; margin-right: 6px; align-items: center; justify-content: center; }
+.menu-icon { display: inline-flex; width: 18px; margin-right: 8px; align-items: center; justify-content: center; }
 </style>
+
+

@@ -14,10 +14,8 @@ function applyThemeToDocument(state: ThemeState) {
   try {
     if (state.isDark) {
       document.documentElement.setAttribute('data-theme', 'dark')
-      document.documentElement.classList.add('contrast-max')
     } else {
       document.documentElement.removeAttribute('data-theme')
-      document.documentElement.classList.remove('contrast-max')
     }
     document.documentElement.style.setProperty('--el-color-primary', state.primary)
     document.documentElement.style.setProperty('--color-primary', state.primary)
@@ -32,7 +30,7 @@ function applyThemeToDocument(state: ThemeState) {
 export const useThemeStore = defineStore('theme', {
   state: (): ThemeState => ({
     isDark: false,
-    primary: '#1890ff',
+    primary: '#2563eb',
     size: 'default',
     density: 'compact',
   }),

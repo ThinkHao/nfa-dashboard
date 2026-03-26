@@ -18,13 +18,13 @@
 
       <el-form :inline="true" :model="query" label-width="90px" class="filter-form">
         <el-form-item label="区域">
-          <el-input v-model="query.region" clearable placeholder="如 华东" style="width: 160px" />
+          <el-input v-model="query.region" clearable placeholder="如 华东" class="field-w-160" />
         </el-form-item>
         <el-form-item label="CP">
-          <el-input v-model="query.cp" clearable placeholder="如 CMCC" style="width: 160px" />
+          <el-input v-model="query.cp" clearable placeholder="如 CMCC" class="field-w-160" />
         </el-form-item>
         <el-form-item label="学校">
-          <el-input v-model="query.school_name" clearable placeholder="学校名称" style="width: 220px" />
+          <el-input v-model="query.school_name" clearable placeholder="学校名称" class="field-w-220" />
         </el-form-item>
         <el-form-item label="服务日期">
           <el-date-picker
@@ -32,14 +32,14 @@
             type="date"
             value-format="YYYY-MM-DD"
             placeholder="选择服务日期"
-            style="width: 160px"
+            class="field-w-160"
           />
         </el-form-item>
         <!-- 费率类型筛选暂时隐藏 -->
       </el-form>
     </el-card>
 
-    <el-card shadow="never" class="box-card" style="margin-top: 16px">
+    <el-card shadow="never" class="box-card mt-2">
       <template #header>
         <div class="card-header"><span class="card-title">费率列表</span></div>
       </template>
@@ -420,3 +420,5 @@ async function onExport() {
 .filter-form { row-gap: var(--form-item-gap); }
 .pagination { display: flex; justify-content: flex-end; margin-top: 12px; }
 </style>
+
+
