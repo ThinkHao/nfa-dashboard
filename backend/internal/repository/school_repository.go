@@ -25,6 +25,8 @@ type SchoolRepository interface {
 	GetTrafficData(filter model.TrafficFilter) ([]model.TrafficResponse, error)
 	// 获取流量汇总数据
 	GetTrafficSummary(filter model.TrafficFilter) (model.TrafficResponse, error)
+	// ExistsBySchoolID 检查学校是否存在
+	ExistsBySchoolID(schoolID string) (bool, error)
 }
 
 // schoolRepository 学校数据仓库实现
@@ -162,121 +164,55 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 
 	// 限制查询时间范围，避免全表扫描
 	if filter.StartTime.IsZero() && filter.EndTime.IsZero() {
-		// 默认查询最近1天的数据，减少查询范围
 		filter.EndTime = time.Now()
 		filter.StartTime = filter.EndTime.AddDate(0, 0, -1)
 	} else if filter.StartTime.IsZero() {
-		// 如果只有结束时间，则设置开始时间为1天前
 		filter.StartTime = filter.EndTime.AddDate(0, 0, -1)
 	} else if filter.EndTime.IsZero() {
-		// 如果只有开始时间，则设置结束时间为当前时间
 		filter.EndTime = time.Now()
 	}
 
-	// 根据时间范围长度自动调整查询策略，参考 Grafana 的做法
-	timeRange := filter.EndTime.Sub(filter.StartTime)
+	// 始终使用原始 5 分钟粒度（不降采样），并在 SQL 侧按时间桶去重聚合。
+	groupBy := []string{"create_time"}
+	selectSchoolID := "'' AS school_id"
+	selectSchoolName := "'' AS school_name"
+	selectRegion := "'' AS region"
+	selectCP := "'' AS cp"
 
-	// 记录查询时间信息
-	_ = filter.Interval // 避免未使用警告
-
-	// 计算时间范围分钟数
-	timeMinutes := timeRange.Minutes()
-
-	// 始终使用原始5分钟粒度，不进行自动调整
-	filter.Interval = "" // 原始5分钟粒度
-	log.Printf("时间范围为%.2f小时(%.2f分钟)，使用原始5分钟粒度", timeRange.Hours(), timeMinutes)
-
-	// 计算预期数据点数量（每5分钟一个点）
-	expectedPoints := int(timeMinutes/5) + 10 // 每5分钟一个点，加上缓冲
-	log.Printf("预期数据点数量: %d", expectedPoints)
-
-	// 确保返回足够的数据点
-	if filter.Limit > 0 && filter.Limit < expectedPoints {
-		filter.Limit = expectedPoints
-		log.Printf("增加限制数量为%d，以确保返回足够的数据点", filter.Limit)
-	}
-
-	// 计算时间范围差值（分钟和天数）
-	timeDiffMinutes := filter.EndTime.Sub(filter.StartTime).Minutes()
-	timeDiffDays := timeDiffMinutes / 60 / 24
-
-	// 记录原始预期数据点数量
-	filter.OriginalExpectedPoints = int(timeDiffMinutes / 5) // 每5分钟一个数据点
-	log.Printf("预期数据点数量: %d，当前限制: %d", filter.OriginalExpectedPoints, filter.Limit)
-
-	// 检查前端传来的限制值
-	log.Printf("前端请求的数据限制为: %d条", filter.Limit)
-
-	// 根据时间范围确保最小数据量，但不覆盖前端请求的更大限制
-	minLimit := 0
-	if timeDiffDays > 25 { // 超过25天
-		minLimit = 8000 // 最少需要8000条数据
-		log.Printf("长时间范围查询(%.2f天)，建议最少%d条", timeDiffDays, minLimit)
-	} else if timeDiffDays > 14 { // 14-25天
-		minLimit = 5000 // 最少需要5000条数据
-		log.Printf("中长时间范围查询(%.2f天)，建议最少%d条", timeDiffDays, minLimit)
-	} else if timeDiffDays > 7 { // 7-14天
-		minLimit = 4000 // 最少需要4000条数据
-		log.Printf("中时间范围查询(%.2f天)，建议最少%d条", timeDiffDays, minLimit)
-	} else {
-		// 对于7天以内的数据，根据时间范围计算最小限制
-		minLimit = int(timeDiffMinutes/5) + 100 // 每5分钟一个点，加上缓冲
-		log.Printf("短时间范围查询(%.2f天)，建议最少%d条", timeDiffDays, minLimit)
-	}
-
-	// For school-based queries, duplicate rows at the same timestamp can under-estimate a 5m-based limit.
-	// Use a safer per-minute lower bound to avoid long-range gaps caused by LIMIT truncation.
+	// school_name 存在时，保留 school+region+cp 维度，支持“同院校不同 CP”对比
 	if filter.SchoolName != "" {
-		schoolSafeMinLimit := int(timeDiffMinutes) + 200
-		if schoolSafeMinLimit > minLimit {
-			minLimit = schoolSafeMinLimit
-			log.Printf("school-based query raises min limit to %d (per-minute safe bound)", minLimit)
+		groupBy = append(groupBy, "school_name", "region", "cp")
+		selectSchoolID = "MIN(school_id) AS school_id"
+		selectSchoolName = "school_name"
+		selectRegion = "region"
+		selectCP = "cp"
+	} else {
+		// 未指定 school_name 时，根据筛选项决定聚合维度，兼顾灵活查询与返回体积。
+		if filter.Region != "" {
+			groupBy = append(groupBy, "region")
+			selectRegion = "region"
+		}
+		if filter.CP != "" {
+			groupBy = append(groupBy, "cp")
+			selectCP = "cp"
 		}
 	}
 
-	// 使用前端请求的限制和最小限制中的较大值
-	if filter.Limit < minLimit {
-		filter.Limit = minLimit
-		log.Printf("前端请求的限制值过小，调整为%d条", filter.Limit)
-	} else {
-		log.Printf("使用前端请求的限制值: %d条", filter.Limit)
-	}
+	query := `
+        SELECT
+            create_time,
+            ` + selectSchoolID + `,
+            ` + selectSchoolName + `,
+            ` + selectRegion + `,
+            ` + selectCP + `,
+            SUM(total_recv) AS total_recv,
+            SUM(total_send) AS total_send
+        FROM nfa_school_traffic
+        WHERE create_time BETWEEN ? AND ?`
 
-	var query string
-	var args []interface{}
+	args := []interface{}{filter.StartTime, filter.EndTime}
+
 	if filter.SchoolName != "" {
-		// 按学校查询时，按时间+维度聚合，规避同校同时间多 school_id/hash_uuid 造成的重复点
-		query = `
-            SELECT
-                create_time,
-                MIN(school_id) AS school_id,
-                school_name,
-                region,
-                cp,
-                SUM(total_recv) AS total_recv,
-                SUM(total_send) AS total_send
-            FROM nfa_school_traffic FORCE INDEX (idx_traffic_rcn_name_time_cov)
-            WHERE create_time BETWEEN ? AND ?`
-	} else {
-		query = `
-            SELECT 
-                create_time,
-                school_id,
-                school_name,
-                region,
-                cp,
-                total_recv,
-                total_send
-            FROM nfa_school_traffic FORCE INDEX (idx_traffic_rcn_name_time_cov)
-            WHERE create_time BETWEEN ? AND ?`
-	}
-
-	// 初始化参数
-	args = []interface{}{filter.StartTime, filter.EndTime}
-
-	// 添加过滤条件
-	if filter.SchoolName != "" {
-		// 当 school_name 不包含通配符时使用等值匹配，避免范围条件影响索引有序输出
 		if strings.ContainsAny(filter.SchoolName, "%_") {
 			query += " AND school_name LIKE ?"
 			args = append(args, filter.SchoolName)
@@ -293,38 +229,21 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 		query += " AND cp = ?"
 		args = append(args, filter.CP)
 	}
-	// v2：按用户过滤可见院校范围
 	if filter.UserID != nil && *filter.UserID > 0 {
 		query += " AND school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)"
 		args = append(args, *filter.UserID)
 	}
 
-	// 按学校查询时先聚合再排序，其余查询保持明细
-	if filter.SchoolName != "" {
-		query += " GROUP BY create_time, school_name, region, cp ORDER BY create_time ASC"
-	} else {
-		query += " ORDER BY create_time ASC"
-	}
-
-	// 添加限制
-	if filter.Limit > 0 {
-		query += " LIMIT ?"
-		args = append(args, filter.Limit)
-	}
+	query += " GROUP BY " + strings.Join(groupBy, ", ")
+	query += " ORDER BY create_time ASC, region ASC, cp ASC, school_name ASC"
 
 	log.Printf("最终查询SQL: %s", query)
 	log.Printf("查询参数: %v", args)
 
-	// 执行查询
-	log.Printf("查询参数: %v", args)
-
-	// 如果查询的数据量过大，可能需要增加数据库连接超时时间
-	// 创建一个带超时的上下文
 	backgroundCtx := context.Background()
 	ctxWithTimeout, cancel := context.WithTimeout(backgroundCtx, 60*time.Second)
-	defer cancel() // 确保资源释放
+	defer cancel()
 
-	// 使用带超时的上下文执行查询
 	rows, err := model.DB.WithContext(ctxWithTimeout).Raw(query, args...).Rows()
 	if err != nil {
 		log.Printf("获取流量数据时发生错误: %v", err)
@@ -332,25 +251,15 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 	}
 	defer rows.Close()
 
-	// 使用批量处理来提高性能
-	const batchSize = 1000 // 每批处理的数据量
-
-	// 初始化结果切片，预分配空间以提高性能
-	results = make([]model.TrafficResponse, 0, filter.Limit)
-
-	// 批量计数器
+	const batchSize = 1000
+	results = make([]model.TrafficResponse, 0, 1024)
 	batchCount := 0
 	totalCount := 0
 	batchStartTime := time.Now()
-
-	// 创建一个临时批次切片
 	batch := make([]model.TrafficResponse, 0, batchSize)
 
-	// 处理查询结果
 	for rows.Next() {
 		var result model.TrafficResponse
-
-		// 直接使用时间类型扫描
 		var createTime time.Time
 		err := rows.Scan(&createTime, &result.SchoolID, &result.SchoolName, &result.Region, &result.CP, &result.TotalRecv, &result.TotalSend)
 		if err != nil {
@@ -358,49 +267,29 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 			continue
 		}
 
-		// 设置创建时间
 		result.CreateTime = createTime
-
-		// 计算总流量
 		result.Total = result.TotalRecv + result.TotalSend
 
-		// 添加到当前批次
 		batch = append(batch, result)
 		batchCount++
 		totalCount++
 
-		// 当批次达到指定大小时，将其添加到结果中
 		if batchCount >= batchSize {
-			// 将当前批次添加到结果中
 			results = append(results, batch...)
-
-			// 记录批处理时间
 			batchDuration := time.Since(batchStartTime)
 			log.Printf("处理了 %d 条数据，耗时 %.2f 秒", batchCount, batchDuration.Seconds())
-
-			// 重置批次
 			batch = make([]model.TrafficResponse, 0, batchSize)
 			batchCount = 0
 			batchStartTime = time.Now()
 		}
 	}
 
-	// 处理最后一批不足batchSize的数据
 	if len(batch) > 0 {
 		results = append(results, batch...)
 		log.Printf("处理最后一批 %d 条数据", len(batch))
 	}
 
-	// 结果顺序保持与SQL中 ORDER BY create_time ASC 一致，不再进行二次排序
-	// 仍保留最终的保护性截断（在SQL已LIMIT的情况下通常不会触发）
-	if filter.Limit > 0 && len(results) > filter.Limit {
-		results = results[:filter.Limit]
-	}
-
-	// 记录查询结果数量
 	log.Printf("查询到 %d 条数据记录(总处理行数: %d)", len(results), totalCount)
-
-	// 如果没有数据，打印警告
 	if len(results) == 0 {
 		log.Printf("警告: 没有找到符合条件的数据，时间范围: %v 至 %v", filter.StartTime, filter.EndTime)
 	}
@@ -444,4 +333,15 @@ func (r *schoolRepository) GetTrafficSummary(filter model.TrafficFilter) (model.
 
 	result.Total = result.TotalRecv + result.TotalSend
 	return result, nil
+}
+
+func (r *schoolRepository) ExistsBySchoolID(schoolID string) (bool, error) {
+	if strings.TrimSpace(schoolID) == "" {
+		return false, nil
+	}
+	var cnt int64
+	if err := model.DB.Model(&model.School{}).Where("school_id = ?", schoolID).Count(&cnt).Error; err != nil {
+		return false, err
+	}
+	return cnt > 0, nil
 }

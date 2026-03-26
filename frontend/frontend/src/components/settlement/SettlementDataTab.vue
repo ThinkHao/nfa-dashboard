@@ -43,6 +43,12 @@
             />
           </el-select>
         </el-form-item>
+        <el-form-item label="聚合粒度" style="min-width: 220px;">
+          <el-select v-model="granularity" style="width: 140px;" @change="handleGranularityChange">
+            <el-option label="按日" value="daily" />
+            <el-option label="按月" value="monthly" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="服务时间" style="min-width: 400px;">
           <el-date-picker
             v-model="dateRange"
@@ -66,9 +72,13 @@
     <!-- 数据表格区域 -->
     <el-card class="table-section" shadow="hover">
       <div class="table-header">
-        <h3>结算数据列表</h3>
+        <h3>
+          结算数据列表
+          <el-tag v-if="currentDataSourceLabel" size="small" type="info" style="margin-left:8px;">来源：{{ currentDataSourceLabel }}</el-tag>
+        </h3>
         <div style="display:flex; gap:8px;">
           <el-button type="primary" @click="openExportDialog">导出</el-button>
+          <el-button v-if="canRecalc && isMonthlyGranularity" type="success" @click="onRebuildMonthlySnapshot">重建月度快照</el-button>
           <el-button v-if="canRecalc" type="warning" @click="onRecalculate">复算</el-button>
         </div>
       </div>
@@ -92,12 +102,17 @@
         <el-table-column prop="school_name" label="学校名称" min-width="160" />
         <el-table-column prop="region" label="地区" width="100" />
         <el-table-column prop="cp" label="CP" width="100" />
-        <el-table-column prop="service_date" label="服务日期" width="120">
+        <el-table-column prop="service_date" :label="serviceDateColumnLabel" width="120">
           <template #default="{ row }">{{ row.service_date ? formatDateDisplay(row.service_date) : '-' }}</template>
         </el-table-column>
-        <el-table-column label="日95值(Mbps)" width="150">
+        <el-table-column :label="trafficColumnLabel" width="150">
           <template #default="{ row }">
             {{ row.settlement_value != null ? formatBitRate(convertToBitsPerSecond(row.settlement_value), false) : '0.00' }}
+          </template>
+        </el-table-column>
+        <el-table-column :label="incrementColumnLabel" width="150">
+          <template #default="{ row }">
+            {{ row.daily_increment_value != null ? formatBitRate(convertToBitsPerSecond(row.daily_increment_value), false) : '-' }}
           </template>
         </el-table-column>
         <el-table-column prop="customer_fee" label="客户费率" width="110" />
@@ -239,6 +254,11 @@ interface FilterForm {
   page: number;
   page_size: number;
 }
+type SettlementGranularity = 'daily' | 'monthly'
+const granularity = ref<SettlementGranularity>('daily')
+const serviceDateColumnLabel = computed(() => (granularity.value === 'monthly' ? '服务月份' : '服务日期'))
+const trafficColumnLabel = computed(() => (granularity.value === 'monthly' ? '月均95值(Mbps)' : '日95值(Mbps)'))
+const incrementColumnLabel = computed(() => (granularity.value === 'monthly' ? '月均增量(Mbps)' : '当日增量(Mbps)'))
 
 function daysInMonthFrom(dateStr?: string | null): number {
   try {
@@ -263,6 +283,64 @@ function toFixedNum(n: number, digits = 2): string {
   try { return Number(n).toFixed(digits) } catch { return String(n) }
 }
 
+function rowCalcMetaKey(row: any): string {
+  return `${row?.region || ''}|${row?.cp || ''}|${row?.school_name || ''}|${formatDateDisplay(String(row?.service_date || ''))}`
+}
+
+function parseDateOnlyToDate(s?: string | null): Date | null {
+  if (!s) return null
+  const m = String(s).trim().match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!m) return null
+  const y = Number(m[1]); const mo = Number(m[2]); const d = Number(m[3])
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null
+  return new Date(y, mo - 1, d)
+}
+
+function calcServiceYearIndexFront(startDate: Date | null, serviceDate: Date | null): number {
+  if (!startDate || !serviceDate) return 0
+  let yearIdx = 1
+  if (serviceDate < startDate) return yearIdx
+  let tmp = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate())
+  while (serviceDate >= new Date(tmp.getFullYear() + 1, tmp.getMonth(), tmp.getDate())) {
+    yearIdx += 1
+    tmp = new Date(tmp.getFullYear() + 1, tmp.getMonth(), tmp.getDate())
+  }
+  return yearIdx
+}
+
+function findDiscountRatioByYearFront(items: any[], yearIdx: number): number {
+  if (!Array.isArray(items) || yearIdx <= 0) return 1
+  const sorted = [...items].sort((a, b) => Number(a?.from_year || 0) - Number(b?.from_year || 0))
+  for (const it of sorted) {
+    const fromY = Number(it?.from_year || 0)
+    const toRaw = it?.to_year
+    const toY = (toRaw == null || toRaw === '') ? null : Number(toRaw)
+    if (yearIdx < fromY) continue
+    if (toY != null && yearIdx > toY) continue
+    const r = Number(it?.discount_rate)
+    return Number.isFinite(r) && r > 0 ? r : 1
+  }
+  return 1
+}
+
+function ruleAffectsField(rule: any, rateField: string): boolean {
+  try {
+    const raw = rule?.fields
+    let fields: string[] = []
+    if (Array.isArray(raw)) {
+      fields = raw.map((x: any) => String(x))
+    } else if (typeof raw === 'string' && raw.trim()) {
+      fields = JSON.parse(raw)
+    }
+    const normalized = Array.isArray(fields) ? fields.map((x: any) => String(x).trim()).filter(Boolean) : []
+    if (normalized.length === 0) return rateField === 'customer_fee'
+    const key = rateField === 'node_deduction_fee' ? 'general_fee' : rateField
+    return normalized.includes(key)
+  } catch {
+    return rateField === 'customer_fee'
+  }
+}
+
 function amountDetail(row: any, rateField: string, billField: string, rateLabel: string): string {
   try {
     const sv = Number(row?.settlement_value ?? 0)
@@ -282,37 +360,66 @@ function amountDetail(row: any, rateField: string, billField: string, rateLabel:
     lines.push(`换算：Mbps = bits/s / 1e6 = ${toFixedNum(bps,2)} / 1e6 = ${toFixedNum(mbps, 2)}`)
     lines.push(`换算：Gbps = bits/s / 1e9 = ${toFixedNum(bps,2)} / 1e9 = ${toFixedNum(gbps, 6)}`)
     let extra: string[] = []
-    if (rateField === 'customer_fee') {
-      const rid = Number(row?.discount_rule_id || 0)
-      const yi = Number(row?.service_year_index || 0)
-      if (rid > 0 && yi > 0) {
-        const det = discountRuleDetailMap.value[rid]
-        const rule = det?.rule
-        const items = Array.isArray(det?.items) ? det!.items : []
-        const used = items.find((it: any) => yi >= Number(it.from_year) && (it.to_year == null || yi <= Number(it.to_year)))
+    const rid = Number(row?.discount_rule_id || 0)
+    const yi = Number(row?.service_year_index || 0)
+    const det = rid > 0 ? discountRuleDetailMap.value[rid] : null
+    const rule = det?.rule
+    const items = Array.isArray(det?.items) ? det!.items : []
+    const affectsCurrentField = rid > 0 ? ruleAffectsField(rule, rateField) : false
+    const stockRatio = Number(row?.stock_ratio ?? 1)
+    const incrementRatio = Number(row?.increment_ratio ?? 0)
+    const incrementValue = Number(row?.daily_increment_value ?? (sv * (Number.isFinite(incrementRatio) ? incrementRatio : 0)))
+    const stockValue = sv - incrementValue
+    const meta = rowCalcMetaMap.value[rowCalcMetaKey(row)]
+
+    if (rid > 0) {
+      if (affectsCurrentField) {
+        extra.push('该字段命中折损规则，费率按同一原始费率的存量/增量两段分别折损后合并')
+        if ((Number.isFinite(incrementRatio) && incrementRatio > 0) || (Number.isFinite(incrementValue) && incrementValue > 0)) {
+          lines.push(`存量占比：${toFixedNum(stockRatio * 100, 2)}%，增量占比：${toFixedNum(incrementRatio * 100, 2)}%`)
+          lines.push(`存量95原值：${toFixedNum(stockValue, 6)}，增量95原值：${toFixedNum(incrementValue, 6)}`)
+        }
         if (rule) {
           const scope = `${rule.scope_type || 'global'}${rule.scope_type === 'global' ? '' : `/${rule.scope_key ?? '-'}`}`
           extra.push(`折损规则：#${rid} ${rule.name || ''}（范围：${scope}）`)
         } else {
           extra.push(`折损规则：#${rid}`)
         }
+        const used = items.find((it: any) => yi >= Number(it.from_year) && (it.to_year == null || yi <= Number(it.to_year)))
         if (used && Number.isFinite(Number(used.discount_rate))) {
           const ratio = Number(used.discount_rate)
-          const baseFee = Number.isFinite(rate) ? (rate as number) / ratio : NaN
-          extra.push(`生效条目：第${yi}年，区间 ${used.from_year}-${used.to_year ?? '∞'}，比例=${Math.round(ratio*100)}%`)
-          if (Number.isFinite(baseFee)) {
-            extra.push(`原始费率（未折损）：${toFixedNum(baseFee, 4)}，折后费率：${rate}`)
-          }
+          extra.push(`存量折损条目：第${yi}年，区间 ${used.from_year}-${used.to_year ?? '∞'}，系数=${toFixedNum(ratio, 4)}`)
         } else if (yi > 0) {
-          extra.push(`生效条目：第${yi}年（未匹配到条目）`)
+          extra.push(`存量折损条目：第${yi}年（未匹配到条目）`)
         }
+        const ruleField = rateField === 'node_deduction_fee' ? 'general_fee' : rateField
+        const baseRate = meta?.baseRates?.[ruleField]
+        if (baseRate != null && Number.isFinite(baseRate)) {
+          const sr = Number.isFinite(meta?.stockDiscountRatio as any) ? Number(meta!.stockDiscountRatio) : 1
+          const ir = Number.isFinite(meta?.incrementDiscountRatio as any) ? Number(meta!.incrementDiscountRatio) : 1
+          const stockPart = Number(baseRate) * stockRatio * sr
+          const incrementPart = Number(baseRate) * incrementRatio * ir
+          extra.push(`存量折损系数：${toFixedNum(sr, 4)}（第${meta?.stockYearIdx || 0}年），增量折损系数：${toFixedNum(ir, 4)}（第${meta?.incrementYearIdx || 0}年）`)
+          extra.push(`折后费率分解：${toFixedNum(baseRate, 6)}*${toFixedNum(stockRatio, 4)}*${toFixedNum(sr, 4)} + ${toFixedNum(baseRate, 6)}*${toFixedNum(incrementRatio, 4)}*${toFixedNum(ir, 4)} = ${toFixedNum(stockPart + incrementPart, 6)}`)
+        } else {
+          extra.push('增量折损系数按“增量起算日期 -> 服务日期”的服务年限，在同一折损规则中匹配')
+          extra.push('折后费率公式：原始费率*存量占比*存量折损系数 + 原始费率*增量占比*增量折损系数')
+        }
+      } else {
+        extra.push('该字段未命中折损规则，按原始费率计算')
       }
     }
+
     lines.push(`${rateLabel}：${Number.isFinite(rate) ? rate : '-'}`)
     if (extra.length > 0) lines.push(...extra)
     lines.push(`当月天数：${days}`)
     if (Number.isFinite(rate)) {
-      lines.push(`公式：金额 = Gbps * 费率 / 当月天数 = ${toFixedNum(gbps,6)} * ${rate} / ${days} = ${toFixedNum(calc, 2)}`)
+      if (affectsCurrentField) {
+        lines.push(`公式：金额 = Gbps * [原始费率*存量占比*存量折损系数 + 原始费率*增量占比*增量折损系数] / 当月天数`)
+        lines.push(`代入：金额 = ${toFixedNum(gbps,6)} * ${rate} / ${days} = ${toFixedNum(calc, 2)}（当前“费率”为两段合并后的折后费率）`)
+      } else {
+        lines.push(`公式：金额 = Gbps * 费率 / 当月天数 = ${toFixedNum(gbps,6)} * ${rate} / ${days} = ${toFixedNum(calc, 2)}`)
+      }
     } else {
       lines.push('公式：缺少费率，金额不可计算')
     }
@@ -342,6 +449,13 @@ const pageSize = ref(10)
 
 // 加载状态
 const loading = ref(false)
+const currentDataSourceLabel = computed(() => {
+  const first = (settlementData.value.items && settlementData.value.items.length > 0) ? (settlementData.value.items[0] as any) : null
+  const src = String(first?.data_source || '').toLowerCase()
+  if (src === 'snapshot') return '月快照'
+  if (src === 'realtime') return '实时聚合'
+  return ''
+})
 
 // 结算数据
 const settlementData = ref<SettlementListResponse>({
@@ -350,6 +464,13 @@ const settlementData = ref<SettlementListResponse>({
 })
 
 const discountRuleDetailMap = ref<Record<number, { rule: any; items: any[] }>>({})
+const rowCalcMetaMap = ref<Record<string, {
+  stockYearIdx: number
+  incrementYearIdx: number
+  stockDiscountRatio: number
+  incrementDiscountRatio: number
+  baseRates: Record<string, number | null>
+}>>({})
 
 // 将原始数据转换为 bits/s
 const convertToBitsPerSecond = (bytes: number | null | undefined): number => {
@@ -394,6 +515,90 @@ const formatDateDisplay = (dateStr: string): string => {
   
   // 如果是纯日期格式，直接返回
   return dateStr
+}
+
+async function hydrateRowCalcMeta(rows: any[]) {
+  try {
+    const uniq = new Map<string, any[]>()
+    for (const row of (rows || [])) {
+      const k = `${row?.region || ''}|${row?.cp || ''}|${row?.school_name || ''}`
+      if (!k || k === '||') continue
+      if (!uniq.has(k)) uniq.set(k, [])
+      uniq.get(k)!.push(row)
+    }
+    const next: Record<string, {
+      stockYearIdx: number
+      incrementYearIdx: number
+      stockDiscountRatio: number
+      incrementDiscountRatio: number
+      baseRates: Record<string, number | null>
+    }> = {}
+
+    for (const [k, relatedRows] of uniq) {
+      const [region, cp, school_name] = k.split('|')
+      const rateRes: any = await (api as any).settlementRates.customer.list({
+        region: region || undefined,
+        cp: cp || undefined,
+        school_name: school_name || undefined,
+        page: 1,
+        page_size: 200,
+      })
+      const candidates: any[] = Array.isArray(rateRes?.items) ? rateRes.items : []
+
+      for (const row of relatedRows) {
+        const serviceDate = parseDateOnlyToDate(formatDateDisplay(String(row?.service_date || '')))
+        const candidates2 = candidates.filter((rc) => {
+          if (String(rc?.region || '') !== String(row?.region || '')) return false
+          if (String(rc?.cp || '') !== String(row?.cp || '')) return false
+          if (String(rc?.school_name || '') !== String(row?.school_name || '')) return false
+          const sa = parseDateOnlyToDate(rc?.start_at)
+          if (!sa || !serviceDate) return true
+          return sa <= serviceDate
+        })
+        const effective = [...candidates2].sort((a, b) => {
+          const da = parseDateOnlyToDate(a?.start_at)?.getTime() || 0
+          const db = parseDateOnlyToDate(b?.start_at)?.getTime() || 0
+          return db - da
+        })[0]
+        if (!effective) continue
+
+        const rid = Number(row?.discount_rule_id || 0)
+        const det = rid > 0 ? discountRuleDetailMap.value[rid] : null
+        const items = Array.isArray(det?.items) ? det!.items : []
+        const stockYearIdx = calcServiceYearIndexFront(parseDateOnlyToDate(effective?.start_at), serviceDate)
+        const incrementYearIdx = calcServiceYearIndexFront(parseDateOnlyToDate(effective?.increment_start_at), serviceDate)
+        const stockDiscountRatio = findDiscountRatioByYearFront(items, stockYearIdx)
+        const incrementDiscountRatio = findDiscountRatioByYearFront(items, incrementYearIdx)
+        next[rowCalcMetaKey(row)] = {
+          stockYearIdx,
+          incrementYearIdx,
+          stockDiscountRatio,
+          incrementDiscountRatio,
+          baseRates: {
+            customer_fee: effective?.customer_fee != null ? Number(effective.customer_fee) : null,
+            network_line_fee: effective?.network_line_fee != null ? Number(effective.network_line_fee) : null,
+            general_fee: effective?.general_fee != null ? Number(effective.general_fee) : null,
+            channel_rate: effective?.channel_rate != null ? Number(effective.channel_rate) : null,
+          },
+        }
+      }
+    }
+    rowCalcMetaMap.value = next
+  } catch (e) {
+    console.warn('预计算折损系数失败:', e)
+  }
+}
+
+const getTrafficMetricValue = (row: any, key: string): number | null => {
+  if (!row) return null
+  if (key === 'daily_95_mbps') {
+    return Number((convertToBitsPerSecond(Number(row?.settlement_value ?? 0)) / 1_000_000).toFixed(9))
+  }
+  if (key === 'daily_increment_mbps') {
+    if (row?.daily_increment_value == null) return null
+    return Number((convertToBitsPerSecond(Number(row.daily_increment_value)) / 1_000_000).toFixed(9))
+  }
+  return null
 }
 
 // 基于 schools 动态派生地区/运营商选项，仅限可见院校范围
@@ -570,6 +775,11 @@ const handleDateRangeChange = (val: [string, string] | null) => {
   }, 0)
 }
 
+const handleGranularityChange = () => {
+  currentPage.value = 1
+  fetchData()
+}
+
 // 获取结算数据
 const fetchData = async () => {
   loading.value = true
@@ -613,7 +823,9 @@ const fetchData = async () => {
     console.log('最终请求参数:', params)
     
     // 发送请求并解析已解包的数据
-    const response = await (api as any).settlementData.list(params) as any
+    const response = (granularity.value === 'monthly'
+      ? await (api as any).settlementData.monthlyList(params)
+      : await (api as any).settlementData.list(params)) as any
     console.log('结算数据响应:', response)
     if (Array.isArray(response)) {
       settlementData.value = { items: response, total: response.length }
@@ -640,6 +852,7 @@ const fetchData = async () => {
         }
       }))
     } catch {}
+    await hydrateRowCalcMeta(settlementData.value.items || [])
     
     // 检查数据结构
     if (settlementData.value.items && Array.isArray(settlementData.value.items)) {
@@ -724,6 +937,7 @@ const allFieldDefs: FieldDef[] = [
   { key: 'cp', label: 'CP', type: 'base', getter: (r:any)=> r?.cp ?? '' },
   { key: 'service_date', label: '服务日期', type: 'base', getter: (r:any)=> r?.service_date ? formatDateDisplay(String(r.service_date)) : '' },
   { key: 'daily_95_mbps', label: '日95(Mbps)', type: 'traffic', getter: (r:any)=> (convertToBitsPerSecond(Number(r?.settlement_value ?? 0)) / 1_000_000).toFixed(2) },
+  { key: 'daily_increment_mbps', label: '当日增量(Mbps)', type: 'traffic', getter: (r:any)=> r?.daily_increment_value != null ? (convertToBitsPerSecond(Number(r.daily_increment_value)) / 1_000_000).toFixed(2) : '' },
   { key: 'customer_fee', label: '客户费率', type: 'base', getter: (r:any)=> r?.customer_fee },
   { key: 'customer_bill', label: '客户金额', type: 'money', getter: (r:any)=> r?.customer_bill },
   { key: 'customer_fee_owner_name', label: '客户费归属', type: 'base', getter: (r:any)=> displayUser(r?.customer_fee_owner_id) },
@@ -745,6 +959,7 @@ const numericFields = computed(() => allFieldDefs.filter(f => f.type === 'traffi
 const otherFields = computed(() => allFieldDefs.filter(f => ['customer_fee_owner_name','network_line_fee_owner_name','node_deduction_fee_owner_name','channel_owner_name'].includes(f.key)))
 
 const monthlyAvgDisabled = computed(() => {
+  if (granularity.value === 'monthly') return true
   const selected = new Set(exportForm.selectedFields)
   return !numericFields.value.some(f => selected.has(f.key))
 })
@@ -773,7 +988,9 @@ async function fetchAllDataForExport(onProgress?: (p: number, meta?: { processed
   const all: any[] = []
   let total = 0
   while (true) {
-    const res: any = await (api as any).settlementData.list(params)
+    const res: any = granularity.value === 'monthly'
+      ? await (api as any).settlementData.monthlyList(params)
+      : await (api as any).settlementData.list(params)
     let items: any[] = []
     if (Array.isArray(res)) { items = res; total = total || res.length } else if (res && Array.isArray(res.items)) { items = res.items; total = Number(res.total || total || 0) }
     all.push(...items)
@@ -876,9 +1093,11 @@ async function doExport() {
           group.set(gk, g)
         }
         const g = group.get(gk)!
-        if (selectedTrafficKeys.has('daily_95_mbps')) {
-          const v = Number((convertToBitsPerSecond(Number(r?.settlement_value ?? 0)) / 1_000_000).toFixed(9))
-          if (!Number.isNaN(v)) { g.traf['daily_95_mbps'].sum[idx] += v; g.traf['daily_95_mbps'].cnt[idx] += 1 }
+        for (const key of selectedTrafficKeys) {
+          const v = getTrafficMetricValue(r, key)
+          if (v == null || Number.isNaN(v)) continue
+          g.traf[key].sum[idx] += v
+          g.traf[key].cnt[idx] += 1
         }
         for (const def of metricDefs) {
           if (def.type !== 'money') continue
@@ -942,9 +1161,11 @@ async function doExport() {
           group2.set(gk, g)
         }
         const g = group2.get(gk)!
-        if (selectedTrafficKeys.has('daily_95_mbps')) {
-          const v = Number((convertToBitsPerSecond(Number(r?.settlement_value ?? 0)) / 1_000_000).toFixed(9))
-          if (!Number.isNaN(v)) { g.traf['daily_95_mbps'].sum += v; g.traf['daily_95_mbps'].cnt += 1 }
+        for (const key of selectedTrafficKeys) {
+          const v = getTrafficMetricValue(r, key)
+          if (v == null || Number.isNaN(v)) continue
+          g.traf[key].sum += v
+          g.traf[key].cnt += 1
         }
         for (const def of metricDefs) {
           if (def.type !== 'money') continue
@@ -1009,6 +1230,34 @@ async function doExport() {
 
 const auth = useAuthStore()
 const canRecalc = computed(() => auth.hasPermission('settlement.data.recalculate'))
+const isMonthlyGranularity = computed(() => granularity.value === 'monthly')
+
+const onRebuildMonthlySnapshot = async () => {
+  let body: any = {}
+  if (dateRange.value) {
+    body = {
+      start_service_date: dateRange.value[0],
+      end_service_date: dateRange.value[1],
+    }
+  } else {
+    try {
+      await ElMessageBox.confirm('未选择服务时间范围，将重建全量月度快照，可能耗时较长。是否继续？', '确认重建', {
+        type: 'warning',
+        confirmButtonText: '重建',
+        cancelButtonText: '取消',
+      })
+    } catch {
+      return
+    }
+  }
+  try {
+    const affected = await (api as any).settlementData.rebuildMonthly(body)
+    ElMessage.success(`月度快照重建完成，影响 ${affected} 条`)
+    if (isMonthlyGranularity.value) fetchData()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '月度快照重建失败')
+  }
+}
 
 const onRecalculate = async () => {
   try {

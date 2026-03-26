@@ -3,10 +3,9 @@ package service
 import (
 	"errors"
 	"fmt"
-	"strings"
 	"nfa-dashboard/config"
-	"nfa-dashboard/internal/model"
 	"nfa-dashboard/internal/repository"
+	"strings"
 )
 
 // UserSchoolService 提供用户-院校绑定的业务能力
@@ -30,9 +29,12 @@ func (s *userSchoolService) SetOwner(schoolID string, userID *uint64) error {
 		return errors.New("school_id is required")
 	}
 	// 校验 school 是否存在
-	var school model.School
-	if err := model.DB.Where("school_id = ?", schoolID).First(&school).Error; err != nil {
-		return fmt.Errorf("school not found: %w", err)
+	ok, err := s.schoolRepo.ExistsBySchoolID(schoolID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("school not found: %s", schoolID)
 	}
 	// 如需绑定用户，则校验用户是否存在且启用
 	if userID != nil && *userID > 0 {
@@ -42,7 +44,7 @@ func (s *userSchoolService) SetOwner(schoolID string, userID *uint64) error {
 			return fmt.Errorf("user not found: %d", *userID)
 		}
 		// 角色白名单校验（可配置）。为空则不限制。绑定院校owner使用销售角色白名单。
-        allowed := config.GetAllowedSalesRoles()
+		allowed := config.GetAllowedSalesRoles()
 		if len(allowed) > 0 {
 			// 构建小写集合
 			allowSet := make(map[string]struct{}, len(allowed))

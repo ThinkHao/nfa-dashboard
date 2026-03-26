@@ -1,3 +1,9 @@
 !docs/*.md
 *.png
 backend/config/config.yaml
+backend/nfa-dashboard
+backend/internal/service/*.bak
+frontend/frontend/node_modules/
+frontend/frontend/dist/
+coverage/
+*.log

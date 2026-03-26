@@ -38,7 +38,15 @@
             placeholder="搜索学校"
             style="width: 240px"
           >
-            <el-option v-for="s in schoolOptions" :key="s" :label="s" :value="s" />
+            <el-option v-for="s in schoolOptions" :key="s.name" :label="s.name" :value="s.name">
+              <div class="school-option">
+                <span>{{ s.name }}</span>
+                <span class="school-option-tags">
+                  <el-tag v-if="s.inRate" size="small" type="success">已纳入费率</el-tag>
+                  <el-tag v-else size="small" type="warning">未纳入费率</el-tag>
+                </span>
+              </div>
+            </el-option>
           </el-select>
         </el-form-item>
       </el-form>
@@ -74,7 +82,10 @@
                   <el-checkbox v-model="colVisible.customer_fee_owner">客户费归属</el-checkbox>
                   <el-checkbox v-model="colVisible.network_line_fee_owner">线路费归属</el-checkbox>
                   <el-checkbox v-model="colVisible.channel_owner">渠道费归属</el-checkbox>
-                  <el-checkbox v-model="colVisible.start_at">起算日期</el-checkbox>
+                  <el-checkbox v-model="colVisible.start_at">存量起算日期</el-checkbox>
+                  <el-checkbox v-model="colVisible.increment_start_at">增量起算日期</el-checkbox>
+                  <el-checkbox v-model="colVisible.stock_ratio">存量占比</el-checkbox>
+                  <el-checkbox v-model="colVisible.increment_ratio">增量占比</el-checkbox>
                   <el-checkbox v-model="colVisible.extra">扩展</el-checkbox>
                   <el-checkbox v-model="colVisible.updated_at">更新时间</el-checkbox>
                 </div>
@@ -152,7 +163,18 @@
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column v-if="colVisible.start_at" prop="start_at" label="起算日期" width="140" />
+        <el-table-column v-if="colVisible.start_at" label="存量起算日期" width="140">
+          <template #default="{ row }">{{ formatDate(row.start_at) }}</template>
+        </el-table-column>
+        <el-table-column v-if="colVisible.increment_start_at" label="增量起算日期" width="140">
+          <template #default="{ row }">{{ formatDate(row.increment_start_at) }}</template>
+        </el-table-column>
+        <el-table-column v-if="colVisible.stock_ratio" label="存量占比" width="120">
+          <template #default="{ row }">{{ formatRatio(row.stock_ratio) }}</template>
+        </el-table-column>
+        <el-table-column v-if="colVisible.increment_ratio" label="增量占比" width="120">
+          <template #default="{ row }">{{ formatRatio(row.increment_ratio) }}</template>
+        </el-table-column>
         <el-table-column label="折损规则" width="140">
           <template #default="{ row }">
             <template v-if="getResolvedRuleId(row)">
@@ -210,12 +232,57 @@
             placeholder="搜索学校"
             style="width: 300px"
           >
-            <el-option v-for="s in schoolOptions" :key="s" :label="s" :value="s" />
+            <el-option v-for="s in schoolOptions" :key="s.name" :label="s.name" :value="s.name">
+              <div class="school-option">
+                <span>{{ s.name }}</span>
+                <span class="school-option-tags">
+                  <el-tag v-if="s.inRate" size="small" type="success">已纳入费率</el-tag>
+                  <el-tag v-else size="small" type="warning">未纳入费率</el-tag>
+                </span>
+              </div>
+            </el-option>
           </el-select>
         </el-form-item>
-        <el-form-item label="起算日期">
+        <el-form-item label="存量起算日期">
           <el-date-picker v-model="(form as any).start_at" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" />
         </el-form-item>
+        <el-form-item label="增量起算日期">
+          <el-date-picker
+            v-model="(form as any).increment_start_at"
+            type="date"
+            value-format="YYYY-MM-DD"
+            placeholder="选择日期"
+            clearable
+          />
+        </el-form-item>
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <el-form-item label="存量占比(%)" :required="!!(form as any).increment_start_at">
+              <el-input-number
+                v-model="stockRatioPercent"
+                :min="0"
+                :max="100"
+                :step="0.01"
+                :precision="2"
+                :disabled="!(form as any).increment_start_at"
+                @change="onStockRatioPercentChange"
+              />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="增量占比(%)" :required="!!(form as any).increment_start_at">
+              <el-input-number
+                v-model="incrementRatioPercent"
+                :min="0"
+                :max="100"
+                :step="0.01"
+                :precision="2"
+                :disabled="!(form as any).increment_start_at"
+                @change="onIncrementRatioPercentChange"
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
 
         <el-divider content-position="left">费率</el-divider>
         <el-row :gutter="12">
@@ -383,7 +450,8 @@ const settlementTab = ref<'all' | 'ready' | 'not_ready'>('all')
 // 下拉与远程搜索状态
 const regionOptions = ref<string[]>([])
 const cpOptions = ref<string[]>([])
-const schoolOptions = ref<string[]>([])
+type SchoolOption = { name: string; inRate: boolean }
+const schoolOptions = ref<SchoolOption[]>([])
 const schoolsLoading = ref(false)
 const entitiesLoading = ref(false)
 // 客户费归属（销售）由系统用户提供，不再使用实体列表
@@ -426,6 +494,9 @@ const colVisible = reactive({
   network_line_fee_owner: true,
   channel_owner: true,
   start_at: true,
+  increment_start_at: true,
+  stock_ratio: true,
+  increment_ratio: true,
   extra: true,
   updated_at: true,
 })
@@ -624,9 +695,32 @@ async function loadRegionsAndCPs() {
 async function remoteSearchSchoolsFilter(q: string) {
   schoolsLoading.value = true
   try {
-    const data = await (api as any).v2.getSchools({ region: query.region, cp: query.cp, school_name: q || undefined, limit: 20, offset: 0 })
-    const list: any[] = Array.isArray(data?.items) ? data.items : (Array.isArray(data) ? data : [])
-    schoolOptions.value = list.map((it: any) => it?.school_name || it?.name || it).filter(Boolean)
+    const [baseSchools, rateSchools] = await Promise.all([
+      (api as any).v2.getSchools({ region: query.region, cp: query.cp, school_name: q || undefined, limit: 200, offset: 0 }),
+      api.settlementRates.customer.list({
+        region: query.region || undefined,
+        cp: query.cp || undefined,
+        school_name: q || undefined,
+        page: 1,
+        page_size: q ? 500 : 5000,
+      }),
+    ])
+    const fromBase: any[] = Array.isArray((baseSchools as any)?.items) ? (baseSchools as any).items : (Array.isArray(baseSchools) ? baseSchools : [])
+    const fromRates: any[] = Array.isArray((rateSchools as any)?.items) ? (rateSchools as any).items : []
+    const meta = new Map<string, SchoolOption>()
+    const ensure = (name: string) => {
+      if (!meta.has(name)) meta.set(name, { name, inRate: false })
+      return meta.get(name)!
+    }
+    for (const it of fromBase) {
+      const name = (it?.school_name || it?.name || it || '').toString().trim()
+      if (name) ensure(name)
+    }
+    for (const it of fromRates) {
+      const name = (it?.school_name || '').toString().trim()
+      if (name) ensure(name).inRate = true
+    }
+    schoolOptions.value = Array.from(meta.values()).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
   } catch {}
   finally { schoolsLoading.value = false }
 }
@@ -635,9 +729,32 @@ async function remoteSearchSchoolsFilter(q: string) {
 async function remoteSearchSchoolsDialog(q: string) {
   schoolsLoading.value = true
   try {
-    const data = await (api as any).v2.getSchools({ region: form.region, cp: form.cp, school_name: q || undefined, limit: 20, offset: 0 })
-    const list: any[] = Array.isArray(data?.items) ? data.items : (Array.isArray(data) ? data : [])
-    schoolOptions.value = list.map((it: any) => it?.school_name || it?.name || it).filter(Boolean)
+    const [baseSchools, rateSchools] = await Promise.all([
+      (api as any).v2.getSchools({ region: form.region, cp: form.cp, school_name: q || undefined, limit: 200, offset: 0 }),
+      api.settlementRates.customer.list({
+        region: form.region || undefined,
+        cp: form.cp || undefined,
+        school_name: q || undefined,
+        page: 1,
+        page_size: q ? 500 : 5000,
+      }),
+    ])
+    const fromBase: any[] = Array.isArray((baseSchools as any)?.items) ? (baseSchools as any).items : (Array.isArray(baseSchools) ? baseSchools : [])
+    const fromRates: any[] = Array.isArray((rateSchools as any)?.items) ? (rateSchools as any).items : []
+    const meta = new Map<string, SchoolOption>()
+    const ensure = (name: string) => {
+      if (!meta.has(name)) meta.set(name, { name, inRate: false })
+      return meta.get(name)!
+    }
+    for (const it of fromBase) {
+      const name = (it?.school_name || it?.name || it || '').toString().trim()
+      if (name) ensure(name)
+    }
+    for (const it of fromRates) {
+      const name = (it?.school_name || '').toString().trim()
+      if (name) ensure(name).inRate = true
+    }
+    schoolOptions.value = Array.from(meta.values()).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
   } catch {}
   finally { schoolsLoading.value = false }
 }
@@ -777,7 +894,46 @@ function onSettlementTabChange(val: 'all'|'ready'|'not_ready') {
 const dialogVisible = ref(false)
 const saving = ref(false)
 const form = reactive<UpsertRateCustomerRequest>({ region: '', cp: '' })
+const stockRatioPercent = ref<number>(100)
+const incrementRatioPercent = ref<number>(0)
 const extraEditorText = ref<string>('')
+
+function normalizeDateInput(v: any): string | undefined {
+  if (v == null || v === '') return undefined
+  const s = String(v).trim()
+  if (!s) return undefined
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+  const d = new Date(s)
+  if (!isNaN(d.getTime())) {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
+  if (s.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10)
+  return undefined
+}
+
+function clampPercent(v: number): number {
+  if (!Number.isFinite(v)) return 0
+  if (v < 0) return 0
+  if (v > 100) return 100
+  return Math.round(v * 100) / 100
+}
+
+function onStockRatioPercentChange(v: number | undefined) {
+  if (typeof v !== 'number') return
+  const clamped = clampPercent(v)
+  stockRatioPercent.value = clamped
+  incrementRatioPercent.value = clampPercent(100 - clamped)
+}
+
+function onIncrementRatioPercentChange(v: number | undefined) {
+  if (typeof v !== 'number') return
+  const clamped = clampPercent(v)
+  incrementRatioPercent.value = clamped
+  stockRatioPercent.value = clampPercent(100 - clamped)
+}
 
 async function openDialog(row?: RateCustomer) {
   if (row) {
@@ -799,8 +955,15 @@ async function openDialog(row?: RateCustomer) {
       network_line_fee_owner_id: undefined as any,
       general_fee_owner_id: undefined as any,
       channel_owner_user_id: undefined as any,
-      start_at: row.start_at ?? undefined,
+      start_at: normalizeDateInput(row.start_at),
+      increment_start_at: normalizeDateInput(row.increment_start_at),
     })
+    stockRatioPercent.value = clampPercent(Number(row.stock_ratio ?? (row.increment_start_at ? 0 : 1)) * 100)
+    incrementRatioPercent.value = clampPercent(Number(row.increment_ratio ?? (row.increment_start_at ? 0 : 0)) * 100)
+    if (!row.increment_start_at) {
+      stockRatioPercent.value = 100
+      incrementRatioPercent.value = 0
+    }
     extraEditorText.value = stringify(row.extra ?? {})
     // 先加载 options 再赋值，确保下拉能显示 label
     try { await preloadSelectedUsersIntoOptions([Number(salesId||0), Number(lineId||0), Number(nodeId||0), Number(channelId||0)].filter(n => n>0)) } catch {}
@@ -809,7 +972,9 @@ async function openDialog(row?: RateCustomer) {
     form.general_fee_owner_id = nodeId
     form.channel_owner_user_id = channelId
   } else {
-    Object.assign(form, { region: '', cp: '', school_name: undefined, customer_fee: undefined, network_line_fee: undefined, general_fee: undefined, channel_rate: undefined, customer_fee_owner_id: undefined, network_line_fee_owner_id: undefined, general_fee_owner_id: undefined, channel_owner_user_id: undefined, start_at: undefined as any })
+    Object.assign(form, { region: '', cp: '', school_name: undefined, customer_fee: undefined, network_line_fee: undefined, general_fee: undefined, channel_rate: undefined, customer_fee_owner_id: undefined, network_line_fee_owner_id: undefined, general_fee_owner_id: undefined, channel_owner_user_id: undefined, start_at: undefined as any, increment_start_at: undefined as any })
+    stockRatioPercent.value = 100
+    incrementRatioPercent.value = 0
     extraEditorText.value = ''
   }
   // 显示弹窗
@@ -828,6 +993,16 @@ async function onSave() {
   try {
     // 解析扩展 JSON（可选）
     const payload: any = { ...form }
+    payload.start_at = normalizeDateInput((form as any).start_at)
+    payload.increment_start_at = normalizeDateInput((form as any).increment_start_at)
+    if ((form as any).increment_start_at) {
+      payload.stock_ratio = clampPercent(stockRatioPercent.value) / 100
+      payload.increment_ratio = clampPercent(incrementRatioPercent.value) / 100
+    } else {
+      payload.stock_ratio = 1
+      payload.increment_ratio = 0
+      payload.increment_start_at = undefined
+    }
     const txt = (extraEditorText.value || '').trim()
     if (txt) {
       try { payload.extra = JSON.parse(txt) } catch (e) { ElMessage.error('扩展JSON格式错误'); saving.value=false; return }
@@ -913,6 +1088,23 @@ function formatTime(s?: string | null): string {
   return d.toLocaleString()
 }
 
+function formatDate(s?: string | null): string {
+  if (!s) return '-'
+  const d = new Date(s)
+  if (isNaN(d.getTime())) return String(s).slice(0, 10)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function formatRatio(v?: number | null): string {
+  if (v == null) return '-'
+  const num = Number(v)
+  if (Number.isNaN(num)) return '-'
+  return `${(num * 100).toFixed(2)}%`
+}
+
 function formatMode(m?: string): string {
   if (!m) return '自动'
   return m === 'configed' ? '手工' : '自动'
@@ -976,6 +1168,8 @@ function formatMissingFields(m?: string[]): string {
     customer_fee: '客户费',
     network_line_fee: '线路费',
     general_fee: '节点通用费',
+    stock_ratio: '存量占比',
+    increment_ratio: '增量占比',
   }
   return '缺失字段：' + m.map(k => map[k] || k).join('、')
 }
@@ -1126,6 +1320,13 @@ watch(() => form.general_fee_owner_id as any, async (val) => {
     try { await preloadSelectedUsersIntoOptions([n]) } catch {}
   }
 })
+
+watch(() => (form as any).increment_start_at, (val) => {
+  if (!val) {
+    stockRatioPercent.value = 100
+    incrementRatioPercent.value = 0
+  }
+})
 </script>
 
 <style scoped>
@@ -1134,4 +1335,6 @@ watch(() => form.general_fee_owner_id as any, async (val) => {
 .header-left { display: flex; flex-direction: column; align-items: flex-start; row-gap: 8px; }
 .filter-form { row-gap: var(--form-item-gap); }
 .pagination { display: flex; justify-content: flex-end; margin-top: 12px; }
+.school-option { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; }
+.school-option-tags { display: inline-flex; gap: 4px; }
 </style>

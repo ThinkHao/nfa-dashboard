@@ -35,11 +35,17 @@ type SettlementService interface {
 	ExecuteWeeklySettlementWithDateRange(taskID int64, startDate, endDate time.Time) error
 	// GetDailySettlementDetails 获取日95明细数据列表
 	GetDailySettlementDetails(filter model.SettlementFilter) ([]model.DailySettlementDetail, int64, error) // 假设 model.DailySettlementDetail 存在
+	// GetValidSchoolComboCount 获取有效院校组合数
+	GetValidSchoolComboCount(userID *uint64) (int64, error)
 }
 
 // GetDailySettlementDetails 获取日95明细数据列表
 func (s *settlementService) GetDailySettlementDetails(filter model.SettlementFilter) ([]model.DailySettlementDetail, int64, error) {
 	return s.repo.GetDailySettlementDetails(filter)
+}
+
+func (s *settlementService) GetValidSchoolComboCount(userID *uint64) (int64, error) {
+	return s.repo.CountValidSchoolCombos(userID)
 }
 
 // settlementService 结算服务实现
@@ -231,24 +237,7 @@ func (s *settlementService) executeDailySettlementInternal(date time.Time) ([]mo
 	processedCount := 0
 	var settlements []model.SchoolSettlement
 
-	// 直接获取所有存在的学校、地区、运营商的有效组合
-	// 构建SQL，获取所有唯一的学校ID、地区、运营商组合
-	type SchoolRegionCP struct {
-		SchoolID   string
-		SchoolName string
-		Region     string
-		CP         string
-	}
-
-	var validCombinations []SchoolRegionCP
-	query := `
-SELECT DISTINCT school_id, school_name, region, cp
-FROM nfa_school
-WHERE school_id IS NOT NULL AND school_id <> ''
-  AND school_name IS NOT NULL AND school_name <> ''
-  AND region IS NOT NULL AND region <> ''
-  AND cp IS NOT NULL AND cp <> ''`
-	err := model.DB.Raw(query).Scan(&validCombinations).Error
+	validCombinations, err := s.repo.ListValidSchoolCombos(nil)
 	if err != nil {
 		return nil, 0, fmt.Errorf("获取有效学校组合失败: %v", err)
 	}
@@ -291,22 +280,8 @@ func (s *settlementService) ExecuteDailySettlement(taskID int64, date time.Time)
 	// 分段执行并上报进度
 	processedCount := 0
 	var settlements []model.SchoolSettlement
-	// 拉取有效组合
-	type SchoolRegionCP struct {
-		SchoolID   string
-		SchoolName string
-		Region     string
-		CP         string
-	}
-	var validCombinations []SchoolRegionCP
-	query := `
-SELECT DISTINCT school_id, school_name, region, cp
-FROM nfa_school
-WHERE school_id IS NOT NULL AND school_id <> ''
-  AND school_name IS NOT NULL AND school_name <> ''
-  AND region IS NOT NULL AND region <> ''
-  AND cp IS NOT NULL AND cp <> ''`
-	if err := model.DB.Raw(query).Scan(&validCombinations).Error; err != nil {
+	validCombinations, err := s.repo.ListValidSchoolCombos(nil)
+	if err != nil {
 		_ = s.UpdateSettlementTaskStatus(taskID, "failed", fmt.Sprintf("获取有效学校组合失败: %v", err))
 		return fmt.Errorf("获取有效学校组合失败: %v", err)
 	}
@@ -356,16 +331,23 @@ WHERE school_id IS NOT NULL AND school_id <> ''
 			return
 		}
 		init := &model.SettlementTask{TaskType: "customer_init", TaskDate: runDate, Status: "running", StartTime: ptrTime(time.Now()), CreateTime: time.Now(), UpdateTime: time.Now()}
-		if err := model.DB.Create(init).Error; err != nil {
+		if err := s.repo.CreateSettlementTask(init); err != nil {
 			return
 		}
 		dataRepo := repository.NewSettlementDataRepository()
 		affected, recErr := dataRepo.BackfillFromSchoolSettlement("", "", "", runDate, runDate, false)
+		end := time.Now()
 		if recErr != nil {
-			_ = model.DB.Model(&model.SettlementTask{}).Where("id = ?", init.ID).Updates(map[string]interface{}{"status": "failed", "end_time": time.Now(), "error_message": recErr.Error()}).Error
+			init.Status = "failed"
+			init.EndTime = &end
+			init.ErrorMessage = recErr.Error()
+			_ = s.repo.UpdateSettlementTask(init)
 			return
 		}
-		_ = model.DB.Model(&model.SettlementTask{}).Where("id = ?", init.ID).Updates(map[string]interface{}{"status": "success", "end_time": time.Now(), "processed_count": affected}).Error
+		init.Status = "success"
+		init.EndTime = &end
+		init.ProcessedCount = int(affected)
+		_ = s.repo.UpdateSettlementTask(init)
 	}(date)
 
 	return nil
@@ -423,16 +405,23 @@ func (s *settlementService) ExecuteWeeklySettlementWithDateRange(taskID int64, s
 			return
 		}
 		init := &model.SettlementTask{TaskType: "customer_init", TaskDate: sdate, Status: "running", StartTime: ptrTime(time.Now()), CreateTime: time.Now(), UpdateTime: time.Now()}
-		if err := model.DB.Create(init).Error; err != nil {
+		if err := s.repo.CreateSettlementTask(init); err != nil {
 			return
 		}
 		dataRepo := repository.NewSettlementDataRepository()
 		affected, recErr := dataRepo.BackfillFromSchoolSettlement("", "", "", sdate, edate, false)
+		end := time.Now()
 		if recErr != nil {
-			_ = model.DB.Model(&model.SettlementTask{}).Where("id = ?", init.ID).Updates(map[string]interface{}{"status": "failed", "end_time": time.Now(), "error_message": recErr.Error()}).Error
+			init.Status = "failed"
+			init.EndTime = &end
+			init.ErrorMessage = recErr.Error()
+			_ = s.repo.UpdateSettlementTask(init)
 			return
 		}
-		_ = model.DB.Model(&model.SettlementTask{}).Where("id = ?", init.ID).Updates(map[string]interface{}{"status": "success", "end_time": time.Now(), "processed_count": affected}).Error
+		init.Status = "success"
+		init.EndTime = &end
+		init.ProcessedCount = int(affected)
+		_ = s.repo.UpdateSettlementTask(init)
 	}(startDate, endDate)
 	return nil
 }

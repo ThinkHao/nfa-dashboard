@@ -3,7 +3,7 @@ set -euo pipefail
 
 # offline-deploy.sh
 # 用于离线一键升级（Linux amd64）。
-# 功能：预检 -> 校验 -> 镜像导入 -> .env 合并校验 -> compose 启动 -> 健康检查 -> 写回滚点（仅保留 2 个版本）。
+# 功能：预检 -> 校验 -> 镜像导入 -> .env 合并校验 -> 执行 DB 迁移/预检 -> compose 启动 -> 健康检查 -> 写回滚点（仅保留 2 个版本）。
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BUNDLE_ROOT="${SCRIPT_DIR}/.."
@@ -16,6 +16,7 @@ ENV_EXAMPLE="${COMPOSE_DIR}/.env.example"
 ENV_FILE="${COMPOSE_DIR}/.env"
 BUNDLE_META="${BUNDLE_ROOT}/bundle.yaml"
 SHA_FILE="${BUNDLE_ROOT}/sha256sums.txt"
+MIGRATIONS_DIR="${BUNDLE_ROOT}/sql/migrations"
 
 log() { echo "[offline-deploy] $*"; }
 warn() { echo "[offline-deploy][WARN] $*" >&2; }
@@ -26,6 +27,115 @@ need_cmd() {
     err "缺少命令: $1"
     exit 1
   fi
+}
+
+MYSQL_CMD=()
+init_mysql_cmd() {
+  local db_host="$1"
+  local db_port="$2"
+  local db_user="$3"
+  local db_pass="$4"
+  local db_name="$5"
+  MYSQL_CMD=(mysql --protocol=TCP -h "$db_host" -P "$db_port" -u "$db_user" --default-character-set=utf8mb4 "$db_name")
+  if [[ -n "$db_pass" ]]; then
+    MYSQL_CMD+=("-p${db_pass}")
+  fi
+}
+
+mysql_query() {
+  local sql="$1"
+  "${MYSQL_CMD[@]}" -Nse "$sql"
+}
+
+mysql_exec_file() {
+  local file="$1"
+  "${MYSQL_CMD[@]}" < "$file"
+}
+
+run_db_migrations() {
+  need_cmd mysql
+  if [[ ! -d "$MIGRATIONS_DIR" ]]; then
+    warn "未找到迁移目录: $MIGRATIONS_DIR，跳过迁移执行"
+    return
+  fi
+
+  local db_host db_port db_user db_pass db_name
+  db_host="$(grep -E '^DB_HOST=' "$ENV_FILE" | head -n1 | cut -d'=' -f2-)"
+  db_port="$(grep -E '^DB_PORT=' "$ENV_FILE" | head -n1 | cut -d'=' -f2-)"
+  db_user="$(grep -E '^DB_USER=' "$ENV_FILE" | head -n1 | cut -d'=' -f2-)"
+  db_pass="$(grep -E '^DB_PASS=' "$ENV_FILE" | head -n1 | cut -d'=' -f2-)"
+  db_name="$(grep -E '^DB_NAME=' "$ENV_FILE" | head -n1 | cut -d'=' -f2-)"
+
+  db_port="${db_port:-3306}"
+  if [[ -z "$db_host" || -z "$db_user" || -z "$db_name" ]]; then
+    err "数据库连接信息缺失（至少需要 DB_HOST/DB_USER/DB_NAME）"
+    exit 1
+  fi
+
+  init_mysql_cmd "$db_host" "$db_port" "$db_user" "$db_pass" "$db_name"
+  log "检查数据库连接: ${db_user}@${db_host}:${db_port}/${db_name}"
+  mysql_query "SELECT 1;" >/dev/null
+
+  mysql_query "CREATE TABLE IF NOT EXISTS schema_migrations (
+version VARCHAR(64) NOT NULL PRIMARY KEY,
+filename VARCHAR(255) NOT NULL,
+applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"
+
+  mapfile -t migration_files < <(find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '[0-9][0-9][0-9]_*.sql' -printf '%f\n' | sort -V)
+  if (( ${#migration_files[@]} == 0 )); then
+    warn "迁移目录无可执行 SQL（规则: NNN_*.sql），跳过迁移执行"
+    return
+  fi
+
+  declare -A versions_seen=()
+  for filename in "${migration_files[@]}"; do
+    local version="${filename%%_*}"
+    if [[ -n "${versions_seen[$version]+x}" ]]; then
+      err "检测到重复迁移版本号: ${version}（${versions_seen[$version]} 与 ${filename}）"
+      exit 1
+    fi
+    versions_seen["$version"]="$filename"
+  done
+
+  log "开始执行增量迁移（自动扫描 NNN_*.sql）"
+  for filename in "${migration_files[@]}"; do
+    local version="${filename%%_*}"
+    local migration_file="${MIGRATIONS_DIR}/${filename}"
+    local applied
+    applied="$(mysql_query "SELECT COUNT(*) FROM schema_migrations WHERE version='${version}';")"
+    if [[ "$applied" == "0" ]]; then
+      log "执行迁移 ${version} -> ${filename}"
+      mysql_exec_file "$migration_file"
+      mysql_query "INSERT INTO schema_migrations(version, filename) VALUES ('${version}', '${filename}');"
+    else
+      log "跳过已执行迁移 ${version} -> ${filename}"
+    fi
+  done
+  log "增量迁移执行完成"
+}
+
+assert_db_schema() {
+  log "执行关键 schema 预检"
+  local checks=(
+    "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer_monthly';|settlement_customer_monthly 表缺失"
+    "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='rate_customer' AND COLUMN_NAME='increment_start_at';|rate_customer.increment_start_at 列缺失"
+    "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='rate_customer' AND COLUMN_NAME='stock_ratio';|rate_customer.stock_ratio 列缺失"
+    "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='rate_customer' AND COLUMN_NAME='increment_ratio';|rate_customer.increment_ratio 列缺失"
+    "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='rate_customer' AND COLUMN_NAME='daily_increment_value';|rate_customer.daily_increment_value 列缺失"
+  )
+  for item in "${checks[@]}"; do
+    local sql="${item%%|*}"
+    local msg="${item#*|}"
+    local cnt
+    cnt="$(mysql_query "$sql")"
+    if [[ "$cnt" == "0" ]]; then
+      err "$msg"
+      err "schema 预检失败，停止启动新版本"
+      exit 1
+    fi
+  done
+  log "schema 预检通过"
 }
 
 # 1) 预检
@@ -182,11 +292,15 @@ fi
 mv "$TMP_ENV_NEW" "$ENV_FILE"
 rm -f "$TMP_ENV_OLD"
 
-# 6) 启动 compose
+# 6) 数据库迁移与 schema 预检（在启动新版本前执行，失败则阻断）
+run_db_migrations
+assert_db_schema
+
+# 7) 启动 compose
 log "启动服务 (docker compose)"
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --remove-orphans
 
-# 7) 健康检查
+# 8) 健康检查
 APP_PORT=$(grep -E '^APP_PORT=' "$ENV_FILE" | head -n1 | cut -d'=' -f2)
 APP_PORT=${APP_PORT:-8081}
 HEALTH_URL="http://127.0.0.1:${APP_PORT}/health"
@@ -223,7 +337,7 @@ if [[ "$ok" != true ]]; then
 fi
 log "健康检查通过"
 
-# 8) 写回滚点（仅保留 2 个版本）
+# 9) 写回滚点（仅保留 2 个版本）
 if [[ -n "$VERSION" ]]; then
   mkdir -p "$RELEASES_DIR/$VERSION"
   cp "$COMPOSE_FILE" "$RELEASES_DIR/$VERSION/compose.yml"

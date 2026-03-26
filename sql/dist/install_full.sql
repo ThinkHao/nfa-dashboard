@@ -160,6 +160,69 @@ SET @ddl := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
   'ALTER TABLE `permissions` ADD COLUMN `enabled` TINYINT(1) NOT NULL DEFAULT 1 AFTER `description`', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- 027_create_settlement_customer_monthly.sql
+CREATE TABLE IF NOT EXISTS `settlement_customer_monthly` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `region` VARCHAR(32) NOT NULL,
+  `cp` VARCHAR(32) NOT NULL,
+  `school_name` VARCHAR(128) NOT NULL,
+  `service_month` CHAR(7) NOT NULL COMMENT 'YYYY-MM',
+  `settlement_value` DOUBLE NOT NULL DEFAULT 0,
+  `customer_fee` DOUBLE NULL,
+  `customer_bill` DOUBLE NULL,
+  `customer_fee_owner_id` BIGINT UNSIGNED NULL,
+  `network_line_fee` DOUBLE NULL,
+  `network_line_bill` DOUBLE NULL,
+  `network_line_fee_owner_id` BIGINT UNSIGNED NULL,
+  `node_deduction_fee` DOUBLE NULL,
+  `node_deduction_bill` DOUBLE NULL,
+  `node_deduction_fee_owner_id` BIGINT UNSIGNED NULL,
+  `channel_rate` DOUBLE NULL,
+  `channel_bill` DOUBLE NULL,
+  `channel_owner_user_id` BIGINT UNSIGNED NULL,
+  `recalculated` TINYINT(1) NOT NULL DEFAULT 0,
+  `last_recalc_time` DATETIME NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_scm_region_cp_school_month` (`region`, `cp`, `school_name`, `service_month`),
+  KEY `idx_scm_service_month` (`service_month`),
+  KEY `idx_scm_region_cp` (`region`, `cp`),
+  KEY `idx_scm_owner_customer` (`customer_fee_owner_id`),
+  KEY `idx_scm_owner_network` (`network_line_fee_owner_id`),
+  KEY `idx_scm_owner_node` (`node_deduction_fee_owner_id`),
+  KEY `idx_scm_owner_channel` (`channel_owner_user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='客户结算月度聚合快照';
+
+-- 028_add_increment_fields_to_rates_and_settlement_customer.sql
+SET @ddl := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='rate_customer' AND COLUMN_NAME='increment_start_at')=0,
+  'ALTER TABLE `rate_customer` ADD COLUMN `increment_start_at` DATETIME NULL COMMENT ''增量起算日期'' AFTER `start_at`', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='rate_customer' AND COLUMN_NAME='stock_ratio')=0,
+  'ALTER TABLE `rate_customer` ADD COLUMN `stock_ratio` DECIMAL(10,6) NULL COMMENT ''存量占比(0-1)'' AFTER `increment_start_at`', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='rate_customer' AND COLUMN_NAME='increment_ratio')=0,
+  'ALTER TABLE `rate_customer` ADD COLUMN `increment_ratio` DECIMAL(10,6) NULL COMMENT ''增量占比(0-1)'' AFTER `stock_ratio`', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='rate_customer' AND COLUMN_NAME='daily_increment_value')=0,
+  'ALTER TABLE `rate_customer` ADD COLUMN `daily_increment_value` DECIMAL(20,6) NULL COMMENT ''当日增量值(=当日日95*增量占比)'' AFTER `increment_ratio`', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer' AND COLUMN_NAME='stock_ratio')=0,
+  'ALTER TABLE `settlement_customer` ADD COLUMN `stock_ratio` DECIMAL(10,6) NULL COMMENT ''存量占比(0-1)快照'' AFTER `channel_owner_user_id`', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer' AND COLUMN_NAME='increment_ratio')=0,
+  'ALTER TABLE `settlement_customer` ADD COLUMN `increment_ratio` DECIMAL(10,6) NULL COMMENT ''增量占比(0-1)快照'' AFTER `stock_ratio`', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer' AND COLUMN_NAME='daily_increment_value')=0,
+  'ALTER TABLE `settlement_customer` ADD COLUMN `daily_increment_value` DECIMAL(20,6) NULL COMMENT ''当日增量值快照'' AFTER `increment_ratio`', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 -- 004_auth_user_roles.sql
 CREATE TABLE IF NOT EXISTS `user_roles` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -596,6 +659,19 @@ ON DUPLICATE KEY UPDATE `name`=VALUES(`name`), `description`=VALUES(`description
 
 INSERT IGNORE INTO `role_permissions` (`role_id`, `permission_id`)
 SELECT r.id, p.id FROM `roles` r JOIN `permissions` p ON p.code = 'settlement.results.read' WHERE r.name = 'admin';
+
+-- 029_add_increment_fields_to_settlement_customer_monthly.sql
+SET @ddl := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer_monthly' AND COLUMN_NAME='stock_ratio')=0,
+  'ALTER TABLE `settlement_customer_monthly` ADD COLUMN `stock_ratio` DECIMAL(10,6) NULL COMMENT ''存量占比(0-1)月均快照'' AFTER `channel_owner_user_id`', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer_monthly' AND COLUMN_NAME='increment_ratio')=0,
+  'ALTER TABLE `settlement_customer_monthly` ADD COLUMN `increment_ratio` DECIMAL(10,6) NULL COMMENT ''增量占比(0-1)月均快照'' AFTER `stock_ratio`', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer_monthly' AND COLUMN_NAME='daily_increment_value')=0,
+  'ALTER TABLE `settlement_customer_monthly` ADD COLUMN `daily_increment_value` DECIMAL(20,6) NULL COMMENT ''当日增量值月均快照'' AFTER `increment_ratio`', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- 完毕
 

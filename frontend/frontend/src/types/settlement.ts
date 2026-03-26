@@ -44,10 +44,13 @@ export interface Settlement {
   school_name: string; // 学校名称
   region: string; // 地区
   cp: string; // 运营商
-  date: string; // 结算日期
-  daily_95_value: number; // 日95值
+  service_date?: string; // 服务日期/月份（按月聚合时为 YYYY-MM）
+  date: string; // 兼容字段：结算日期
+  settlement_value?: number; // 日95原始值（后端 settlement_value）
+  daily_95_value: number; // 兼容字段：日95值
   weekly_95_value: number; // 周95值
   monthly_95_value: number; // 月95值
+  daily_increment_value?: number; // 当日增量原始值
   create_time: string; // 创建时间
   update_time: string; // 更新时间
 }

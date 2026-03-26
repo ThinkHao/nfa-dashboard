@@ -43,6 +43,10 @@ type SettlementRepository interface {
 	CalculateDaily95WithRegionAndCPForAllRegionsAndCPs(date time.Time, schoolID string) ([]model.SchoolSettlement, error)
 	// GetDailySettlementDetails 获取日95明细数据列表
 	GetDailySettlementDetails(filter model.SettlementFilter) ([]model.DailySettlementDetail, int64, error)
+	// CountValidSchoolCombos 统计有效学校-地区-运营商组合数量
+	CountValidSchoolCombos(userID *uint64) (int64, error)
+	// ListValidSchoolCombos 列出有效学校-地区-运营商组合
+	ListValidSchoolCombos(userID *uint64) ([]model.SchoolRegionCP, error)
 }
 
 // settlementRepository 结算数据仓库实现
@@ -608,6 +612,52 @@ func (r *settlementRepository) GetDailySettlementDetails(filter model.Settlement
 	}
 
 	return details, count, nil
+}
+
+func (r *settlementRepository) CountValidSchoolCombos(userID *uint64) (int64, error) {
+	type row struct {
+		C int64 `gorm:"column:c"`
+	}
+	var out row
+	sql := `
+SELECT COUNT(*) AS c FROM (
+SELECT DISTINCT school_id, school_name, region, cp
+FROM nfa_school
+WHERE school_id IS NOT NULL AND school_id <> ''
+  AND school_name IS NOT NULL AND school_name <> ''
+  AND region IS NOT NULL AND region <> ''
+  AND cp IS NOT NULL AND cp <> ''`
+	args := []interface{}{}
+	if userID != nil && *userID > 0 {
+		sql += " AND school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)"
+		args = append(args, *userID)
+	}
+	sql += `
+) t`
+	if err := model.DB.Raw(sql, args...).Scan(&out).Error; err != nil {
+		return 0, err
+	}
+	return out.C, nil
+}
+
+func (r *settlementRepository) ListValidSchoolCombos(userID *uint64) ([]model.SchoolRegionCP, error) {
+	sql := `
+SELECT DISTINCT school_id, school_name, region, cp
+FROM nfa_school
+WHERE school_id IS NOT NULL AND school_id <> ''
+  AND school_name IS NOT NULL AND school_name <> ''
+  AND region IS NOT NULL AND region <> ''
+  AND cp IS NOT NULL AND cp <> ''`
+	args := []interface{}{}
+	if userID != nil && *userID > 0 {
+		sql += " AND school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)"
+		args = append(args, *userID)
+	}
+	var combos []model.SchoolRegionCP
+	if err := model.DB.Raw(sql, args...).Scan(&combos).Error; err != nil {
+		return nil, err
+	}
+	return combos, nil
 }
 
 func (r *settlementRepository) getAggregatedSettlements(filter model.SettlementFilter) ([]model.SettlementResponse, int64, error) {

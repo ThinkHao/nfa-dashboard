@@ -1,4 +1,3 @@
-import axios from 'axios'
 import type {
   PaginatedData,
   OperationLog,
@@ -37,143 +36,7 @@ import type {
   UpdateSettlementFormulaRequest,
   DiscountedFinalCustomerRate,
 } from '@/types/api'
-
-// 获取当前 API 基地址（不带路径，形如 https://host:port）
-const getBaseUrl = () => {
-  try {
-    const raw = (import.meta as any)?.env?.VITE_API_BASE as string | undefined
-    const envBase = typeof raw === 'string' ? raw.trim() : ''
-    const isDev = (import.meta as any)?.env?.DEV
-    if (isDev) {
-      try { console.debug('[API] VITE_API_BASE(raw)=', raw, 'trimmed=', envBase) } catch {}
-    }
-    if (envBase) {
-      return envBase.replace(/\/+$/, '')
-    }
-  } catch {}
-  if (typeof window !== 'undefined') {
-    return `${window.location.origin}`
-  }
-  return 'http://localhost:8091'
-}
-
-// 创建axios实例
-const __BASE = getBaseUrl()
-try { if ((import.meta as any)?.env?.DEV) console.debug('[API] axios baseURL =', __BASE) } catch {}
-const api = axios.create({
-  baseURL: __BASE, // 动态设置后端API地址
-  timeout: 60000, // 请求超时时间增加到60秒，以处理大量数据
-  maxContentLength: 50 * 1024 * 1024, // 最大内容长度50MB
-  maxBodyLength: 50 * 1024 * 1024 // 最大请求体长度50MB
-})
-
-// 用于刷新令牌的原始实例（避免响应拦截器递归）
-const raw = axios.create({
-  baseURL: getBaseUrl(),
-  timeout: 30000,
-})
-
-// 请求拦截器
-api.interceptors.request.use(
-  (config) => {
-    // 附带本地 token（如存在）
-    try {
-      const token = localStorage.getItem('token')
-      if (token) {
-        if (config.headers) {
-          ;(config.headers as any)['Authorization'] = `Bearer ${token}`
-        } else {
-          // 创建带有 Authorization 的 headers，避免类型不匹配
-          config.headers = { Authorization: `Bearer ${token}` } as any
-        }
-      }
-    } catch (e) {
-      // 忽略本地存储异常
-    }
-    return config
-  },
-  (error) => {
-    try {
-      const status = error?.response?.status
-      if (status === 401) {
-        // 清理本地凭证并跳转登录
-        try {
-          localStorage.removeItem('token')
-          localStorage.removeItem('auth_user')
-          localStorage.removeItem('auth_perms')
-        } catch {}
-        const redirect = encodeURIComponent(window.location.pathname + window.location.search)
-        if (!window.location.pathname.startsWith('/login')) {
-          window.location.href = `/login?redirect=${redirect}`
-        }
-      } else if (status === 403) {
-        if (!window.location.pathname.startsWith('/403')) {
-          window.location.href = '/403'
-        }
-      }
-    } catch {}
-    return Promise.reject(error)
-  }
-)
-
-// 响应拦截器
-let refreshing: Promise<string> | null = null
-
-async function doRefresh(): Promise<string> {
-  if (refreshing) return refreshing
-  const rt = localStorage.getItem('refresh_token')
-  if (!rt) return Promise.reject(new Error('no refresh token'))
-  const payload: RefreshRequest = { refresh_token: rt }
-  refreshing = raw.post('/api/v1/auth/refresh', payload)
-    .then((resp) => resp.data as RefreshResponse)
-    .then((res) => {
-      const perms = (res.permissions || []).map((p: any) => p?.name || p)
-      localStorage.setItem('token', res.token)
-      localStorage.setItem('refresh_token', res.refresh_token)
-      localStorage.setItem('auth_user', JSON.stringify(res.user))
-      localStorage.setItem('auth_perms', JSON.stringify(perms))
-      return res.token
-    })
-    .finally(() => { refreshing = null })
-  return refreshing
-}
-
-api.interceptors.response.use(
-  (response) => {
-    // 只返回响应的data部分
-    return response.data
-  },
-  async (error) => {
-    try {
-      const status = error?.response?.status
-      const cfg = error?.config || {}
-      const url: string = cfg?.url || ''
-      if (status === 401 && !cfg.__retry && !url.includes('/auth/login') && !url.includes('/auth/refresh')) {
-        cfg.__retry = true
-        try {
-          const newToken = await doRefresh()
-          // 续签后重放原请求
-          cfg.headers = cfg.headers || {}
-          cfg.headers['Authorization'] = `Bearer ${newToken}`
-          return api.request(cfg)
-        } catch (_) {
-          // 刷新失败则清理并跳转登录
-          try {
-            localStorage.removeItem('token')
-            localStorage.removeItem('refresh_token')
-            localStorage.removeItem('auth_user')
-            localStorage.removeItem('auth_perms')
-          } catch {}
-          const redirect = encodeURIComponent(window.location.pathname + window.location.search)
-          if (!window.location.pathname.startsWith('/login')) {
-            window.location.href = `/login?redirect=${redirect}`
-          }
-        }
-      }
-    } catch {}
-    return Promise.reject(error)
-  }
-)
+import { api, raw } from './httpClient'
 
 // API接口
 export default {
@@ -599,6 +462,22 @@ export default {
       return api
         .get('/api/v1/settlement/data/customer', { params })
         .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+    },
+    // 月度聚合列表
+    monthlyList(params?: any) {
+      return api
+        .get('/api/v1/settlement/data/customer/monthly', { params })
+        .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+    },
+    // 重建月度快照
+    rebuildMonthly(payload: any = {}): Promise<number> {
+      return api
+        .post('/api/v1/settlement/data/customer/monthly/rebuild', payload)
+        .then((d: any) => {
+          const data = d && typeof d === 'object' && 'data' in d ? (d as any).data : d
+          const affected = data && typeof data === 'object' && 'affected' in data ? Number((data as any).affected) : Number((d as any)?.affected)
+          return Number.isFinite(affected) ? affected : 0
+        })
     },
     // 统一的费用归属主体（entity/user）下拉
     ownerSubjects(params?: any): Promise<Array<{ type: string; id: number; label: string }>> {

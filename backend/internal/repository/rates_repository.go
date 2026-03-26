@@ -100,6 +100,9 @@ func (r *ratesRepository) UpsertCustomerRate(rate *model.RateCustomer) error {
 		"channel_rate":              rate.ChannelRate,
 		"channel_owner_user_id":     rate.ChannelOwnerUserID,
 		"start_at":                  rate.StartAt,
+		"increment_start_at":        rate.IncrementStartAt,
+		"stock_ratio":               rate.StockRatio,
+		"increment_ratio":           rate.IncrementRatio,
 		"extra":                     rate.Extra,
 		"updated_at":                gorm.Expr("NOW()"),
 	}

@@ -18,6 +18,29 @@ import (
 	"gorm.io/datatypes"
 )
 
+func parseDateField(raw string) (*time.Time, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return nil, nil
+	}
+	layouts := []string{
+		"2006-01-02",
+		"2006-01-02 15:04:05",
+		time.RFC3339,
+	}
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, s); err == nil {
+			return &t, nil
+		}
+	}
+	if len(s) >= 10 {
+		if t, err := time.Parse("2006-01-02", s[:10]); err == nil {
+			return &t, nil
+		}
+	}
+	return nil, service.NewBadRequest("invalid date format, expect YYYY-MM-DD")
+}
+
 // SettlementRatesController hosts endpoints under /api/v1/settlement/rates
 type SettlementRatesController struct{ svc service.RatesService }
 
@@ -37,13 +60,13 @@ func (ctl *SettlementRatesController) ExportCustomerRatesXLSX(c *gin.Context) {
 	sheet := f.GetSheetName(0)
 	// 可见列：将归属导出为“用户名”列；同时保留隐藏的 *_owner_id 列用于导入兼容
 	header := []string{
-		"region", "cp", "school_name",
-		"customer_fee", "network_line_fee", "general_fee", "channel_rate",
+		"区域", "CP", "学校",
+		"客户费率", "线路费率", "节点通用费率", "渠道费率",
 		// 可见的姓名列
-		"customer_fee_owner", "network_line_fee_owner", "general_fee_owner", "channel_owner_user",
-		"start_at",
+		"客户费归属", "线路费归属", "节点通用费归属", "渠道费归属",
+		"存量起算日期", "增量起算日期", "存量占比", "增量占比", "当日增量值",
 		// 隐藏的ID列（用于导入与公式映射）
-		"customer_fee_owner_id", "network_line_fee_owner_id", "general_fee_owner_id", "channel_owner_user_id",
+		"客户费归属ID", "线路费归属ID", "节点通用费归属ID", "渠道费归属ID",
 	}
 	for i, h := range header {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
@@ -93,9 +116,9 @@ func (ctl *SettlementRatesController) ExportCustomerRatesXLSX(c *gin.Context) {
 		usersLookupRange = "Users!$A$1:$B$" + strconv.Itoa(usersLastRow)
 	}
 	// 主要工作表中四个姓名列与四个ID列的列索引（基于 header 顺序）
-	// 姓名列: 8..11 ；start_at: 12 ；ID列: 13..16
+	// 姓名列: 8..11 ；start_at: 12，增量字段: 13..16；ID列: 17..20
 	nameCols := []int{8, 9, 10, 11}
-	idCols := []int{13, 14, 15, 16}
+	idCols := []int{17, 18, 19, 20}
 	for _, it := range items {
 		// 基本列（到 channel_rate）
 		baseVals := []interface{}{
@@ -169,12 +192,36 @@ func (ctl *SettlementRatesController) ExportCustomerRatesXLSX(c *gin.Context) {
 			cell, _ := excelize.CoordinatesToCellName(col, row)
 			_ = f.SetCellValue(sheet, cell, v)
 		}
-		// start_at
+		// start_at / increment_start_at / ratio / daily_increment_value
 		saCell, _ := excelize.CoordinatesToCellName(12, row)
 		if it.StartAt == nil {
 			_ = f.SetCellValue(sheet, saCell, "")
 		} else {
 			_ = f.SetCellValue(sheet, saCell, it.StartAt.Format("2006-01-02"))
+		}
+		isaCell, _ := excelize.CoordinatesToCellName(13, row)
+		if it.IncrementStartAt == nil {
+			_ = f.SetCellValue(sheet, isaCell, "")
+		} else {
+			_ = f.SetCellValue(sheet, isaCell, it.IncrementStartAt.Format("2006-01-02"))
+		}
+		srCell, _ := excelize.CoordinatesToCellName(14, row)
+		if it.StockRatio == nil {
+			_ = f.SetCellValue(sheet, srCell, "")
+		} else {
+			_ = f.SetCellValue(sheet, srCell, strconv.FormatFloat(*it.StockRatio, 'f', 6, 64))
+		}
+		irCell, _ := excelize.CoordinatesToCellName(15, row)
+		if it.IncrementRatio == nil {
+			_ = f.SetCellValue(sheet, irCell, "")
+		} else {
+			_ = f.SetCellValue(sheet, irCell, strconv.FormatFloat(*it.IncrementRatio, 'f', 6, 64))
+		}
+		divCell, _ := excelize.CoordinatesToCellName(16, row)
+		if it.DailyIncrementValue == nil {
+			_ = f.SetCellValue(sheet, divCell, "")
+		} else {
+			_ = f.SetCellValue(sheet, divCell, strconv.FormatFloat(*it.DailyIncrementValue, 'f', 6, 64))
 		}
 		// ID列：若有用户清单，使用 VLOOKUP 公式；否则直接写入原始ID（若存在）
 		if hasUsers {
@@ -238,10 +285,10 @@ func (ctl *SettlementRatesController) ExportCustomerRatesXLSX(c *gin.Context) {
 		}
 	}
 	// 隐藏 *_owner_id 四个列
-	_ = f.SetColVisible(sheet, "M", false) // 13
-	_ = f.SetColVisible(sheet, "N", false) // 14
-	_ = f.SetColVisible(sheet, "O", false) // 15
-	_ = f.SetColVisible(sheet, "P", false) // 16
+	_ = f.SetColVisible(sheet, "Q", false) // 17
+	_ = f.SetColVisible(sheet, "R", false) // 18
+	_ = f.SetColVisible(sheet, "S", false) // 19
+	_ = f.SetColVisible(sheet, "T", false) // 20
 	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 	c.Header("Content-Disposition", "attachment; filename=customer_rates.xlsx")
 	if err := f.Write(c.Writer); err != nil {
@@ -270,10 +317,10 @@ func (ctl *SettlementRatesController) ExportCustomerRates(c *gin.Context) {
 	w := csv.NewWriter(c.Writer)
 	// 头
 	_ = w.Write([]string{
-		"region", "cp", "school_name",
-		"customer_fee", "network_line_fee", "general_fee", "channel_rate",
-		"customer_fee_owner_id", "network_line_fee_owner_id", "general_fee_owner_id", "channel_owner_user_id",
-		"start_at",
+		"区域", "CP", "学校",
+		"客户费率", "线路费率", "节点通用费率", "渠道费率",
+		"客户费归属ID", "线路费归属ID", "节点通用费归属ID", "渠道费归属ID",
+		"存量起算日期", "增量起算日期", "存量占比", "增量占比", "当日增量值",
 	})
 	toStrF := func(p *float64, prec int) string {
 		if p == nil {
@@ -284,8 +331,12 @@ func (ctl *SettlementRatesController) ExportCustomerRates(c *gin.Context) {
 	// 行
 	for _, it := range items {
 		var startAt string
+		var incrementStartAt string
 		if it.StartAt != nil {
 			startAt = it.StartAt.Format("2006-01-02")
+		}
+		if it.IncrementStartAt != nil {
+			incrementStartAt = it.IncrementStartAt.Format("2006-01-02")
 		}
 		_ = w.Write([]string{
 			strings.TrimSpace(it.Region), strings.TrimSpace(it.CP), func() string {
@@ -325,6 +376,10 @@ func (ctl *SettlementRatesController) ExportCustomerRates(c *gin.Context) {
 				}
 			}(),
 			startAt,
+			incrementStartAt,
+			toStrF(it.StockRatio, 6),
+			toStrF(it.IncrementRatio, 6),
+			toStrF(it.DailyIncrementValue, 6),
 		})
 	}
 	w.Flush()
@@ -335,7 +390,7 @@ func (ctl *SettlementRatesController) ExportCustomerRates(c *gin.Context) {
 }
 
 // ImportCustomerRates 从 CSV 导入客户业务费率
-// 要求首行包含表头：region,cp,school_name,customer_fee,network_line_fee,general_fee,channel_rate,customer_fee_owner_id,network_line_fee_owner_id,general_fee_owner_id,channel_owner_user_id,start_at
+// 要求首行包含表头：region,cp,school_name,customer_fee,network_line_fee,general_fee,channel_rate,customer_fee_owner_id,network_line_fee_owner_id,general_fee_owner_id,channel_owner_user_id,start_at,increment_start_at,stock_ratio,increment_ratio
 func (ctl *SettlementRatesController) ImportCustomerRates(c *gin.Context) {
 	file, err := c.FormFile("file")
 	if err != nil {
@@ -367,6 +422,20 @@ func (ctl *SettlementRatesController) ImportCustomerRates(c *gin.Context) {
 		}
 		return nil
 	}
+	parseRatio := func(s string) (*float64, bool) {
+		if s == "" {
+			return nil, true
+		}
+		vtxt := strings.TrimSpace(strings.TrimSuffix(s, "%"))
+		v, err := strconv.ParseFloat(vtxt, 64)
+		if err != nil {
+			return nil, false
+		}
+		if strings.HasSuffix(strings.TrimSpace(s), "%") || v > 1 {
+			v = v / 100
+		}
+		return &v, true
+	}
 	var affected int
 	errs := make([]map[string]interface{}, 0, 16)
 	validateOnly := func() bool {
@@ -383,8 +452,71 @@ func (ctl *SettlementRatesController) ImportCustomerRates(c *gin.Context) {
 
 	process := func(header []string, rows [][]string) {
 		idx := map[string]int{}
+		fieldLabel := map[string]string{
+			"region":                    "区域",
+			"cp":                        "CP",
+			"school_name":               "学校",
+			"customer_fee":              "客户费率",
+			"network_line_fee":          "线路费率",
+			"general_fee":               "节点通用费率",
+			"channel_rate":              "渠道费率",
+			"customer_fee_owner_id":     "客户费归属ID",
+			"network_line_fee_owner_id": "线路费归属ID",
+			"general_fee_owner_id":      "节点通用费归属ID",
+			"channel_owner_user_id":     "渠道费归属ID",
+			"start_at":                  "存量起算日期",
+			"increment_start_at":        "增量起算日期",
+			"stock_ratio":               "存量占比",
+			"increment_ratio":           "增量占比",
+			"daily_increment_value":     "当日增量值",
+		}
+		labelOf := func(key string) string {
+			if v, ok := fieldLabel[key]; ok {
+				return v
+			}
+			return key
+		}
+		normalizeKey := func(key string) string {
+			k := strings.ToLower(strings.TrimSpace(key))
+			switch k {
+			case "区域", "地区":
+				return "region"
+			case "cp":
+				return "cp"
+			case "学校", "学校名称":
+				return "school_name"
+			case "客户费率", "客户费":
+				return "customer_fee"
+			case "线路费率", "线路费":
+				return "network_line_fee"
+			case "节点通用费率", "节点通用费":
+				return "general_fee"
+			case "渠道费率":
+				return "channel_rate"
+			case "客户费归属id", "客户费归属":
+				return "customer_fee_owner_id"
+			case "线路费归属id", "线路费归属":
+				return "network_line_fee_owner_id"
+			case "节点通用费归属id", "节点通用费归属":
+				return "general_fee_owner_id"
+			case "渠道费归属id", "渠道费归属":
+				return "channel_owner_user_id"
+			case "存量起算日期", "起算日期":
+				return "start_at"
+			case "增量起算日期":
+				return "increment_start_at"
+			case "存量占比":
+				return "stock_ratio"
+			case "增量占比":
+				return "increment_ratio"
+			case "当日增量值":
+				return "daily_increment_value"
+			default:
+				return k
+			}
+		}
 		for i, h := range header {
-			idx[strings.ToLower(strings.TrimSpace(h))] = i
+			idx[normalizeKey(h)] = i
 		}
 		get := func(cols []string, key string) string {
 			if p, ok := idx[key]; ok && p >= 0 && p < len(cols) {
@@ -398,7 +530,7 @@ func (ctl *SettlementRatesController) ImportCustomerRates(c *gin.Context) {
 			region := get(rec, "region")
 			cp := get(rec, "cp")
 			if region == "" || cp == "" {
-				errs = append(errs, map[string]interface{}{"line": lineNo, "message": "region and cp are required"})
+				errs = append(errs, map[string]interface{}{"line": lineNo, "message": "区域 和 CP 为必填"})
 				continue
 			}
 			schoolName := func() *string {
@@ -416,6 +548,9 @@ func (ctl *SettlementRatesController) ImportCustomerRates(c *gin.Context) {
 			nfoStr := get(rec, "network_line_fee_owner_id")
 			gfoStr := get(rec, "general_fee_owner_id")
 			choStr := get(rec, "channel_owner_user_id")
+			incrementStartAtStr := get(rec, "increment_start_at")
+			stockRatioStr := get(rec, "stock_ratio")
+			incrementRatioStr := get(rec, "increment_ratio")
 
 			customerFee := parseF(cfStr)
 			networkLineFee := parseF(nlfStr)
@@ -425,37 +560,47 @@ func (ctl *SettlementRatesController) ImportCustomerRates(c *gin.Context) {
 			nOwner := parseU(nfoStr)
 			gOwner := parseU(gfoStr)
 			chOwner := parseU(choStr)
+			stockRatio, okStock := parseRatio(stockRatioStr)
+			incrementRatio, okInc := parseRatio(incrementRatioStr)
 
 			if cfStr != "" && customerFee == nil {
-				errs = append(errs, map[string]interface{}{"line": lineNo, "message": "invalid customer_fee"})
+				errs = append(errs, map[string]interface{}{"line": lineNo, "message": labelOf("customer_fee") + " 格式错误"})
 				continue
 			}
 			if nlfStr != "" && networkLineFee == nil {
-				errs = append(errs, map[string]interface{}{"line": lineNo, "message": "invalid network_line_fee"})
+				errs = append(errs, map[string]interface{}{"line": lineNo, "message": labelOf("network_line_fee") + " 格式错误"})
 				continue
 			}
 			if gfStr != "" && generalFee == nil {
-				errs = append(errs, map[string]interface{}{"line": lineNo, "message": "invalid general_fee"})
+				errs = append(errs, map[string]interface{}{"line": lineNo, "message": labelOf("general_fee") + " 格式错误"})
 				continue
 			}
 			if crStr != "" && channelRate == nil {
-				errs = append(errs, map[string]interface{}{"line": lineNo, "message": "invalid channel_rate"})
+				errs = append(errs, map[string]interface{}{"line": lineNo, "message": labelOf("channel_rate") + " 格式错误"})
 				continue
 			}
 			if cfoStr != "" && cOwner == nil {
-				errs = append(errs, map[string]interface{}{"line": lineNo, "message": "invalid customer_fee_owner_id"})
+				errs = append(errs, map[string]interface{}{"line": lineNo, "message": labelOf("customer_fee_owner_id") + " 格式错误"})
 				continue
 			}
 			if nfoStr != "" && nOwner == nil {
-				errs = append(errs, map[string]interface{}{"line": lineNo, "message": "invalid network_line_fee_owner_id"})
+				errs = append(errs, map[string]interface{}{"line": lineNo, "message": labelOf("network_line_fee_owner_id") + " 格式错误"})
 				continue
 			}
 			if gfoStr != "" && gOwner == nil {
-				errs = append(errs, map[string]interface{}{"line": lineNo, "message": "invalid general_fee_owner_id"})
+				errs = append(errs, map[string]interface{}{"line": lineNo, "message": labelOf("general_fee_owner_id") + " 格式错误"})
 				continue
 			}
 			if choStr != "" && chOwner == nil {
-				errs = append(errs, map[string]interface{}{"line": lineNo, "message": "invalid channel_owner_user_id"})
+				errs = append(errs, map[string]interface{}{"line": lineNo, "message": labelOf("channel_owner_user_id") + " 格式错误"})
+				continue
+			}
+			if stockRatioStr != "" && !okStock {
+				errs = append(errs, map[string]interface{}{"line": lineNo, "message": labelOf("stock_ratio") + " 格式错误"})
+				continue
+			}
+			if incrementRatioStr != "" && !okInc {
+				errs = append(errs, map[string]interface{}{"line": lineNo, "message": labelOf("increment_ratio") + " 格式错误"})
 				continue
 			}
 
@@ -464,7 +609,16 @@ func (ctl *SettlementRatesController) ImportCustomerRates(c *gin.Context) {
 				if t, err := time.Parse("2006-01-02", s); err == nil {
 					startAtPtr = &t
 				} else {
-					errs = append(errs, map[string]interface{}{"line": lineNo, "message": "invalid start_at, expect YYYY-MM-DD"})
+					errs = append(errs, map[string]interface{}{"line": lineNo, "message": labelOf("start_at") + " 格式错误，期望 YYYY-MM-DD"})
+					continue
+				}
+			}
+			var incrementStartAtPtr *time.Time
+			if s := strings.TrimSpace(incrementStartAtStr); s != "" {
+				if t, err := time.Parse("2006-01-02", s); err == nil {
+					incrementStartAtPtr = &t
+				} else {
+					errs = append(errs, map[string]interface{}{"line": lineNo, "message": labelOf("increment_start_at") + " 格式错误，期望 YYYY-MM-DD"})
 					continue
 				}
 			}
@@ -482,6 +636,9 @@ func (ctl *SettlementRatesController) ImportCustomerRates(c *gin.Context) {
 				GeneralFeeOwnerID:     gOwner,
 				ChannelOwnerUserID:    chOwner,
 				StartAt:               startAtPtr,
+				IncrementStartAt:      incrementStartAtPtr,
+				StockRatio:            stockRatio,
+				IncrementRatio:        incrementRatio,
 			}
 			if customerFee != nil || networkLineFee != nil || generalFee != nil {
 				rate.FeeMode = "configed"
@@ -557,12 +714,12 @@ func (ctl *SettlementRatesController) CustomerRatesImportTemplate(c *gin.Context
 	c.Header("Content-Disposition", "attachment; filename=customer_rates_template.csv")
 	w := csv.NewWriter(c.Writer)
 	_ = w.Write([]string{
-		"region", "cp", "school_name",
-		"customer_fee", "network_line_fee", "general_fee", "channel_rate",
-		"customer_fee_owner_id", "network_line_fee_owner_id", "general_fee_owner_id", "channel_owner_user_id",
-		"start_at",
+		"区域", "CP", "学校",
+		"客户费率", "线路费率", "节点通用费率", "渠道费率",
+		"客户费归属ID", "线路费归属ID", "节点通用费归属ID", "渠道费归属ID",
+		"存量起算日期", "增量起算日期", "存量占比", "增量占比", "当日增量值",
 	})
-	_ = w.Write([]string{"华东", "CMCC", "示例学校", "100", "50", "10", "0.0200", "1001", "1002", "1003", "1004", "2025-01-01"})
+	_ = w.Write([]string{"华东", "CMCC", "示例学校", "100", "50", "10", "0.0200", "1001", "1002", "1003", "1004", "2025-01-01", "2025-07-01", "0.70", "0.30", ""})
 	w.Flush()
 }
 
@@ -617,6 +774,14 @@ func (ctl *SettlementRatesController) ListCustomerRates(c *gin.Context) {
 		if it.GeneralFee == nil {
 			missing = append(missing, "general_fee")
 		}
+		if it.IncrementStartAt != nil {
+			if it.StockRatio == nil {
+				missing = append(missing, "stock_ratio")
+			}
+			if it.IncrementRatio == nil {
+				missing = append(missing, "increment_ratio")
+			}
+		}
 		ready := len(missing) == 0
 		resp = append(resp, customerResp{RateCustomer: it, SettlementReady: ready, MissingFields: missing})
 	}
@@ -637,6 +802,9 @@ func (ctl *SettlementRatesController) UpsertCustomerRate(c *gin.Context) {
 		ChannelRate           *float64        `json:"channel_rate"`
 		ChannelOwnerUserID    *uint64         `json:"channel_owner_user_id"`
 		StartAt               string          `json:"start_at"`
+		IncrementStartAt      string          `json:"increment_start_at"`
+		StockRatio            *float64        `json:"stock_ratio"`
+		IncrementRatio        *float64        `json:"increment_ratio"`
 		Extra                 json.RawMessage `json:"extra"`
 	}
 	var req reqT
@@ -644,11 +812,15 @@ func (ctl *SettlementRatesController) UpsertCustomerRate(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid request"})
 		return
 	}
-	var startAtPtr *time.Time
-	if s := strings.TrimSpace(req.StartAt); s != "" {
-		if t, err := time.Parse("2006-01-02", s); err == nil {
-			startAtPtr = &t
-		}
+	startAtPtr, err := parseDateField(req.StartAt)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "start_at 格式错误，期望 YYYY-MM-DD"})
+		return
+	}
+	incrementStartAtPtr, err := parseDateField(req.IncrementStartAt)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "increment_start_at 格式错误，期望 YYYY-MM-DD"})
+		return
 	}
 
 	rate := &model.RateCustomer{
@@ -664,6 +836,9 @@ func (ctl *SettlementRatesController) UpsertCustomerRate(c *gin.Context) {
 		ChannelRate:           req.ChannelRate,
 		ChannelOwnerUserID:    req.ChannelOwnerUserID,
 		StartAt:               startAtPtr,
+		IncrementStartAt:      incrementStartAtPtr,
+		StockRatio:            req.StockRatio,
+		IncrementRatio:        req.IncrementRatio,
 	}
 	if len(req.Extra) > 0 {
 		rate.Extra = datatypes.JSON(req.Extra)

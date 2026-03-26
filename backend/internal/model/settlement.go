@@ -102,6 +102,14 @@ type SettlementResponse struct {
 	CreateTime      time.Time `json:"create_time"`
 }
 
+// SchoolRegionCP 表示可执行日结算的有效学校-地区-运营商组合
+type SchoolRegionCP struct {
+	SchoolID   string `gorm:"column:school_id"`
+	SchoolName string `gorm:"column:school_name"`
+	Region     string `gorm:"column:region"`
+	CP         string `gorm:"column:cp"`
+}
+
 // DailySettlementDetail 对应日95明细数据，可能来自 nfa_school_settlement 或类似表
 // 假设它与 SchoolSettlement 结构相似，但代表单日数据
 type DailySettlementDetail struct {

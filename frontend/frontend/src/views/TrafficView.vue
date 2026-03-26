@@ -181,8 +181,6 @@ const chartOption = computed(() => {
 
   // 检查数据是否为空
   if (trafficData.value.length === 0) {
-    console.warn('没有数据可供显示')
-    // 返回空图表
     return {
       title: {
         text: '流量监控',
@@ -195,34 +193,20 @@ const chartOption = computed(() => {
       series: []
     }
   }
-  // 数据已由服务端按时间升序返回，避免对大数组再次排序
+
   const sortedData = trafficData.value as any[]
-  
-  // 提取时间点标签：使用我们生成的 minute key 字符串
-  const times = sortedData.map(item => {
-    const key = String((item as any).time_str || (item as any).create_time || '')
-    return key.replace('T', ' ').replace('Z', '').slice(0, 16)
-  })
-  
-  // 在大数据量情况下避免打印
-  
+
   // 将原始数据转换为 bits/s，并与时间戳配对，供 time 轴渲染
   const points = sortedData.map(item => {
     const ms = typeof item.create_time === 'number' ? item.create_time : parseTime(item.create_time).getTime()
     return {
       t: ms,
+      cp: String((item as any).cp || ''),
       recv: (item as any).recv_bps != null ? Number((item as any).recv_bps) : convertToBitsPerSecond((item as any).total_recv),
       send: (item as any).send_bps != null ? Number((item as any).send_bps) : convertToBitsPerSecond((item as any).total_send),
     }
   }).filter(p => !isNaN(p.t))
 
-  const maxPlotPoints = 5000
-  const plotStep = points.length > maxPlotPoints ? Math.ceil(points.length / maxPlotPoints) : 1
-  const plotPoints = plotStep > 1 ? points.filter((_, i) => i % plotStep === 0) : points
-
-  const serviceData = plotPoints.map(p => [p.t, p.recv])
-  const backSourceData = plotPoints.map(p => [p.t, p.send])
-  
   // 格式化粒度显示
   const formatGranularity = (gran) => {
     switch(gran) {
@@ -233,8 +217,94 @@ const chartOption = computed(() => {
       default: return gran
     }
   }
-  
-  const heavy = (trafficData.value?.length || 0) > 5000
+
+  const pointCount = points.length
+  const heavy = pointCount > 2000
+  const perSeriesBase = {
+    type: 'line',
+    smooth: true,
+    showSymbol: false,
+    hoverAnimation: false,
+    emphasis: { disabled: true },
+    areaStyle: { opacity: 0.1 },
+    large: true,
+    largeThreshold: 2000,
+    progressive: 4000,
+    progressiveThreshold: 10000,
+    animation: false,
+  }
+
+  const compareByCP = !!(queryForm.school_name && !queryForm.cp)
+  let legendData: string[] = []
+  let series: any[] = []
+
+  if (compareByCP) {
+    const cpBuckets: Record<string, Array<{ t: number; recv: number; send: number }>> = {}
+    const totalByTime: Record<number, number> = {}
+
+    points.forEach((p) => {
+      const cp = p.cp || '未知CP'
+      if (!cpBuckets[cp]) cpBuckets[cp] = []
+      cpBuckets[cp].push({ t: p.t, recv: p.recv, send: p.send })
+      totalByTime[p.t] = (totalByTime[p.t] || 0) + p.recv
+    })
+
+    const cps = Object.keys(cpBuckets).sort()
+    legendData = ['各CP总服务流速', ...cps.flatMap(cp => [`${cp}-服务`, `${cp}-回源`])]
+
+    const totalSeries = {
+      ...perSeriesBase,
+      name: '各CP总服务流速',
+      lineStyle: { width: 3, type: 'solid' },
+      z: 10,
+      data: Object.keys(totalByTime)
+        .map((k) => Number(k))
+        .sort((a, b) => a - b)
+        .map((t) => [t, totalByTime[t]]),
+    }
+
+    series = [
+      totalSeries,
+      ...cps.flatMap((cp) => {
+        const rows = cpBuckets[cp]
+        const recvSeries = {
+          ...perSeriesBase,
+          name: `${cp}-服务`,
+          data: rows.map(r => [r.t, r.recv]),
+        }
+        const sendSeries = {
+          ...perSeriesBase,
+          name: `${cp}-回源`,
+          data: rows.map(r => [r.t, r.send]),
+        }
+        return [recvSeries, sendSeries]
+      })
+    ]
+  } else {
+    // 默认双线模式下，先按时间点聚合，避免同一时间多条记录导致折线失真
+    const mergedByTime: Record<number, { recv: number; send: number }> = {}
+    points.forEach((p) => {
+      if (!mergedByTime[p.t]) mergedByTime[p.t] = { recv: 0, send: 0 }
+      mergedByTime[p.t].recv += Number(p.recv) || 0
+      mergedByTime[p.t].send += Number(p.send) || 0
+    })
+    const timeline = Object.keys(mergedByTime).map((k) => Number(k)).sort((a, b) => a - b)
+
+    legendData = ['服务流速', '回源流速']
+    series = [
+      {
+        ...perSeriesBase,
+        name: '服务流速',
+        data: timeline.map((t) => [t, mergedByTime[t].recv]),
+      },
+      {
+        ...perSeriesBase,
+        name: '回源流速',
+        data: timeline.map((t) => [t, mergedByTime[t].send]),
+      }
+    ]
+  }
+
   return {
     title: {
       text: `学校流量监控 (bits/s) - ${formatGranularity(currentGranularity.value)}`,
@@ -243,11 +313,16 @@ const chartOption = computed(() => {
     tooltip: {
       trigger: 'axis',
       triggerOn: heavy ? 'click' : 'mousemove|click',
+      transitionDuration: 0,
+      confine: true,
+      axisPointer: {
+        type: 'line',
+        animation: false,
+      },
       formatter: function(params) {
         let result = ''
         if (params && params.length) {
           const first = params[0]
-          // time 轴下，axisPointer 的 name 可能是格式化后的时间，也可能为空
           const ts = Array.isArray(first.value) ? first.value[0] : undefined
           const label = ts ? new Date(ts).toLocaleString() : (first.name || '')
           result += label + '<br/>'
@@ -260,7 +335,7 @@ const chartOption = computed(() => {
       }
     },
     legend: {
-      data: ['服务流速', '回源流速'],
+      data: legendData,
       bottom: 0
     },
     grid: {
@@ -280,12 +355,14 @@ const chartOption = computed(() => {
         type: 'inside',
         start: 0,
         end: 100,
-        throttle: 50
+        throttle: 100,
+        realtime: !heavy,
       },
       {
         start: 0,
         end: 100,
-        throttle: 50
+        throttle: 100,
+        realtime: !heavy,
       }
     ],
     xAxis: {
@@ -301,36 +378,7 @@ const chartOption = computed(() => {
         }
       }
     },
-    series: [
-      {
-        name: '服务流速',
-        type: 'line',
-        data: serviceData,
-        smooth: true,
-        showSymbol: false,
-        areaStyle: { opacity: 0.1 },
-        sampling: 'lttb',
-        large: true,
-        largeThreshold: 2000,
-        progressive: 4000,
-        progressiveThreshold: 10000,
-        animation: false
-      },
-      {
-        name: '回源流速',
-        type: 'line',
-        data: backSourceData,
-        smooth: true,
-        showSymbol: false,
-        areaStyle: { opacity: 0.1 },
-        sampling: 'lttb',
-        large: true,
-        largeThreshold: 2000,
-        progressive: 4000,
-        progressiveThreshold: 10000,
-        animation: false
-      }
-    ]
+    series,
   }
 })
 
@@ -436,20 +484,16 @@ async function loadSchools(region = '', cp = '') {
   try {
     // 清空学校列表，避免显示旧数据
     schools.value = []
-    
+
     // 构建请求参数
-    const params: Record<string, any> = { limit: 500 } // 增加限制以获取更多学校
-    if (region) {
-      params.region = region
-    }
-    if (cp) {
-      params.cp = cp
-    }
-    
+    const params: Record<string, any> = { limit: 500 }
+    if (region) params.region = region
+    if (cp) params.cp = cp
+
     console.log('请求学校数据参数:', params)
     const res = await (api as any).v2.getSchools(params) as any
     console.log('学校数据原始响应:', res)
-    
+
     let schoolsList: any[] = []
     if (Array.isArray(res)) {
       schoolsList = res
@@ -462,25 +506,35 @@ async function loadSchools(region = '', cp = '') {
       schoolsList = []
     }
 
-    // 处理学校数据，确保唯一性
+    // 地区已选且 CP 未选时，按该地区可见学校动态收敛 CP 选项
+    if (region && !cp) {
+      const cpSet = new Set<string>()
+      schoolsList.forEach((school: any) => {
+        const v = String(school?.cp || '').trim()
+        if (v && v !== 'NULL') cpSet.add(v)
+      })
+      cps.value = Array.from(cpSet).sort()
+      // 若当前已选 CP 不在该地区范围内，则清空
+      if (queryForm.cp && !cpSet.has(queryForm.cp)) {
+        queryForm.cp = ''
+      }
+    }
+
+    // 学校下拉按 school_name 去重（不区分 CP）
     const uniqueSchools: Record<string, any> = {}
     schoolsList.forEach((school: any) => {
-      if (!school.cp) school.cp = ''
-      const key = `${school.school_name}_${school.region}_${school.cp}`
-      if (!uniqueSchools[key]) {
-        uniqueSchools[key] = school
+      const name = String(school?.school_name || '').trim()
+      if (!name) return
+      if (!uniqueSchools[name]) {
+        uniqueSchools[name] = school
       }
     })
     schools.value = Object.values(uniqueSchools)
     console.log('去重后的学校数据:', schools.value.length, '所学校')
-    schools.value.forEach((school: any, index: number) => {
-      console.log(`学校${index + 1}:`, school.school_name, '运营商:', school.cp, '地区:', school.region)
-    })
-    
+
     // 仅在接口未返回地区/运营商时，才基于学校数据兜底填充
     computeRegionCpOptions()
 
-    // 如果没有数据，不再使用测试数据，而是显示错误提示
     if (schools.value.length === 0) {
       console.warn('未获取到学校数据')
       ElMessage.warning('未能加载学校数据，请检查网络连接')
@@ -624,36 +678,25 @@ async function loadTrafficData() {
       const filteredData = processedData
 
       // 聚合策略：
-      // 1) 无任何筛选（学校/地区/运营商均为空）时，按时间点聚合求和，显示整体“总服务/总回源流速”。
-      // 2) 选择了学校时（无论是否选择内容方），都按时间点聚合，避免同校同时间重复记录导致锯齿。
+      // 1) 无任何筛选（理论上不会触发查询）时，按时间点聚合。
+      // 2) 已选择学校且已指定 CP 时，按时间点聚合，避免同时间桶重复记录。
+      // 3) 已选择学校但未指定 CP 时，保留 CP 维度，便于查看同院校不同 CP。
       let finalData = filteredData
       if (!queryForm.school_name && !queryForm.region && !queryForm.cp) {
-        console.log('检测到无任何筛选条件，按时间点聚合全量数据')
-
         const dataByTimeAll: Record<string, any> = {}
         filteredData.forEach((item: any) => {
           const key = toMinuteKeyStr(item.time_str || item.create_time)
           if (!key) return
           if (!dataByTimeAll[key]) {
-            dataByTimeAll[key] = {
-              create_time: key,
-              total_recv: 0,
-              total_send: 0,
-              time_str: key,
-            }
+            dataByTimeAll[key] = { create_time: key, total_recv: 0, total_send: 0, time_str: key }
           }
           dataByTimeAll[key].total_recv += Number(item.total_recv) || 0
           dataByTimeAll[key].total_send += Number(item.total_send) || 0
         })
         finalData = Object.values(dataByTimeAll).sort((a: any, b: any) => (a.create_time as string).localeCompare(b.create_time as string))
-        try { console.log('无筛选聚合桶数:', Object.keys(dataByTimeAll).length) } catch {}
-        console.log(`无筛选聚合后数据点: ${finalData.length}, 原始: ${filteredData.length}`)
-      } else if (queryForm.school_name) {
-        console.log('检测到选择了学校，将按时间点聚合去重')
-        
-        // 按时间点分组数据
+      } else if (queryForm.school_name && queryForm.cp) {
         const dataByTime: Record<string, any> = {}
-        filteredData.forEach(item => {
+        filteredData.forEach((item: any) => {
           const key = toMinuteKeyStr(item.time_str || item.create_time)
           if (!key) return
           if (!dataByTime[key]) {
@@ -661,22 +704,16 @@ async function loadTrafficData() {
               create_time: key,
               school_name: queryForm.school_name,
               region: item.region || '',
-              cp: queryForm.cp || item.cp || '',
+              cp: queryForm.cp,
               total_recv: 0,
               total_send: 0,
-              time_str: key
+              time_str: key,
             }
           }
-          
-          // 累加流量数据
           dataByTime[key].total_recv += Number(item.total_recv) || 0
           dataByTime[key].total_send += Number(item.total_send) || 0
         })
-        
-        // 转换回数组形式
         finalData = Object.values(dataByTime).sort((a: any, b: any) => (a.create_time as string).localeCompare(b.create_time as string))
-        try { console.log('学校聚合桶数:', Object.keys(dataByTime).length) } catch {}
-        console.log(`合并后的数据点数量: ${finalData.length}, 原始数据点数量: ${filteredData.length}`)
       }
       
       // 预计算 bps，减少渲染与 tooltip 阶段的重复换算
@@ -723,18 +760,27 @@ function handleQuery() {
 }
 
 // 当选择省份变化时重新加载学校列表
-function handleRegionChange(region) {
+async function handleRegionChange(region) {
   queryForm.school_name = ''
-  // 按地区/运营商重新加载学校，不覆盖已有地区/运营商完整下拉
-  loadSchools(region, queryForm.cp)
-  console.log('基于地区筛选学校:', region, queryForm.cp)
+  queryForm.cp = ''
+  if (!region) {
+    await loadRegionCpOptions()
+    await loadSchools('', '')
+    return
+  }
+  await loadSchools(region, '')
+  console.log('基于地区筛选学校:', region)
 }
 
 // 当选择运营商变化时重新加载学校列表
-function handleCPChange(cp) {
-  queryForm.school_name = ''
-  // 按地区/运营商重新加载学校，不覆盖已有地区/运营商完整下拉
-  loadSchools(queryForm.region, cp)
+async function handleCPChange(cp) {
+  const prevSchool = queryForm.school_name
+  // 按地区/运营商重新加载学校；仅当当前学校在新条件下不可见时才清空
+  await loadSchools(queryForm.region, cp)
+  if (prevSchool) {
+    const stillVisible = (schools.value || []).some((s: any) => String(s?.school_name || '') === String(prevSchool))
+    queryForm.school_name = stillVisible ? prevSchool : ''
+  }
   console.log('基于运营商筛选学校:', queryForm.region, cp)
 }
 
@@ -928,7 +974,7 @@ function formatDate(date: Date | string, granularity: string) {
     <ElCard class="query-card">
       <ElForm :model="queryForm" label-width="80px" inline class="filter-form">
         <ElFormItem label="地区">
-          <ElSelect v-model="queryForm.region" placeholder="选择地区" clearable @change="handleRegionChange">
+          <ElSelect v-model="queryForm.region" placeholder="选择地区（可输入）" clearable filterable allow-create default-first-option @change="handleRegionChange">
             <ElOption 
               v-for="region in regions" 
               :key="region" 
@@ -939,7 +985,7 @@ function formatDate(date: Date | string, granularity: string) {
         </ElFormItem>
         
         <ElFormItem label="CP">
-          <ElSelect v-model="queryForm.cp" placeholder="选择 CP" clearable @change="handleCPChange">
+          <ElSelect v-model="queryForm.cp" placeholder="选择 CP（可输入）" clearable filterable allow-create default-first-option @change="handleCPChange">
             <ElOption 
               v-for="cp in cps" 
               :key="cp" 
@@ -950,11 +996,11 @@ function formatDate(date: Date | string, granularity: string) {
         </ElFormItem>
         
         <ElFormItem label="学校名称">
-          <ElSelect v-model="queryForm.school_name" placeholder="选择学校" clearable style="width: 300px">
+          <ElSelect v-model="queryForm.school_name" placeholder="选择或输入学校" clearable filterable allow-create default-first-option :reserve-keyword="false" style="width: 300px">
             <ElOption 
               v-for="school in schools" 
-              :key="school.school_id" 
-              :label="school.cp ? `${school.school_name} (${school.cp})` : school.school_name" 
+              :key="school.school_name" 
+              :label="school.school_name" 
               :value="school.school_name" 
             />
           </ElSelect>

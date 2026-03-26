@@ -35,6 +35,10 @@ type RateCustomer struct {
 	ChannelRate           *float64       `gorm:"column:channel_rate" json:"channel_rate,omitempty"`
 	ChannelOwnerUserID    *uint64        `gorm:"column:channel_owner_user_id" json:"channel_owner_user_id,omitempty"`
 	StartAt               *time.Time     `gorm:"column:start_at" json:"start_at,omitempty"`
+	IncrementStartAt      *time.Time     `gorm:"column:increment_start_at" json:"increment_start_at,omitempty"`
+	StockRatio            *float64       `gorm:"column:stock_ratio" json:"stock_ratio,omitempty"`
+	IncrementRatio        *float64       `gorm:"column:increment_ratio" json:"increment_ratio,omitempty"`
+	DailyIncrementValue   *float64       `gorm:"column:daily_increment_value" json:"daily_increment_value,omitempty"`
 	FeeMode               string         `gorm:"column:fee_mode;size:16;not null;default:auto" json:"fee_mode"`
 	Extra                 datatypes.JSON `gorm:"column:extra" json:"extra,omitempty"`
 	LastSyncTime          *time.Time     `gorm:"column:last_sync_time" json:"last_sync_time,omitempty"`
@@ -113,16 +117,46 @@ type SettlementCustomer struct {
 	NodeDeductionBill       *float64   `gorm:"column:node_deduction_bill" json:"node_deduction_bill,omitempty"`
 	NodeDeductionFeeOwnerID *uint64    `gorm:"column:node_deduction_fee_owner_id" json:"node_deduction_fee_owner_id,omitempty"`
 	// 新增渠道及折损追踪字段
-	ChannelRate        *float64  `gorm:"column:channel_rate" json:"channel_rate,omitempty"`
-	ChannelBill        *float64  `gorm:"column:channel_bill" json:"channel_bill,omitempty"`
-	ChannelOwnerUserID *uint64   `gorm:"column:channel_owner_user_id" json:"channel_owner_user_id,omitempty"`
-	DiscountRuleID     *uint64   `gorm:"column:discount_rule_id" json:"discount_rule_id,omitempty"`
-	ServiceYearIndex   *int      `gorm:"column:service_year_index" json:"service_year_index,omitempty"`
-	CreatedAt          time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at"`
-	UpdatedAt          time.Time `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
+	ChannelRate         *float64  `gorm:"column:channel_rate" json:"channel_rate,omitempty"`
+	ChannelBill         *float64  `gorm:"column:channel_bill" json:"channel_bill,omitempty"`
+	ChannelOwnerUserID  *uint64   `gorm:"column:channel_owner_user_id" json:"channel_owner_user_id,omitempty"`
+	StockRatio          *float64  `gorm:"column:stock_ratio" json:"stock_ratio,omitempty"`
+	IncrementRatio      *float64  `gorm:"column:increment_ratio" json:"increment_ratio,omitempty"`
+	DailyIncrementValue *float64  `gorm:"column:daily_increment_value" json:"daily_increment_value,omitempty"`
+	DiscountRuleID      *uint64   `gorm:"column:discount_rule_id" json:"discount_rule_id,omitempty"`
+	ServiceYearIndex    *int      `gorm:"column:service_year_index" json:"service_year_index,omitempty"`
+	CreatedAt           time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at"`
+	UpdatedAt           time.Time `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
 }
 
 func (SettlementCustomer) TableName() string { return "settlement_customer" }
+
+// SettlementCustomerMonthly 客户结算月度聚合视图（按 region/cp/school_name/月 汇总）
+type SettlementCustomerMonthly struct {
+	Region                  string   `json:"region"`
+	CP                      string   `json:"cp"`
+	SchoolName              string   `json:"school_name"`
+	ServiceDate             string   `json:"service_date"`
+	DataSource              string   `json:"data_source,omitempty"`
+	SettlementValue         float64  `json:"settlement_value"`
+	CustomerFee             *float64 `json:"customer_fee,omitempty"`
+	CustomerBill            *float64 `json:"customer_bill,omitempty"`
+	CustomerFeeOwnerID      *uint64  `json:"customer_fee_owner_id,omitempty"`
+	NetworkLineFee          *float64 `json:"network_line_fee,omitempty"`
+	NetworkLineBill         *float64 `json:"network_line_bill,omitempty"`
+	NetworkLineFeeOwnerID   *uint64  `json:"network_line_fee_owner_id,omitempty"`
+	NodeDeductionFee        *float64 `json:"node_deduction_fee,omitempty"`
+	NodeDeductionBill       *float64 `json:"node_deduction_bill,omitempty"`
+	NodeDeductionFeeOwnerID *uint64  `json:"node_deduction_fee_owner_id,omitempty"`
+	ChannelRate             *float64 `json:"channel_rate,omitempty"`
+	ChannelBill             *float64 `json:"channel_bill,omitempty"`
+	ChannelOwnerUserID      *uint64  `json:"channel_owner_user_id,omitempty"`
+	StockRatio              *float64 `json:"stock_ratio,omitempty"`
+	IncrementRatio          *float64 `json:"increment_ratio,omitempty"`
+	DailyIncrementValue     *float64 `json:"daily_increment_value,omitempty"`
+	Recalculated            bool     `json:"recalculated"`
+	LastRecalcTime          *string  `json:"last_recalc_time,omitempty"`
+}
 
 // SettlementNodeDaily95 对应 settlement_node_daily95 表
 // 节点日95结算金额

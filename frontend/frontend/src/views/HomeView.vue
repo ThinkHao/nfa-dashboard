@@ -67,7 +67,7 @@ const navigateTo = (path: string) => {
     <ElRow :gutter="20" class="dashboard-cards">
       <ElCol :span="8">
         <ElCard shadow="hover" @click="navigateTo('/traffic')" class="dashboard-card">
-          <ElStatistic :value="formatTraffic(summary.total)" title="总流量" :loading="loading">
+          <ElStatistic :value="summary.total" title="总流量" :formatter="formatTraffic">
             <template #suffix>
               <div class="dashboard-card-icon">
                 <i class="el-icon-data-analysis"></i>
@@ -79,7 +79,7 @@ const navigateTo = (path: string) => {
       
       <ElCol :span="8">
         <ElCard shadow="hover" @click="navigateTo('/traffic')" class="dashboard-card">
-          <ElStatistic :value="formatTraffic(summary.total_recv)" title="总服务流量" :loading="loading">
+          <ElStatistic :value="summary.total_recv" title="总服务流量" :formatter="formatTraffic">
             <template #suffix>
               <div class="dashboard-card-icon download-icon">
                 <i class="el-icon-download"></i>
@@ -91,7 +91,7 @@ const navigateTo = (path: string) => {
       
       <ElCol :span="8">
         <ElCard shadow="hover" @click="navigateTo('/traffic')" class="dashboard-card">
-          <ElStatistic :value="formatTraffic(summary.total_send)" title="总回源流量" :loading="loading">
+          <ElStatistic :value="summary.total_send" title="总回源流量" :formatter="formatTraffic">
             <template #suffix>
               <div class="dashboard-card-icon upload-icon">
                 <i class="el-icon-upload"></i>

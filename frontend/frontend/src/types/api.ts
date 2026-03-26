@@ -233,6 +233,10 @@ export interface RateCustomer {
   channel_rate?: number | null;
   channel_owner_user_id?: number | null;
   start_at?: string | null;
+  increment_start_at?: string | null;
+  stock_ratio?: number | null;
+  increment_ratio?: number | null;
+  daily_increment_value?: number | null;
   fee_mode?: 'auto' | 'configed';
   last_sync_time?: string | null;
   last_sync_rule_id?: number | null;
@@ -257,6 +261,9 @@ export interface UpsertRateCustomerRequest {
   channel_rate?: number | null;
   channel_owner_user_id?: number | null;
   start_at?: string | null;
+  increment_start_at?: string | null;
+  stock_ratio?: number | null;
+  increment_ratio?: number | null;
   extra?: any;
 }
 
