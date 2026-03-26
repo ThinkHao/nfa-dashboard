@@ -64,13 +64,34 @@ func (ctl *SettlementRatesController) ExportCustomerRatesXLSX(c *gin.Context) {
 		"客户费率", "线路费率", "节点通用费率", "渠道费率",
 		// 可见的姓名列
 		"客户费归属", "线路费归属", "节点通用费归属", "渠道费归属",
-		"存量起算日期", "增量起算日期", "存量占比", "增量占比", "当日增量值",
+		"存量起算日期", "增量起算日期", "存量占比", "增量占比",
 		// 隐藏的ID列（用于导入与公式映射）
 		"客户费归属ID", "线路费归属ID", "节点通用费归属ID", "渠道费归属ID",
 	}
 	for i, h := range header {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
 		_ = f.SetCellValue(sheet, cell, h)
+	}
+	// 预估列宽（后续按数据内容增量修正）
+	colWidth := map[int]float64{}
+	updateColWidth := func(col int, s string) {
+		n := len([]rune(strings.TrimSpace(s)))
+		if n <= 0 {
+			return
+		}
+		w := float64(n + 2)
+		if w < 10 {
+			w = 10
+		}
+		if w > 42 {
+			w = 42
+		}
+		if cur, ok := colWidth[col]; !ok || w > cur {
+			colWidth[col] = w
+		}
+	}
+	for i, h := range header {
+		updateColWidth(i+1, h)
 	}
 	row := 2
 	// 预加载系统用户，用于姓名显示与下拉来源
@@ -116,9 +137,9 @@ func (ctl *SettlementRatesController) ExportCustomerRatesXLSX(c *gin.Context) {
 		usersLookupRange = "Users!$A$1:$B$" + strconv.Itoa(usersLastRow)
 	}
 	// 主要工作表中四个姓名列与四个ID列的列索引（基于 header 顺序）
-	// 姓名列: 8..11 ；start_at: 12，增量字段: 13..16；ID列: 17..20
+	// 姓名列: 8..11 ；start_at: 12，增量字段: 13..15；ID列: 16..19
 	nameCols := []int{8, 9, 10, 11}
-	idCols := []int{17, 18, 19, 20}
+	idCols := []int{16, 17, 18, 19}
 	for _, it := range items {
 		// 基本列（到 channel_rate）
 		baseVals := []interface{}{
@@ -135,34 +156,44 @@ func (ctl *SettlementRatesController) ExportCustomerRatesXLSX(c *gin.Context) {
 				if it.CustomerFee == nil {
 					return ""
 				} else {
-					return strconv.FormatFloat(*it.CustomerFee, 'f', 2, 64)
+					return *it.CustomerFee
 				}
 			}(),
 			func() interface{} {
 				if it.NetworkLineFee == nil {
 					return ""
 				} else {
-					return strconv.FormatFloat(*it.NetworkLineFee, 'f', 2, 64)
+					return *it.NetworkLineFee
 				}
 			}(),
 			func() interface{} {
 				if it.GeneralFee == nil {
 					return ""
 				} else {
-					return strconv.FormatFloat(*it.GeneralFee, 'f', 2, 64)
+					return *it.GeneralFee
 				}
 			}(),
 			func() interface{} {
 				if it.ChannelRate == nil {
 					return ""
 				} else {
-					return strconv.FormatFloat(*it.ChannelRate, 'f', 4, 64)
+					return *it.ChannelRate
 				}
 			}(),
 		}
 		for i, v := range baseVals {
 			cell, _ := excelize.CoordinatesToCellName(i+1, row)
 			_ = f.SetCellValue(sheet, cell, v)
+			switch vv := v.(type) {
+			case string:
+				updateColWidth(i+1, vv)
+			case float64:
+				if i+1 == 7 {
+					updateColWidth(i+1, strconv.FormatFloat(vv, 'f', 4, 64))
+				} else {
+					updateColWidth(i+1, strconv.FormatFloat(vv, 'f', 2, 64))
+				}
+			}
 		}
 		// 姓名列：由 ID->Name 映射（若无则空）
 		var cfoName, nfoName, gfoName, choName string
@@ -191,37 +222,36 @@ func (ctl *SettlementRatesController) ExportCustomerRatesXLSX(c *gin.Context) {
 			col := nameCols[j]
 			cell, _ := excelize.CoordinatesToCellName(col, row)
 			_ = f.SetCellValue(sheet, cell, v)
+			updateColWidth(col, v)
 		}
-		// start_at / increment_start_at / ratio / daily_increment_value
+		// start_at / increment_start_at / ratio
 		saCell, _ := excelize.CoordinatesToCellName(12, row)
 		if it.StartAt == nil {
 			_ = f.SetCellValue(sheet, saCell, "")
 		} else {
 			_ = f.SetCellValue(sheet, saCell, it.StartAt.Format("2006-01-02"))
+			updateColWidth(12, it.StartAt.Format("2006-01-02"))
 		}
 		isaCell, _ := excelize.CoordinatesToCellName(13, row)
 		if it.IncrementStartAt == nil {
 			_ = f.SetCellValue(sheet, isaCell, "")
 		} else {
 			_ = f.SetCellValue(sheet, isaCell, it.IncrementStartAt.Format("2006-01-02"))
+			updateColWidth(13, it.IncrementStartAt.Format("2006-01-02"))
 		}
 		srCell, _ := excelize.CoordinatesToCellName(14, row)
 		if it.StockRatio == nil {
 			_ = f.SetCellValue(sheet, srCell, "")
 		} else {
-			_ = f.SetCellValue(sheet, srCell, strconv.FormatFloat(*it.StockRatio, 'f', 6, 64))
+			_ = f.SetCellValue(sheet, srCell, *it.StockRatio)
+			updateColWidth(14, strconv.FormatFloat(*it.StockRatio*100, 'f', 2, 64)+"%")
 		}
 		irCell, _ := excelize.CoordinatesToCellName(15, row)
 		if it.IncrementRatio == nil {
 			_ = f.SetCellValue(sheet, irCell, "")
 		} else {
-			_ = f.SetCellValue(sheet, irCell, strconv.FormatFloat(*it.IncrementRatio, 'f', 6, 64))
-		}
-		divCell, _ := excelize.CoordinatesToCellName(16, row)
-		if it.DailyIncrementValue == nil {
-			_ = f.SetCellValue(sheet, divCell, "")
-		} else {
-			_ = f.SetCellValue(sheet, divCell, strconv.FormatFloat(*it.DailyIncrementValue, 'f', 6, 64))
+			_ = f.SetCellValue(sheet, irCell, *it.IncrementRatio)
+			updateColWidth(15, strconv.FormatFloat(*it.IncrementRatio*100, 'f', 2, 64)+"%")
 		}
 		// ID列：若有用户清单，使用 VLOOKUP 公式；否则直接写入原始ID（若存在）
 		if hasUsers {
@@ -284,11 +314,63 @@ func (ctl *SettlementRatesController) ExportCustomerRatesXLSX(c *gin.Context) {
 			_ = f.AddDataValidation(sheet, dv)
 		}
 	}
+	lastVisibleCol := 15 // O 列
+	lastVisibleColName, _ := excelize.CoordinatesToCellName(lastVisibleCol, 1)
+	// 表头样式 + 冻结首行 + 自动筛选
+	if st, e := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{Bold: true, Color: "#1F2937"},
+		Fill: excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#E8EEF7"}},
+		Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"},
+	}); e == nil {
+		_ = f.SetCellStyle(sheet, "A1", lastVisibleColName+"1", st)
+	}
+	_ = f.SetRowHeight(sheet, 1, 24)
+	_ = f.SetPanes(sheet, &excelize.Panes{Freeze: true, Split: false, XSplit: 0, YSplit: 1, TopLeftCell: "A2", ActivePane: "bottomLeft"})
+	_ = f.AutoFilter(sheet, "A1:"+lastVisibleColName+"1", nil)
+	// 数据区基础样式
+	if lastRow >= 2 {
+		if st, e := f.NewStyle(&excelize.Style{
+			Alignment: &excelize.Alignment{Vertical: "center"},
+		}); e == nil {
+			_ = f.SetCellStyle(sheet, "A2", lastVisibleColName+strconv.Itoa(lastRow), st)
+		}
+		// 交替行底色（斑马纹），提升大表可读性
+		if zebra, e := f.NewStyle(&excelize.Style{
+			Fill: excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#F8FAFC"}},
+		}); e == nil {
+			for r := 2; r <= lastRow; r++ {
+				if r%2 == 0 {
+					_ = f.SetCellStyle(sheet, "A"+strconv.Itoa(r), lastVisibleColName+strconv.Itoa(r), zebra)
+				}
+			}
+		}
+		// 数值格式
+		if money, e := f.NewStyle(&excelize.Style{NumFmt: 4}); e == nil {
+			_ = f.SetCellStyle(sheet, "D2", "F"+strconv.Itoa(lastRow), money) // 0.00
+		}
+		rate4Fmt := "#,##0.0000"
+		if rate4, e := f.NewStyle(&excelize.Style{CustomNumFmt: &rate4Fmt}); e == nil {
+			_ = f.SetCellStyle(sheet, "G2", "G"+strconv.Itoa(lastRow), rate4)
+		}
+		if pct, e := f.NewStyle(&excelize.Style{NumFmt: 10}); e == nil {
+			_ = f.SetCellStyle(sheet, "N2", "O"+strconv.Itoa(lastRow), pct)
+		}
+	}
+	// 应用列宽（仅可见列）
+	for col := 1; col <= lastVisibleCol; col++ {
+		colName, _ := excelize.CoordinatesToCellName(col, 1)
+		colLetter := strings.TrimRight(colName, "0123456789")
+		w := colWidth[col]
+		if w <= 0 {
+			w = 12
+		}
+		_ = f.SetColWidth(sheet, colLetter, colLetter, w)
+	}
 	// 隐藏 *_owner_id 四个列
+	_ = f.SetColVisible(sheet, "P", false) // 16
 	_ = f.SetColVisible(sheet, "Q", false) // 17
 	_ = f.SetColVisible(sheet, "R", false) // 18
 	_ = f.SetColVisible(sheet, "S", false) // 19
-	_ = f.SetColVisible(sheet, "T", false) // 20
 	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 	c.Header("Content-Disposition", "attachment; filename=customer_rates.xlsx")
 	if err := f.Write(c.Writer); err != nil {
@@ -320,7 +402,7 @@ func (ctl *SettlementRatesController) ExportCustomerRates(c *gin.Context) {
 		"区域", "CP", "学校",
 		"客户费率", "线路费率", "节点通用费率", "渠道费率",
 		"客户费归属ID", "线路费归属ID", "节点通用费归属ID", "渠道费归属ID",
-		"存量起算日期", "增量起算日期", "存量占比", "增量占比", "当日增量值",
+		"存量起算日期", "增量起算日期", "存量占比", "增量占比",
 	})
 	toStrF := func(p *float64, prec int) string {
 		if p == nil {
@@ -379,7 +461,6 @@ func (ctl *SettlementRatesController) ExportCustomerRates(c *gin.Context) {
 			incrementStartAt,
 			toStrF(it.StockRatio, 6),
 			toStrF(it.IncrementRatio, 6),
-			toStrF(it.DailyIncrementValue, 6),
 		})
 	}
 	w.Flush()

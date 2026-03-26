@@ -194,7 +194,8 @@ async function onUpdate() {
     return ElMessage.warning('名称不能为空')
   }
   try {
-    await api.system.permissions.update(editForm.id, { name: editForm.name.trim(), description: editForm.description || undefined })
+    // 编辑时显式传空字符串，支持“清空描述”
+    await api.system.permissions.update(editForm.id, { name: editForm.name.trim(), description: editForm.description?.trim() ?? '' })
     ElMessage.success('更新成功')
     editVisible.value = false
     fetchData()

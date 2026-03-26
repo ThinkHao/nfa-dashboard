@@ -264,6 +264,17 @@ const templateValues = reactive<{ customer_fee?: number | null; network_line_fee
 const exprText = ref('')
 const actionsText = ref('') // 仅 json 模式使用
 
+function normalizeScopeList(v: any): string[] {
+  if (Array.isArray(v)) {
+    return v.map((x) => String(x).trim()).filter(Boolean)
+  }
+  if (typeof v === 'string') {
+    const s = v.trim()
+    return s ? [s] : []
+  }
+  return []
+}
+
 function openDialog(row?: SyncRule) {
   if (row) {
     editing.value = true
@@ -276,8 +287,8 @@ function openDialog(row?: SyncRule) {
     form.overwrite_strategy = row.overwrite_strategy
     form.condition_expr = row.condition_expr || undefined
     // 作用范围
-    scopeRegion.value = Array.isArray(row.scope_region) ? [...(row.scope_region as string[])] : []
-    scopeCP.value = Array.isArray(row.scope_cp) ? [...(row.scope_cp as string[])] : []
+    scopeRegion.value = normalizeScopeList(row.scope_region)
+    scopeCP.value = normalizeScopeList(row.scope_cp)
 
     // 更新字段
     if (row.fields_to_update && typeof row.fields_to_update === 'object') {
@@ -359,8 +370,9 @@ async function onSave() {
   if (!form.overwrite_strategy?.trim()) { ElMessage.warning('覆盖策略为必填'); return }
 
   // 组装范围
-  const scope_region = scopeRegion.value.length ? [...scopeRegion.value] : undefined
-  const scope_cp = scopeCP.value.length ? [...scopeCP.value] : undefined
+  // 显式传空数组表示“不限”，避免 update 时字段被省略导致旧值残留
+  const scope_region = [...scopeRegion.value]
+  const scope_cp = [...scopeCP.value]
 
   // 组装更新字段
   let fields_to_update: any | undefined
@@ -396,10 +408,11 @@ async function onSave() {
     try { actions = safeParse(actionsText.value) } catch (e: any) { ElMessage.error(e?.message || '动作 JSON 格式错误'); return }
   }
 
+  const conditionExprTrimmed = (form.condition_expr || '').trim()
+
   const payloadBase = {
     name: form.name,
     overwrite_strategy: form.overwrite_strategy,
-    condition_expr: form.condition_expr || undefined,
     scope_region,
     scope_cp,
     fields_to_update,
@@ -409,8 +422,13 @@ async function onSave() {
   saving.value = true
   try {
     if (editing.value && editingId.value) {
+      const updatePayload: UpdateSyncRuleRequest = {
+        ...payloadBase,
+        // 编辑时显式传空字符串，支持“清空条件表达式”
+        condition_expr: conditionExprTrimmed,
+      }
       // 后端不允许在 update 接口修改 enabled，需使用独立的 setEnabled 接口
-      await api.settlementRates.syncRules.update(editingId.value, payloadBase as UpdateSyncRuleRequest)
+      await api.settlementRates.syncRules.update(editingId.value, updatePayload)
       if (originalEnabled.value !== !!form.enabled) {
         await api.settlementRates.syncRules.setEnabled(editingId.value, !!form.enabled)
       }
@@ -419,7 +437,12 @@ async function onSave() {
       }
       ElMessage.success('更新成功')
     } else {
-      const createPayload: CreateSyncRuleRequest = { enabled: !!form.enabled, priority: Number(form.priority) || 0, ...payloadBase }
+      const createPayload: CreateSyncRuleRequest = {
+        enabled: !!form.enabled,
+        priority: Number(form.priority) || 0,
+        ...payloadBase,
+        condition_expr: conditionExprTrimmed || undefined,
+      }
       await api.settlementRates.syncRules.create(createPayload)
       ElMessage.success('创建成功')
     }

@@ -211,7 +211,8 @@ async function submitEdit() {
   if (!form.name || !form.name.trim()) { ElMessage.error('请输入角色名'); return }
   submitLoading.value = true
   try {
-    await api.system.roles.update(form.id, { name: form.name.trim(), description: form.description?.trim() || undefined })
+    // 编辑时显式传空字符串，支持“清空描述”
+    await api.system.roles.update(form.id, { name: form.name.trim(), description: form.description?.trim() ?? '' })
     ElMessage.success('保存成功')
     editVisible.value = false
     fetchData()
