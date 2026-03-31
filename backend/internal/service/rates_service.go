@@ -2,7 +2,6 @@ package service
 
 import (
 	"encoding/json"
-	"math"
 	"strings"
 	"time"
 
@@ -17,6 +16,7 @@ type RatesService interface {
 	// 客户业务费率
 	ListCustomerRates(region, cp, schoolName string, settlementReady *bool, page, pageSize int) ([]model.RateCustomer, int64, error)
 	UpsertCustomerRate(rate *model.RateCustomer) error
+	ValidateCustomerRate(rate *model.RateCustomer) error
 
 	// 节点业务费率
 	ListNodeRates(region, cp, settlementType string, page, pageSize int) ([]model.RateNode, int64, error)
@@ -74,10 +74,14 @@ func (s *ratesService) ListCustomerRates(region, cp, schoolName string, settleme
 }
 
 func (s *ratesService) UpsertCustomerRate(rate *model.RateCustomer) error {
-	if err := normalizeIncrementConfig(rate); err != nil {
+	if err := s.ValidateCustomerRate(rate); err != nil {
 		return err
 	}
 	return s.repo.UpsertCustomerRate(rate)
+}
+
+func (s *ratesService) ValidateCustomerRate(rate *model.RateCustomer) error {
+	return normalizeIncrementConfig(rate)
 }
 
 func normalizeIncrementConfig(rate *model.RateCustomer) error {
@@ -93,14 +97,14 @@ func normalizeIncrementConfig(rate *model.RateCustomer) error {
 	}
 
 	if rate.StockRatio == nil && rate.IncrementRatio == nil {
-		return NewBadRequest("设置增量起算日期后，必须设置存量占比和增量占比")
+		return NewBadRequest("设置增量起算日期后，存量占比和增量占比不能同时为空")
 	}
 	if rate.StockRatio == nil && rate.IncrementRatio != nil {
-		v := 1 - *rate.IncrementRatio
+		v := 0.0
 		rate.StockRatio = &v
 	}
 	if rate.IncrementRatio == nil && rate.StockRatio != nil {
-		v := 1 - *rate.StockRatio
+		v := 0.0
 		rate.IncrementRatio = &v
 	}
 
@@ -108,9 +112,6 @@ func normalizeIncrementConfig(rate *model.RateCustomer) error {
 	increment := *rate.IncrementRatio
 	if stock < 0 || stock > 1 || increment < 0 || increment > 1 {
 		return NewBadRequest("存量占比和增量占比必须在 0% 到 100% 之间")
-	}
-	if math.Abs(stock+increment-1) > 1e-6 {
-		return NewBadRequest("存量占比和增量占比之和必须为 100%")
 	}
 	return nil
 }

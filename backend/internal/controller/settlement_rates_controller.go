@@ -315,35 +315,9 @@ func (ctl *SettlementRatesController) ExportCustomerRatesXLSX(c *gin.Context) {
 		}
 	}
 	lastVisibleCol := 15 // O 列
-	lastVisibleColName, _ := excelize.CoordinatesToCellName(lastVisibleCol, 1)
-	// 表头样式 + 冻结首行 + 自动筛选
-	if st, e := f.NewStyle(&excelize.Style{
-		Font: &excelize.Font{Bold: true, Color: "#1F2937"},
-		Fill: excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#E8EEF7"}},
-		Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"},
-	}); e == nil {
-		_ = f.SetCellStyle(sheet, "A1", lastVisibleColName+"1", st)
-	}
-	_ = f.SetRowHeight(sheet, 1, 24)
-	_ = f.SetPanes(sheet, &excelize.Panes{Freeze: true, Split: false, XSplit: 0, YSplit: 1, TopLeftCell: "A2", ActivePane: "bottomLeft"})
-	_ = f.AutoFilter(sheet, "A1:"+lastVisibleColName+"1", nil)
-	// 数据区基础样式
+	// 统一表格样式模板
+	applyStandardExcelTableStyle(f, sheet, 1, lastRow, lastVisibleCol, colWidth)
 	if lastRow >= 2 {
-		if st, e := f.NewStyle(&excelize.Style{
-			Alignment: &excelize.Alignment{Vertical: "center"},
-		}); e == nil {
-			_ = f.SetCellStyle(sheet, "A2", lastVisibleColName+strconv.Itoa(lastRow), st)
-		}
-		// 交替行底色（斑马纹），提升大表可读性
-		if zebra, e := f.NewStyle(&excelize.Style{
-			Fill: excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#F8FAFC"}},
-		}); e == nil {
-			for r := 2; r <= lastRow; r++ {
-				if r%2 == 0 {
-					_ = f.SetCellStyle(sheet, "A"+strconv.Itoa(r), lastVisibleColName+strconv.Itoa(r), zebra)
-				}
-			}
-		}
 		// 数值格式
 		if money, e := f.NewStyle(&excelize.Style{NumFmt: 4}); e == nil {
 			_ = f.SetCellStyle(sheet, "D2", "F"+strconv.Itoa(lastRow), money) // 0.00
@@ -356,23 +330,13 @@ func (ctl *SettlementRatesController) ExportCustomerRatesXLSX(c *gin.Context) {
 			_ = f.SetCellStyle(sheet, "N2", "O"+strconv.Itoa(lastRow), pct)
 		}
 	}
-	// 应用列宽（仅可见列）
-	for col := 1; col <= lastVisibleCol; col++ {
-		colName, _ := excelize.CoordinatesToCellName(col, 1)
-		colLetter := strings.TrimRight(colName, "0123456789")
-		w := colWidth[col]
-		if w <= 0 {
-			w = 12
-		}
-		_ = f.SetColWidth(sheet, colLetter, colLetter, w)
-	}
 	// 隐藏 *_owner_id 四个列
 	_ = f.SetColVisible(sheet, "P", false) // 16
 	_ = f.SetColVisible(sheet, "Q", false) // 17
 	_ = f.SetColVisible(sheet, "R", false) // 18
 	_ = f.SetColVisible(sheet, "S", false) // 19
 	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-	c.Header("Content-Disposition", "attachment; filename=customer_rates.xlsx")
+	c.Header("Content-Disposition", "attachment; filename=customer_rates.xlsx; filename*=UTF-8''%E5%AE%A2%E6%88%B7%E4%B8%9A%E5%8A%A1%E8%B4%B9%E7%8E%87.xlsx")
 	if err := f.Write(c.Writer); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 		return
@@ -395,7 +359,8 @@ func (ctl *SettlementRatesController) ExportCustomerRates(c *gin.Context) {
 	}
 
 	c.Header("Content-Type", "text/csv; charset=utf-8")
-	c.Header("Content-Disposition", "attachment; filename=customer_rates.csv")
+	c.Header("Content-Disposition", "attachment; filename=customer_rates.csv; filename*=UTF-8''%E5%AE%A2%E6%88%B7%E4%B8%9A%E5%8A%A1%E8%B4%B9%E7%8E%87.csv")
+	_, _ = c.Writer.Write([]byte{0xEF, 0xBB, 0xBF})
 	w := csv.NewWriter(c.Writer)
 	// 头
 	_ = w.Write([]string{
@@ -724,6 +689,10 @@ func (ctl *SettlementRatesController) ImportCustomerRates(c *gin.Context) {
 			if customerFee != nil || networkLineFee != nil || generalFee != nil {
 				rate.FeeMode = "configed"
 			}
+			if err := ctl.svc.ValidateCustomerRate(rate); err != nil {
+				errs = append(errs, map[string]interface{}{"line": lineNo, "message": err.Error()})
+				continue
+			}
 			if validateOnly {
 				affected++
 			} else {
@@ -792,7 +761,8 @@ func (ctl *SettlementRatesController) ImportCustomerRates(c *gin.Context) {
 
 func (ctl *SettlementRatesController) CustomerRatesImportTemplate(c *gin.Context) {
 	c.Header("Content-Type", "text/csv; charset=utf-8")
-	c.Header("Content-Disposition", "attachment; filename=customer_rates_template.csv")
+	c.Header("Content-Disposition", "attachment; filename=customer_rates_template.csv; filename*=UTF-8''%E5%AE%A2%E6%88%B7%E4%B8%9A%E5%8A%A1%E8%B4%B9%E7%8E%87_%E5%AF%BC%E5%85%A5%E6%A8%A1%E6%9D%BF.csv")
+	_, _ = c.Writer.Write([]byte{0xEF, 0xBB, 0xBF})
 	w := csv.NewWriter(c.Writer)
 	_ = w.Write([]string{
 		"区域", "CP", "学校",

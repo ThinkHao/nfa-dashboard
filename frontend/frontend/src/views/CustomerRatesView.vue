@@ -427,6 +427,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api'
 import type { RateCustomer, PaginatedData, UpsertRateCustomerRequest, BusinessEntity } from '@/types/api'
 import { useAuthStore } from '@/stores/auth'
+import { buildCsvContent, formatExportFilename, triggerBlobDownload } from '@/utils/export'
+import { EXPORT_FILENAME_PREFIX, EXPORT_HEADERS } from '@/utils/export-standards'
+import { clampPercent, normalizeRatioPairForEdit, normalizeRatioPayloadForSave } from './customer-rates-ratio'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -785,14 +788,7 @@ const importValidateOnly = ref(false)
 async function onExport() {
   try {
     const blob = await api.settlementRates.customer.export(buildParams())
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'customer_rates.csv'
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
+    triggerBlobDownload(blob, formatExportFilename(EXPORT_FILENAME_PREFIX.customerRates, 'csv'))
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '导出失败')
   }
@@ -800,14 +796,7 @@ async function onExport() {
 async function onExportXlsx() {
   try {
     const blob = await api.settlementRates.customer.exportXlsx(buildParams())
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'customer_rates.xlsx'
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
+    triggerBlobDownload(blob, formatExportFilename(EXPORT_FILENAME_PREFIX.customerRates, 'xlsx'))
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '导出Excel失败')
   }
@@ -815,14 +804,7 @@ async function onExportXlsx() {
 async function onDownloadTemplate() {
   try {
     const blob = await api.settlementRates.customer.template()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'customer_rates_template.csv'
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
+    triggerBlobDownload(blob, formatExportFilename(EXPORT_FILENAME_PREFIX.customerRatesTemplate, 'csv'))
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '模板下载失败')
   }
@@ -864,21 +846,11 @@ async function onFileChange(e: Event) {
 function onExportImportErrors() {
   const rows = lastImportErrors.value || []
   if (rows.length === 0) { ElMessage.info('暂无可导出的错误明细'); return }
-  const esc = (s: string) => '"' + String(s).replace(/"/g, '""') + '"'
-  const header = ['line','message']
-  const lines = [header.join(',')]
-  for (const r of rows) {
-    lines.push([String(r.line), esc(r.message ?? '')].join(','))
-  }
-  const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = 'customer_rates_import_errors.csv'
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
+  const header = [...EXPORT_HEADERS.customerRatesImportErrors]
+  const dataRows = rows.map((r) => [r.line, r.message ?? ''])
+  const content = buildCsvContent(header, dataRows)
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
+  triggerBlobDownload(blob, formatExportFilename(EXPORT_FILENAME_PREFIX.customerRatesImportErrors, 'csv'))
 }
 
 // 切换“参与结算”分类（表头标签）
@@ -914,25 +886,14 @@ function normalizeDateInput(v: any): string | undefined {
   return undefined
 }
 
-function clampPercent(v: number): number {
-  if (!Number.isFinite(v)) return 0
-  if (v < 0) return 0
-  if (v > 100) return 100
-  return Math.round(v * 100) / 100
-}
-
 function onStockRatioPercentChange(v: number | undefined) {
   if (typeof v !== 'number') return
-  const clamped = clampPercent(v)
-  stockRatioPercent.value = clamped
-  incrementRatioPercent.value = clampPercent(100 - clamped)
+  stockRatioPercent.value = clampPercent(v)
 }
 
 function onIncrementRatioPercentChange(v: number | undefined) {
   if (typeof v !== 'number') return
-  const clamped = clampPercent(v)
-  incrementRatioPercent.value = clamped
-  stockRatioPercent.value = clampPercent(100 - clamped)
+  incrementRatioPercent.value = clampPercent(v)
 }
 
 async function openDialog(row?: RateCustomer) {
@@ -958,12 +919,13 @@ async function openDialog(row?: RateCustomer) {
       start_at: normalizeDateInput(row.start_at),
       increment_start_at: normalizeDateInput(row.increment_start_at),
     })
-    stockRatioPercent.value = clampPercent(Number(row.stock_ratio ?? (row.increment_start_at ? 0 : 1)) * 100)
-    incrementRatioPercent.value = clampPercent(Number(row.increment_ratio ?? (row.increment_start_at ? 0 : 0)) * 100)
-    if (!row.increment_start_at) {
-      stockRatioPercent.value = 100
-      incrementRatioPercent.value = 0
-    }
+    const ratioPair = normalizeRatioPairForEdit({
+      incrementStartAt: normalizeDateInput(row.increment_start_at),
+      stockRatio: row.stock_ratio,
+      incrementRatio: row.increment_ratio,
+    })
+    stockRatioPercent.value = ratioPair.stockPercent
+    incrementRatioPercent.value = ratioPair.incrementPercent
     extraEditorText.value = stringify(row.extra ?? {})
     // 先加载 options 再赋值，确保下拉能显示 label
     try { await preloadSelectedUsersIntoOptions([Number(salesId||0), Number(lineId||0), Number(nodeId||0), Number(channelId||0)].filter(n => n>0)) } catch {}
@@ -994,15 +956,14 @@ async function onSave() {
     // 解析扩展 JSON（可选）
     const payload: any = { ...form }
     payload.start_at = normalizeDateInput((form as any).start_at)
-    payload.increment_start_at = normalizeDateInput((form as any).increment_start_at)
-    if ((form as any).increment_start_at) {
-      payload.stock_ratio = clampPercent(stockRatioPercent.value) / 100
-      payload.increment_ratio = clampPercent(incrementRatioPercent.value) / 100
-    } else {
-      payload.stock_ratio = 1
-      payload.increment_ratio = 0
-      payload.increment_start_at = undefined
-    }
+    const ratioPayload = normalizeRatioPayloadForSave({
+      incrementStartAt: normalizeDateInput((form as any).increment_start_at),
+      stockPercent: stockRatioPercent.value,
+      incrementPercent: incrementRatioPercent.value,
+    })
+    payload.increment_start_at = ratioPayload.incrementStartAt
+    payload.stock_ratio = ratioPayload.stockRatio
+    payload.increment_ratio = ratioPayload.incrementRatio
     const txt = (extraEditorText.value || '').trim()
     if (txt) {
       try { payload.extra = JSON.parse(txt) } catch (e) { ElMessage.error('扩展JSON格式错误'); saving.value=false; return }
