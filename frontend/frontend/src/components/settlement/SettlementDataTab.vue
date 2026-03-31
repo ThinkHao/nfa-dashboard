@@ -232,6 +232,8 @@ import { useAuthStore } from '@/stores/auth'
 import { useTasksStore } from '@/stores/tasks'
 import type { SettlementListResponse } from '../../types/settlement'
 import type { School, PaginationParams } from '../../types/api'
+import { formatExportFilename, triggerBlobDownload } from '@/utils/export'
+import { EXPORT_FILENAME_PREFIX } from '@/utils/export-standards'
 
 // 学校、地区和运营商数据
 
@@ -912,17 +914,6 @@ function csvEscape(v: any): string {
   return s
 }
 
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
-}
-
 // 统一导出：弹窗与逻辑
 const exportDialogVisible = ref(false)
 const DEFAULT_FIELDS = ['school_name','region','cp','service_date','daily_95_mbps']
@@ -1210,16 +1201,11 @@ async function doExport() {
 
     const content = ['\uFEFF' + header.join(','), ...rows].join('\n')
     const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
-    const filename = exportForm.monthlyAvg ? 'settlement_export_monthly.csv' : 'settlement_export.csv'
-    const url = URL.createObjectURL(blob)
-    tasks.complete(taskId, url)
-    // 立即触发下载
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
+    const prefix = exportForm.monthlyAvg ? EXPORT_FILENAME_PREFIX.settlementDataMonthlyAgg : EXPORT_FILENAME_PREFIX.settlementDataDetail
+    const filename = formatExportFilename(prefix, 'csv')
+    const urlForTask = URL.createObjectURL(blob)
+    tasks.complete(taskId, urlForTask)
+    triggerBlobDownload(blob, filename)
     ElMessage.success('导出成功')
     exportDialogVisible.value = false
   } catch (e:any) {

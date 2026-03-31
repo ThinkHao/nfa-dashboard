@@ -81,7 +81,7 @@ func (ctl *OperationLogController) Export(c *gin.Context) {
 
 	// headers
 	c.Header("Content-Type", "text/csv; charset=utf-8")
-	c.Header("Content-Disposition", "attachment; filename=operation-logs.csv")
+	c.Header("Content-Disposition", "attachment; filename=operation_logs.csv; filename*=UTF-8''%E6%93%8D%E4%BD%9C%E6%97%A5%E5%BF%97.csv")
 	// BOM for Excel
 	_, _ = c.Writer.Write([]byte{0xEF, 0xBB, 0xBF})
 	// header line

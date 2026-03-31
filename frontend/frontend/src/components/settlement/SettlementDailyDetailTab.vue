@@ -107,6 +107,8 @@ import api from '../../api' // 假设 api/index.ts 中会添加新的接口
 import { ElMessage } from 'element-plus'
 import type { School } from '../../types/api'
 import { useTasksStore } from '@/stores/tasks'
+import { buildCsvContent, formatExportFilename, triggerBlobDownload } from '@/utils/export'
+import { EXPORT_FILENAME_PREFIX, EXPORT_HEADERS } from '@/utils/export-standards'
 
 // 定义日95明细数据项接口
 interface DailySettlementDetail {
@@ -347,24 +349,6 @@ const handleSizeChange = (size: number) => {
   fetchData()
 }
 
-function csvEscape(v: any): string {
-  let s = v == null ? '' : String(v)
-  if (s.includes('"')) s = s.replace(/"/g, '""')
-  if (s.search(/[",\n]/) >= 0) s = `"${s}` + `"`
-  return s
-}
-
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
-}
-
 async function fetchAllDailyDetailsForExport(onProgress?: (p: number | null, meta?: { processed: number; total?: number | null }) => void): Promise<any[]> {
   const baseParams: any = {
     school_id: filterForm.school_id || undefined,
@@ -414,19 +398,18 @@ const exportData = async () => {
     const data = await fetchAllDailyDetailsForExport((p, meta) => {
       tasks.update(taskId, { progress: p == null ? undefined : p, status: 'running', processed: meta?.processed ?? null, total: (meta?.total as any) ?? null })
     })
-    const header = ['日期','学校名称','地区','CP','95值(Mbps)']
-    const lines: string[] = []
+    const header = [...EXPORT_HEADERS.daily95Detail]
+    const rows: Array<Array<unknown>> = []
     for (const r of data) {
       const date = formatDateDisplay(String(r?.daily_date || ''))
       const mbps = (convertToBitsPerSecond(Number(r?.daily_95_value ?? 0)) / 1_000_000).toFixed(2)
-      const row = [date, r?.school_name ?? '', r?.region ?? '', r?.cp ?? '', mbps]
-      lines.push(row.map(csvEscape).join(','))
+      rows.push([date, r?.school_name ?? '', r?.region ?? '', r?.cp ?? '', mbps])
     }
-    const content = ['\uFEFF' + header.join(','), ...lines].join('\n')
+    const content = buildCsvContent(header, rows)
     const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     tasks.complete(taskId, url)
-    downloadBlob(blob, 'daily_95_export.csv')
+    triggerBlobDownload(blob, formatExportFilename(EXPORT_FILENAME_PREFIX.daily95Detail, 'csv'))
     ElMessage.success('导出成功')
   } catch (e: any) {
     try { const tasks = useTasksStore(); if (taskId) tasks.fail(taskId, e?.message) } catch {}

@@ -156,6 +156,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api'
 import type { DiscountedFinalCustomerRate, PaginatedData, UpsertRateFinalCustomerRequest, BusinessEntity, RateFinalCustomer } from '@/types/api'
 import { useAuthStore } from '@/stores/auth'
+import { buildCsvContent, formatExportFilename, triggerBlobDownload } from '@/utils/export'
+import { EXPORT_FILENAME_PREFIX, EXPORT_HEADERS } from '@/utils/export-standards'
 
 const auth = useAuthStore()
 const canWrite = computed(() => auth.hasPermission('rates.final.write'))
@@ -364,19 +366,8 @@ async function onExport() {
   try {
     exporting.value = true
     const rows: any[] = itemsCombined.value || []
-    const header = [
-      '区域','CP','学校','服务日期',
-      '客户费','客户费(折后)','线路费','渠道费率',
-      '客户费归属','线路费归属','渠道费归属'
-    ]
-    const lines: string[] = []
-    lines.push(header.join(','))
-    const esc = (v: any) => {
-      if (v == null) return ''
-      const s = String(v)
-      if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'
-      return s
-    }
+    const header = [...EXPORT_HEADERS.finalCustomerRates]
+    const contentRows: Array<Array<unknown>> = []
     const ownerName = (id?: number | null) => {
       if (!id) return ''
       const key = Number(id)
@@ -390,22 +381,15 @@ async function onExport() {
       return `#${key}`
     }
     for (const r of rows) {
-      lines.push([
-        esc(r.region), esc(r.cp), esc(r.school_name ?? ''), esc(r.service_date ?? ''),
-        esc(r.customer_fee ?? ''), esc(r.customer_fee_discount ?? ''), esc(r.network_line_fee ?? ''), esc(r.channel_rate ?? ''),
-        esc(ownerName(r.customer_fee_owner_id)), esc(ownerName(r.network_line_fee_owner_id)), esc(ownerName(r.channel_owner_user_id)),
-      ].join(','))
+      contentRows.push([
+        r.region, r.cp, r.school_name ?? '', r.service_date ?? '',
+        r.customer_fee ?? '', r.customer_fee_discount ?? '', r.network_line_fee ?? '', r.channel_rate ?? '',
+        ownerName(r.customer_fee_owner_id), ownerName(r.network_line_fee_owner_id), ownerName(r.channel_owner_user_id),
+      ])
     }
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    const dateStr = (query.service_date || '').replaceAll('-', '') || 'today'
-    a.download = `final_customer_rates_${dateStr}.csv`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    const content = buildCsvContent(header, contentRows)
+    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
+    triggerBlobDownload(blob, formatExportFilename(EXPORT_FILENAME_PREFIX.finalCustomerRates, 'csv'))
   } catch (e: any) {
     ElMessage.error(e?.message || '导出失败')
   } finally {

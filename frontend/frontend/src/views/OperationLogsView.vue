@@ -98,6 +98,8 @@ import { onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api'
 import type { OperationLog, PaginatedData } from '@/types/api'
+import { buildCsvContent, formatExportFilename, triggerBlobDownload } from '@/utils/export'
+import { EXPORT_FILENAME_PREFIX, EXPORT_HEADERS } from '@/utils/export-standards'
 
 const methods = ['GET','POST','PUT','DELETE','PATCH','OPTIONS','HEAD']
 
@@ -184,28 +186,9 @@ watch([page, pageSize], () => { /* 留空，交由回调触发 */ })
 
 onMounted(fetchData)
 
-function csvEscape(val: any): string {
-  if (val === null || val === undefined) return ''
-  let s = String(val)
-  if (s.includes('"')) s = s.replace(/"/g, '""')
-  if (s.search(/[",\n]/) >= 0) s = `"${s}"`
-  return s
-}
-
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
-}
-
 async function onExport() {
   exporting.value = true
-  const ts = new Date().toISOString().replace(/[:T]/g, '-').split('.')[0]
+  const filename = formatExportFilename(EXPORT_FILENAME_PREFIX.operationLogs, 'csv')
   try {
     // 优先后端导出（服务端分页流式生成）
     const exportParams = (() => {
@@ -217,13 +200,13 @@ async function onExport() {
     })()
     const blob = await api.operationLogs.export(exportParams)
     // 若后端未包含 BOM，这里不强制添加，尊重服务端输出
-    downloadBlob(blob, `operation-logs-${ts}.csv`)
+    triggerBlobDownload(blob, filename)
     ElMessage.success('导出成功')
   } catch (e: any) {
     // 回退至前端分页导出（保留原实现，带导出上限）
     try {
-      const header = ['时间','用户ID','方法','路径','状态码','成功','耗时(ms)','IP','错误信息']
-      const rows: string[] = []
+      const header = [...EXPORT_HEADERS.operationLogs]
+      const rows: Array<Array<unknown>> = []
       const paramsBase = buildParams()
       let p = 1
       const maxExport = 2000 // 保护上限
@@ -237,16 +220,16 @@ async function onExport() {
         })
         for (const r of res.items) {
           rows.push([
-            csvEscape(formatTime(r.created_at)),
-            csvEscape(r.user_id ?? ''),
-            csvEscape(r.method),
-            csvEscape(r.path),
-            csvEscape(r.status_code),
-            csvEscape(r.success === 1 ? '是' : '否'),
-            csvEscape(r.latency_ms ?? ''),
-            csvEscape(r.ip ?? ''),
-            csvEscape(r.error_message ?? ''),
-          ].join(','))
+            formatTime(r.created_at),
+            r.user_id ?? '',
+            r.method,
+            r.path,
+            r.status_code,
+            r.success === 1 ? '是' : '否',
+            r.latency_ms ?? '',
+            r.ip ?? '',
+            r.error_message ?? '',
+          ])
           exported++
           if (exported >= maxExport) break
         }
@@ -255,9 +238,9 @@ async function onExport() {
         if (exported >= maxExport) break
         p++
       }
-      const content = ['\uFEFF' + header.join(','), ...rows].join('\n')
+      const content = buildCsvContent(header, rows)
       const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
-      downloadBlob(blob, `operation-logs-${ts}.csv`)
+      triggerBlobDownload(blob, filename)
       ElMessage.success(`导出成功：${exported} 条（最多导出 ${maxExport} 条）`)
     } catch (e2: any) {
       ElMessage.error(e2?.response?.data?.message || e2?.message || '导出失败')

@@ -25,6 +25,12 @@
             <el-option label="按日" value="daily" />
           </el-select>
         </el-form-item>
+        <el-form-item label="查看视图">
+          <el-select v-model="viewMode" class="field-w-160" :disabled="filter.granularity !== 'monthly'">
+            <el-option label="明细视图" value="detail" />
+            <el-option label="按月列视图" value="monthly_columns" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="服务月份">
           <el-date-picker
             v-model="monthRange"
@@ -57,11 +63,17 @@
     </el-card>
 
     <el-card class="table-card" shadow="hover">
-      <el-table v-loading="loading" :data="rows" border stripe class="field-w-full">
+      <el-table v-if="!isMonthlyColumnView" v-loading="loading" :data="rows" border stripe class="field-w-full">
         <el-table-column prop="school_name" label="学校名称" min-width="180" />
         <el-table-column prop="region" label="地区" width="110" />
         <el-table-column prop="cp" label="CP" width="110" />
         <el-table-column prop="service_date" :label="serviceDateLabel" width="130" />
+        <el-table-column prop="stock_start_at" label="存量起算时间" width="130">
+          <template #default="{ row }">{{ row.stock_start_at || '-' }}</template>
+        </el-table-column>
+        <el-table-column prop="increment_start_at" label="增量起算时间" width="130">
+          <template #default="{ row }">{{ row.increment_start_at || '-' }}</template>
+        </el-table-column>
         <el-table-column label="日95流量值(Mbps)" width="150">
           <template #default="{ row }">{{ fmtFlowMbps(row.settlement_value) }}</template>
         </el-table-column>
@@ -82,7 +94,25 @@
         </el-table-column>
       </el-table>
 
-      <div class="pagination">
+      <el-table
+        v-else
+        v-loading="columnViewLoading"
+        :data="monthlyColumnRows"
+        :row-class-name="monthlyColumnRowClassName"
+        border
+        stripe
+        class="field-w-full"
+      >
+        <el-table-column prop="metric" label="学校" min-width="180" fixed="left" />
+        <el-table-column prop="stockStartAt" label="存量起算时间" min-width="130" />
+        <el-table-column prop="incrementStartAt" label="增量起算时间" min-width="130" />
+        <el-table-column prop="daily95Mbps" label="日95均值(Mbps)" min-width="130" />
+        <el-table-column v-for="month in monthlyColumnMonths" :key="month" :label="month" min-width="120">
+          <template #default="{ row }">{{ row.values[month] || '-' }}</template>
+        </el-table-column>
+      </el-table>
+
+      <div v-if="!isMonthlyColumnView" class="pagination">
         <el-pagination
           v-model:current-page="pagination.page"
           v-model:page-size="pagination.pageSize"
@@ -98,17 +128,25 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import api from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { School } from '@/types/api'
+import { buildMonthlyAmountColumnView, normalizeDateText, type MonthlyMetricRow } from './settlement-user-query-utils'
+import { buildCsvContent, formatExportFilename, triggerBlobDownload } from '@/utils/export'
+import { EXPORT_FILENAME_PREFIX, EXPORT_HEADERS } from '@/utils/export-standards'
 
 type Granularity = 'daily' | 'monthly'
 type UserOption = { id: number; label: string }
+type ViewMode = 'detail' | 'monthly_columns'
 
 const loading = ref(false)
 const exporting = ref(false)
 const rows = ref<any[]>([])
+const columnViewLoading = ref(false)
+const viewMode = ref<ViewMode>('detail')
+const monthlyColumnMonths = ref<string[]>([])
+const monthlyColumnRows = ref<MonthlyMetricRow[]>([])
 
 const userOptions = ref<UserOption[]>([])
 const regions = ref<string[]>([])
@@ -128,6 +166,7 @@ const filter = reactive({
 const monthRange = ref<[string, string] | null>(null)
 const pagination = reactive({ page: 1, pageSize: 10, total: 0 })
 const serviceDateLabel = computed(() => (filter.granularity === 'monthly' ? '服务月份' : '服务日期'))
+const isMonthlyColumnView = computed(() => filter.granularity === 'monthly' && viewMode.value === 'monthly_columns')
 const currentDataSourceLabel = computed(() => {
   const first = rows.value.length ? rows.value[0] : null
   const src = String(first?.data_source || '').toLowerCase()
@@ -191,13 +230,6 @@ function fmtTotal(row: any): string {
   return nums.reduce((a, b) => a + b, 0).toFixed(2)
 }
 
-function toCsvCell(v: any): string {
-  let s = v == null ? '' : String(v)
-  if (s.includes('"')) s = s.replace(/"/g, '""')
-  if (/[",\n]/.test(s)) s = `"${s}"`
-  return s
-}
-
 function buildParams(page = pagination.page, pageSize = pagination.pageSize) {
   const params: any = { page, page_size: pageSize, channel_owner_user_id: filter.userId }
   if (filter.start) params.start_service_date = filter.start
@@ -206,6 +238,92 @@ function buildParams(page = pagination.page, pageSize = pagination.pageSize) {
   if (filter.cp) params.cp = filter.cp
   if (filter.schoolName) params.school_name = filter.schoolName
   return params
+}
+
+function parseDateOnly(value: unknown): Date | null {
+  const normalized = normalizeDateText(value)
+  if (!normalized) return null
+  const m = normalized.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!m) return null
+  const y = Number(m[1]); const mo = Number(m[2]); const d = Number(m[3])
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null
+  return new Date(y, mo - 1, d)
+}
+
+function pickEffectiveRate(rates: any[], serviceDateText: string): any | null {
+  const serviceDate = parseDateOnly(serviceDateText)
+  if (!serviceDate) return null
+  const candidates = (rates || []).filter((rate) => {
+    const startDate = parseDateOnly(rate?.start_at)
+    if (!startDate) return true
+    return startDate.getTime() <= serviceDate.getTime()
+  })
+  if (!candidates.length) return null
+  return [...candidates].sort((a, b) => {
+    const ad = parseDateOnly(a?.start_at)?.getTime() || 0
+    const bd = parseDateOnly(b?.start_at)?.getTime() || 0
+    return bd - ad
+  })[0]
+}
+
+async function enrichRowsWithStartDates(inputRows: any[]): Promise<any[]> {
+  if (!Array.isArray(inputRows) || inputRows.length === 0) return []
+  const keySet = new Set<string>()
+  for (const row of inputRows) {
+    const region = String(row?.region || '')
+    const cp = String(row?.cp || '')
+    const schoolName = String(row?.school_name || '')
+    if (!region || !cp || !schoolName) continue
+    keySet.add(`${region}__${cp}__${schoolName}`)
+  }
+
+  const rateMap = new Map<string, any[]>()
+  await Promise.all(Array.from(keySet).map(async (key) => {
+    const [region, cp, schoolName] = key.split('__')
+    try {
+      const res: any = await (api as any).settlementRates.customer.list({
+        region,
+        cp,
+        school_name: schoolName,
+        page: 1,
+        page_size: 300,
+      })
+      const items: any[] = Array.isArray(res?.items) ? res.items : (Array.isArray(res) ? res : [])
+      rateMap.set(key, items)
+    } catch {
+      rateMap.set(key, [])
+    }
+  }))
+
+  return inputRows.map((row) => {
+    const key = `${String(row?.region || '')}__${String(row?.cp || '')}__${String(row?.school_name || '')}`
+    const rates = rateMap.get(key) || []
+    const effective = pickEffectiveRate(rates, String(row?.service_date || ''))
+    return {
+      ...row,
+      stock_start_at: normalizeDateText(effective?.start_at) || '',
+      increment_start_at: normalizeDateText(effective?.increment_start_at) || '',
+    }
+  })
+}
+
+async function fetchAllRowsForCurrentFilter(): Promise<any[]> {
+  const all: any[] = []
+  let page = 1
+  const pageSize = 1000
+  while (true) {
+    const params = buildParams(page, pageSize)
+    const res = filter.granularity === 'monthly'
+      ? await (api as any).settlementData.monthlyList(params)
+      : await (api as any).settlementData.list(params)
+    const items = Array.isArray(res) ? res : (Array.isArray(res?.items) ? res.items : [])
+    const total = Array.isArray(res) ? items.length : Number(res?.total || 0)
+    all.push(...items)
+    if (items.length < pageSize) break
+    if (total > 0 && page * pageSize >= total) break
+    page += 1
+  }
+  return all
 }
 
 async function loadOwnerUsers() {
@@ -286,12 +404,14 @@ async function fetchRows() {
       ? await (api as any).settlementData.monthlyList(params)
       : await (api as any).settlementData.list(params)
     if (Array.isArray(res)) {
-      rows.value = res
+      rows.value = await enrichRowsWithStartDates(res)
       pagination.total = res.length
     } else {
-      rows.value = Array.isArray(res?.items) ? res.items : []
-      pagination.total = Number(res?.total || rows.value.length)
+      const list = Array.isArray(res?.items) ? res.items : []
+      rows.value = await enrichRowsWithStartDates(list)
+      pagination.total = Number(res?.total || list.length)
     }
+    await refreshMonthlyColumnView()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '查询失败')
   } finally {
@@ -300,34 +420,33 @@ async function fetchRows() {
 }
 
 async function fetchAllForExport(): Promise<any[]> {
-  const all: any[] = []
-  let page = 1
-  const pageSize = 1000
-  while (true) {
-    const params = buildParams(page, pageSize)
-    const res = filter.granularity === 'monthly'
-      ? await (api as any).settlementData.monthlyList(params)
-      : await (api as any).settlementData.list(params)
-    const items = Array.isArray(res) ? res : (Array.isArray(res?.items) ? res.items : [])
-    const total = Array.isArray(res) ? items.length : Number(res?.total || 0)
-    all.push(...items)
-    if (items.length < pageSize) break
-    if (total > 0 && page * pageSize >= total) break
-    page += 1
-  }
-  return all
+  return fetchAllRowsForCurrentFilter()
 }
 
-function downloadCsv(filename: string, content: string) {
-  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
+async function refreshMonthlyColumnView() {
+  if (!isMonthlyColumnView.value) {
+    monthlyColumnMonths.value = []
+    monthlyColumnRows.value = []
+    return
+  }
+  columnViewLoading.value = true
+  try {
+    const all = await fetchAllRowsForCurrentFilter()
+    const enrichedAll = await enrichRowsWithStartDates(all)
+    const { months, rows: pivotRows } = buildMonthlyAmountColumnView(enrichedAll)
+    monthlyColumnMonths.value = months
+    monthlyColumnRows.value = pivotRows
+  } catch (e: any) {
+    monthlyColumnMonths.value = []
+    monthlyColumnRows.value = []
+    ElMessage.error(e?.response?.data?.message || e?.message || '按月列视图加载失败')
+  } finally {
+    columnViewLoading.value = false
+  }
+}
+
+function monthlyColumnRowClassName({ row }: { row: MonthlyMetricRow }) {
+  return row?.isTotal ? 'monthly-total-row' : ''
 }
 
 function handleMonthRangeChange(v: [string, string] | null) {
@@ -349,6 +468,7 @@ function handleQuery() {
 function handleReset() {
   filter.userId = null
   filter.granularity = 'monthly'
+  viewMode.value = 'detail'
   filter.region = ''
   filter.cp = ''
   filter.schoolName = ''
@@ -365,22 +485,42 @@ async function handleExport() {
   if (!validateBeforeQuery()) return
   exporting.value = true
   try {
-    const data = await fetchAllForExport()
-    const header = ['学校名称', '地区', 'CP', serviceDateLabel.value, '日95流量值(Mbps)', '客户金额', '线路金额', '节点金额', '渠道金额', '总归属金额']
-    const lines = data.map((r: any) => [
-      toCsvCell(r?.school_name),
-      toCsvCell(r?.region),
-      toCsvCell(r?.cp),
-      toCsvCell(r?.service_date),
-      toCsvCell(fmtFlowMbps(r?.settlement_value)),
-      toCsvCell(fmtMoney(r?.customer_bill)),
-      toCsvCell(fmtMoney(r?.network_line_bill)),
-      toCsvCell(fmtMoney(r?.node_deduction_bill)),
-      toCsvCell(fmtMoney(r?.channel_bill)),
-      toCsvCell(fmtTotal(r)),
-    ].join(','))
-    const content = ['\uFEFF' + header.join(','), ...lines].join('\n')
-    downloadCsv(filter.granularity === 'monthly' ? 'single_user_settlement_monthly.csv' : 'single_user_settlement_daily.csv', content)
+    if (isMonthlyColumnView.value) {
+      const all = await fetchAllForExport()
+      const enrichedAll = await enrichRowsWithStartDates(all)
+      const { months, rows: pivotRows } = buildMonthlyAmountColumnView(enrichedAll)
+      const header = [...EXPORT_HEADERS.singleUserMonthlyColumnPrefix, ...months]
+      const rowValues = pivotRows.map((row: MonthlyMetricRow) => [
+        row.metric,
+        row.stockStartAt || '-',
+        row.incrementStartAt || '-',
+        row.daily95Mbps || '0.00',
+        ...months.map((m) => row.values[m] || '0.00'),
+      ])
+      const content = buildCsvContent(header, rowValues)
+      const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
+      triggerBlobDownload(blob, formatExportFilename(EXPORT_FILENAME_PREFIX.singleUserMonthlyColumn, 'csv'))
+    } else {
+      const data = await fetchAllForExport()
+      const header: string[] = [...EXPORT_HEADERS.singleUserDetail]
+      header[3] = serviceDateLabel.value
+      const rowValues = data.map((r: any) => [
+        r?.school_name,
+        r?.region,
+        r?.cp,
+        r?.service_date,
+        fmtFlowMbps(r?.settlement_value),
+        fmtMoney(r?.customer_bill),
+        fmtMoney(r?.network_line_bill),
+        fmtMoney(r?.node_deduction_bill),
+        fmtMoney(r?.channel_bill),
+        fmtTotal(r),
+      ])
+      const content = buildCsvContent(header, rowValues)
+      const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
+      const prefix = filter.granularity === 'monthly' ? EXPORT_FILENAME_PREFIX.singleUserMonthly : EXPORT_FILENAME_PREFIX.singleUserDaily
+      triggerBlobDownload(blob, formatExportFilename(prefix, 'csv'))
+    }
     ElMessage.success('导出成功')
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '导出失败')
@@ -411,6 +551,22 @@ function onCPChange() {
   loadSchools()
   loadOwnerUsers()
 }
+
+watch(() => filter.granularity, (val) => {
+  if (val !== 'monthly' && viewMode.value === 'monthly_columns') {
+    viewMode.value = 'detail'
+  }
+  if (val !== 'monthly') {
+    monthlyColumnMonths.value = []
+    monthlyColumnRows.value = []
+  }
+})
+
+watch(viewMode, () => {
+  if (isMonthlyColumnView.value && rows.value.length) {
+    refreshMonthlyColumnView()
+  }
+})
 
 onMounted(async () => {
   setDefaultMonthRange()
@@ -452,6 +608,11 @@ onMounted(async () => {
   margin-top: 16px;
   display: flex;
   justify-content: flex-end;
+}
+
+:deep(.monthly-total-row > td) {
+  font-weight: 600;
+  background: #faf3dd;
 }
 </style>
 

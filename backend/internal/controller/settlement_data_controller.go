@@ -242,8 +242,9 @@ func (c *SettlementDataController) ExportCustomerData(ctx *gin.Context) {
 	}
 	// CSV 导出
 	ctx.Header("Content-Type", "text/csv; charset=utf-8")
-	ctx.Header("Content-Disposition", "attachment; filename=settlement_customer.csv")
+	ctx.Header("Content-Disposition", "attachment; filename=settlement_customer.csv; filename*=UTF-8''%E7%BB%93%E7%AE%97%E6%95%B0%E6%8D%AE%E6%98%8E%E7%BB%86.csv")
 	w := ctx.Writer
+	_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF})
 	w.Write([]byte("区域,CP,学校,服务日期,客户费率,客户金额,线路费率,线路金额,渠道费率,渠道金额,客户费归属,线路费归属,渠道费归属,是否复算,最近复算时间\n"))
 	for _, r := range rows {
 		var sd, lrt string
