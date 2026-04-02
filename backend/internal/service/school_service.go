@@ -11,7 +11,7 @@ type SchoolService interface {
 	// 获取所有学校
 	GetAllSchools(schoolName, region, cp string, limit, offset int) ([]model.School, int64, error)
 	// v2：按用户过滤的学校列表（userID 为 nil 或 0 表示不过滤）
-	GetAllSchoolsWithUser(schoolName, region, cp string, userID *uint64, limit, offset int) ([]model.School, int64, error)
+	GetAllSchoolsWithUser(schoolName, region, cp, sort string, userID *uint64, limit, offset int) ([]model.School, int64, error)
 	// 获取所有地区
 	GetAllRegions() ([]string, error)
 	// 获取所有运营商
@@ -56,12 +56,23 @@ func (s *schoolService) GetAllSchools(schoolName, region, cp string, limit, offs
 }
 
 // GetAllSchoolsWithUser v2：支持按用户过滤
-func (s *schoolService) GetAllSchoolsWithUser(schoolName, region, cp string, userID *uint64, limit, offset int) ([]model.School, int64, error) {
+func (s *schoolService) GetAllSchoolsWithUser(schoolName, region, cp, sort string, userID *uint64, limit, offset int) ([]model.School, int64, error) {
 	filter := make(map[string]interface{})
-	if schoolName != "" { filter["school_name"] = schoolName }
-	if region != "" { filter["region"] = region }
-	if cp != "" { filter["cp"] = cp }
-	if userID != nil && *userID > 0 { filter["user_id"] = *userID }
+	if schoolName != "" {
+		filter["school_name"] = schoolName
+	}
+	if region != "" {
+		filter["region"] = region
+	}
+	if cp != "" {
+		filter["cp"] = cp
+	}
+	if sort != "" {
+		filter["sort"] = sort
+	}
+	if userID != nil && *userID > 0 {
+		filter["user_id"] = *userID
+	}
 	return s.repo.GetAllSchools(filter, limit, offset)
 }
 

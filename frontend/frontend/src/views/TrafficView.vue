@@ -59,6 +59,48 @@ function toRFC3339Seconds(d: Date): string {
   return d.toISOString().replace(/\.\d{3}Z$/, 'Z')
 }
 
+function parseQueryTimeInput(value: unknown): Date | null {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return null
+    const direct = new Date(trimmed)
+    if (!Number.isNaN(direct.getTime())) return direct
+    const m = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/)
+    if (m) {
+      const d = new Date(
+        Number(m[1]),
+        Number(m[2]) - 1,
+        Number(m[3]),
+        Number(m[4]),
+        Number(m[5]),
+        Number(m[6]),
+      )
+      if (!Number.isNaN(d.getTime())) return d
+    }
+  }
+  return null
+}
+
+function normalizeTimeRangeForRequest(startRaw: unknown, endRaw: unknown) {
+  const startDate = parseQueryTimeInput(startRaw)
+  const endDate = parseQueryTimeInput(endRaw)
+  if (!startDate || !endDate) {
+    throw new Error('时间格式错误，请重新选择开始/结束时间')
+  }
+  if (!(startDate.getTime() < endDate.getTime())) {
+    throw new Error('开始时间必须早于结束时间')
+  }
+  return {
+    startDate,
+    endDate,
+    startRFC3339: toRFC3339Seconds(startDate),
+    endRFC3339: toRFC3339Seconds(endDate),
+  }
+}
+
 // 将任意时间归一化到其所在的5分钟桶，并返回标准ISO字符串（到分钟，秒固定为00）
 function toFiveMinuteKeyISO(d: Date): string {
   const ms = d.getTime()
@@ -557,8 +599,11 @@ async function loadTrafficData() {
     loading.value = true
     
     // 计算时间范围
-    const startDate = new Date(queryForm.start_time)
-    const endDate = new Date(queryForm.end_time)
+    const normalizedRange = normalizeTimeRangeForRequest(queryForm.start_time, queryForm.end_time)
+    queryForm.start_time = normalizedRange.startRFC3339
+    queryForm.end_time = normalizedRange.endRFC3339
+    const startDate = normalizedRange.startDate
+    const endDate = normalizedRange.endDate
     const diffMinutes = (endDate.getTime() - startDate.getTime()) / (1000 * 60)
     const diffHours = diffMinutes / 60
     const diffDays = diffHours / 24
@@ -581,8 +626,8 @@ async function loadTrafficData() {
     
     // 构建查询参数
     const params: Record<string, any> = {
-      start_time: queryForm.start_time,
-      end_time: queryForm.end_time,
+      start_time: normalizedRange.startRFC3339,
+      end_time: normalizedRange.endRFC3339,
       limit: limit, // 使用计算出的限制
       offset: 0, // 不使用分页
       granularity: granularity // 指定时间粒度
@@ -611,7 +656,8 @@ async function loadTrafficData() {
     currentGranularity.value = granularity || '5m'
     
     // 打印当前时间范围参数，便于调试
-    console.log(`查询时间范围: ${startDate.toLocaleString()} 至 ${endDate.toLocaleString()}, 共${diffDays.toFixed(1)}天 (${diffHours.toFixed(1)}小时)`)
+    console.log(`查询时间范围(本地): ${startDate.toLocaleString()} 至 ${endDate.toLocaleString()}, 共${diffDays.toFixed(1)}天 (${diffHours.toFixed(1)}小时)`)
+    console.debug(`[traffic.view] request window start=${normalizedRange.startRFC3339} end=${normalizedRange.endRFC3339}`)
     console.log('详细查询参数:', params, '限制数量:', limit)
     
     // 分片加载：大范围拆分为多个窗口，降低单次响应体积与解析成本（仍为5分钟粒度）
@@ -639,8 +685,8 @@ async function loadTrafficData() {
         if (Array.isArray(res)) { list = res }
         else if (res && Array.isArray(res.items)) { list = res.items }
         rawList = rawList.concat(list)
-        // 前移1秒避免边界重复
-        cursor = new Date(chunkEnd.getTime() + 1000)
+        // 与后端半开区间保持一致：[start,end)
+        cursor = new Date(chunkEnd.getTime())
       }
       console.log(`分片完成，合并总数: ${rawList.length}`)
     } else {
@@ -728,6 +774,7 @@ async function loadTrafficData() {
       total.value = withBps.length
       
       console.log(`加载流量数据成功: 原始${rawList.length}条, 处理后${processedData.length}条, 过滤后${filteredData.length}条`)
+      console.debug(`[traffic.view] response rows=${rawList.length} start=${normalizedRange.startRFC3339} end=${normalizedRange.endRFC3339}`)
       
       // 调试信息，查看数据结构
       if (rawList.length > 0) {
@@ -740,7 +787,19 @@ async function loadTrafficData() {
       }
   } catch (error) {
     console.error('加载流量数据失败:', error)
-    ElMessage.error('加载流量数据失败')
+    const status = (error as any)?.response?.status
+    const backendMsg = (error as any)?.response?.data?.message || (error as any)?.response?.data?.error
+    if (status === 400) {
+      ElMessage.error(backendMsg || '时间参数错误，请检查开始/结束时间格式')
+    } else if (status === 401 || status === 403) {
+      ElMessage.error('无权访问该流量数据，请检查登录状态和权限')
+    } else if (backendMsg) {
+      ElMessage.error(String(backendMsg))
+    } else if (error instanceof Error && error.message) {
+      ElMessage.error(error.message)
+    } else {
+      ElMessage.error('加载流量数据失败')
+    }
     trafficData.value = []
     total.value = 0
   } finally {

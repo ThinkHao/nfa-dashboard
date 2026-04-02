@@ -1,201 +1,371 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import api from '../api'
-import { ElCard, ElRow, ElCol, ElStatistic } from 'element-plus'
+import * as Icons from '@element-plus/icons-vue'
+import api from '@/api'
 import PageHeader from '@/components/ui/PageHeader.vue'
+import { useAuthStore } from '@/stores/auth'
+import { useTasksStore } from '@/stores/tasks'
+import { buildQuickAccessItems, type QuickAccessItem } from './home-workbench'
+
+type RecentSchool = {
+  id: number
+  school_id: string
+  school_name: string
+  region?: string
+  cp?: string
+  update_time?: string
+}
 
 const router = useRouter()
-const summary = ref({
-  total_recv: 0,
-  total_send: 0,
-  total: 0
-})
-const schoolCount = ref(0)
-const loading = ref(true)
+const auth = useAuthStore()
+const tasksStore = useTasksStore()
+const recentSchools = ref<RecentSchool[]>([])
+const recentSchoolsLoading = ref(false)
 
-onMounted(async () => {
-  try {
-    loading.value = true
-    // 获取流量汇总数据
-    const summaryRes = await api.getTrafficSummary() as any
-    const s = summaryRes
-    if (s && typeof s === 'object') {
-      const recv = Number((s as any).total_recv) || 0
-      const send = Number((s as any).total_send) || 0
-      const totRaw = (s as any).total
-      const tot = (totRaw != null && !Number.isNaN(Number(totRaw))) ? Number(totRaw) : (recv + send)
-      summary.value = { total: tot, total_recv: recv, total_send: send }
-    }
-    
-    // 获取学校数量
-    const schoolsRes = await api.getSchools({ limit: 1 }) as any
-    let count = 0
-    if (typeof schoolsRes?.total === 'number') {
-      count = schoolsRes.total
-    } else if (Array.isArray(schoolsRes)) {
-      count = schoolsRes.length
-    } else if (Array.isArray(schoolsRes?.items)) {
-      count = schoolsRes.items.length
-    }
-    schoolCount.value = count
-  } catch (error) {
-    console.error('加载首页数据失败:', error)
-  } finally {
-    loading.value = false
-  }
-})
+const quickAccessItems = computed<QuickAccessItem[]>(() => buildQuickAccessItems(auth.permissions))
+const activeTaskCount = computed(() => tasksStore.active.length)
+const latestTasks = computed(() => tasksStore.tasks.slice(0, 5))
+const canReadSchools = computed(() => auth.hasPermission('school.read'))
+const hasAnySection = computed(() => quickAccessItems.value.length > 0 || canReadSchools.value || tasksStore.tasks.length > 0)
 
-// 格式化流量数据，将字节转换为更易读的格式
-const formatTraffic = (bytes: number): string => {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+function resolveIcon(iconName?: string) {
+  const fallbackIcon = Icons.Menu
+  if (!iconName) return fallbackIcon
+  const pack = Icons as Record<string, unknown>
+  return pack[iconName] || fallbackIcon
 }
 
-const navigateTo = (path: string) => {
+function navigateTo(path: string) {
   router.push(path)
 }
+
+function formatDateTime(value?: string) {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+async function loadRecentSchools() {
+  if (!canReadSchools.value) return
+  recentSchoolsLoading.value = true
+  try {
+    const res = await api.v2.getSchools({ limit: 5, offset: 0, sort: 'id_desc' })
+    const items = Array.isArray(res?.items) ? res.items : []
+    const mapped = items.map((item: any) => ({
+      id: Number(item?.id || 0),
+      school_id: String(item?.school_id || '-'),
+      school_name: String(item?.school_name || '-'),
+      region: item?.region || '-',
+      cp: item?.cp || '-',
+      update_time: item?.update_time || '',
+    }))
+    // 后端若尚未支持 sort，前端做本地兜底。
+    recentSchools.value = mapped.sort((a, b) => b.id - a.id).slice(0, 5)
+  } catch (error) {
+    console.error('加载最近新增院校失败', error)
+    recentSchools.value = []
+  } finally {
+    recentSchoolsLoading.value = false
+  }
+}
+
+onMounted(async () => {
+  await loadRecentSchools()
+})
 </script>
 
 <template>
-  <div class="page-container">
-    <PageHeader title="学校流量监控系统" description="概览系统核心数据并快速进入关键模块。" />
-    
-    <ElRow :gutter="20" class="dashboard-cards">
-      <ElCol :span="8">
-        <ElCard shadow="hover" @click="navigateTo('/traffic')" class="dashboard-card">
-          <ElStatistic :value="summary.total" title="总流量" :formatter="formatTraffic">
-            <template #suffix>
-              <div class="dashboard-card-icon">
-                <i class="el-icon-data-analysis"></i>
-              </div>
-            </template>
-          </ElStatistic>
-        </ElCard>
-      </ElCol>
-      
-      <ElCol :span="8">
-        <ElCard shadow="hover" @click="navigateTo('/traffic')" class="dashboard-card">
-          <ElStatistic :value="summary.total_recv" title="总服务流量" :formatter="formatTraffic">
-            <template #suffix>
-              <div class="dashboard-card-icon download-icon">
-                <i class="el-icon-download"></i>
-              </div>
-            </template>
-          </ElStatistic>
-        </ElCard>
-      </ElCol>
-      
-      <ElCol :span="8">
-        <ElCard shadow="hover" @click="navigateTo('/traffic')" class="dashboard-card">
-          <ElStatistic :value="summary.total_send" title="总回源流量" :formatter="formatTraffic">
-            <template #suffix>
-              <div class="dashboard-card-icon upload-icon">
-                <i class="el-icon-upload"></i>
-              </div>
-            </template>
-          </ElStatistic>
-        </ElCard>
-      </ElCol>
-    </ElRow>
-    
-    <ElRow :gutter="20" class="feature-cards">
-      <ElCol :span="12">
-        <ElCard shadow="hover" @click="navigateTo('/traffic')" class="feature-card">
-          <div class="feature-content">
-            <h3>流量监控</h3>
-            <p>实时监控学校网络流量数据，支持按时间、学校、地区和 CP 筛选</p>
-            <div class="feature-icon">
-              <i class="el-icon-monitor"></i>
+  <div class="page-container home-workbench">
+    <PageHeader title="工作台" description="快捷进入核心模块，跟踪待办任务与最近新增院校。" />
+
+    <section v-if="quickAccessItems.length" class="launchpad section-block">
+      <div class="launchpad-head">
+        <div>
+          <h2>快捷入口</h2>
+          <p>优先展示高频操作，减少层级跳转。</p>
+        </div>
+      </div>
+      <ul class="launch-list">
+        <li v-for="item in quickAccessItems" :key="item.key" class="launch-item" @click="navigateTo(item.path)">
+          <div class="launch-main">
+            <el-icon class="launch-icon"><component :is="resolveIcon(item.icon)" /></el-icon>
+            <div class="launch-copy">
+              <h3>{{ item.title }}</h3>
+              <p>{{ item.description }}</p>
             </div>
           </div>
-        </ElCard>
-      </ElCol>
-      
-      <ElCol :span="12">
-        <ElCard shadow="hover" @click="navigateTo('/schools')" class="feature-card">
-          <div class="feature-content">
-            <h3>学校管理</h3>
-            <p>管理监控的学校列表，查看学校详细信息，当前监控 {{ schoolCount }} 所学校</p>
-            <div class="feature-icon">
-              <i class="el-icon-school"></i>
+          <span class="launch-cta">进入</span>
+        </li>
+      </ul>
+    </section>
+
+    <el-row :gutter="16" class="section-block panel-grid">
+      <el-col :xs="24" :lg="12">
+        <el-card shadow="never" class="panel-card">
+          <template #header>
+            <div class="panel-title">
+              <span>待办摘要</span>
+              <el-tag size="small" type="warning">进行中 {{ activeTaskCount }}</el-tag>
             </div>
-          </div>
-        </ElCard>
-      </ElCol>
-    </ElRow>
+          </template>
+          <div v-if="latestTasks.length === 0" class="empty-tip">暂无后台任务</div>
+          <ul v-else class="task-list">
+            <li v-for="task in latestTasks" :key="task.id" class="task-item">
+              <div class="task-main">
+                <span class="task-name">{{ task.title }}</span>
+                <el-tag size="small" :type="task.status === 'failed' ? 'danger' : task.status === 'success' ? 'success' : 'info'">
+                  {{ task.status }}
+                </el-tag>
+              </div>
+              <span class="task-sub">{{ task.info || '无附加信息' }}</span>
+            </li>
+          </ul>
+        </el-card>
+      </el-col>
+
+      <el-col :xs="24" :lg="12">
+        <el-card shadow="never" class="panel-card">
+          <template #header>
+            <div class="panel-title">
+              <span>最近新增院校</span>
+              <el-button v-if="canReadSchools" type="primary" link @click="navigateTo('/schools')">查看全部</el-button>
+            </div>
+          </template>
+          <div v-if="!canReadSchools" class="empty-tip">无院校查看权限</div>
+          <div v-else-if="recentSchoolsLoading" class="empty-tip">加载中...</div>
+          <div v-else-if="recentSchools.length === 0" class="empty-tip">暂无院校数据</div>
+          <ul v-else class="op-list">
+            <li v-for="item in recentSchools" :key="item.id" class="op-item">
+              <div class="op-main">
+                <span class="task-name">{{ item.school_name }}</span>
+                <el-tag size="small" type="info">{{ item.school_id }}</el-tag>
+              </div>
+              <div class="op-meta">
+                <span>{{ item.region || '-' }} / {{ item.cp || '-' }}</span>
+                <span>{{ formatDateTime(item.update_time) }}</span>
+              </div>
+            </li>
+          </ul>
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <el-empty
+      v-if="!hasAnySection"
+      description="当前账号暂无可展示模块，请联系管理员开通权限。"
+      class="empty-state"
+    />
   </div>
 </template>
 
 <style scoped>
-.dashboard-cards {
-  margin-bottom: 2rem;
-}
-
-.dashboard-card {
-  cursor: pointer;
-  transition: transform 0.3s, box-shadow 0.3s;
-  height: 100%;
-}
-
-.dashboard-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
-}
-
-.dashboard-card-icon {
-  font-size: 1.5rem;
-  margin-left: 0.5rem;
-  color: var(--primary-color);
-}
-
-.download-icon {
-  color: var(--primary-color);
-}
-
-.upload-icon {
-  color: var(--secondary-color);
-}
-
-.feature-cards {
-  margin-top: 3rem;
-}
-
-.feature-card {
-  cursor: pointer;
-  transition: transform 0.3s, box-shadow 0.3s;
-  height: 100%;
-}
-
-.feature-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
-}
-
-.feature-content {
+.home-workbench {
+  --home-accent: #0f6fff;
+  --home-accent-soft: rgba(15, 111, 255, 0.08);
+  --home-ink: #10213b;
   display: flex;
   flex-direction: column;
-  padding: 1rem;
+  gap: 14px;
 }
 
-.feature-content h3 {
-  font-size: 1.5rem;
-  margin-bottom: 1rem;
-  color: var(--text-strong);
+.section-block {
+  animation: rise-in 0.45s ease both;
 }
 
-.feature-content p {
+.launchpad {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(120deg, rgba(15, 111, 255, 0.05), rgba(15, 111, 255, 0)),
+    var(--bg-card);
+  overflow: hidden;
+}
+
+.launchpad-head {
+  padding: 16px 18px 10px;
+  border-bottom: 1px dashed var(--border-color);
+}
+
+.launchpad-head h2 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--home-ink);
+  letter-spacing: 0.01em;
+}
+
+.launchpad-head p {
+  margin: 6px 0 0;
   color: var(--text-muted);
-  margin-bottom: 1.5rem;
+  font-size: 13px;
 }
 
-.feature-icon {
-  font-size: 2.5rem;
-  color: var(--primary-color);
-  align-self: flex-end;
+.launch-list {
+  list-style: none;
+  margin: 0;
+  padding: 2px 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.launch-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-color);
+  transition: background-color 0.22s ease, transform 0.22s ease;
+}
+
+.launch-item:nth-child(odd) {
+  border-right: 1px solid var(--border-color);
+}
+
+.launch-item:hover {
+  background: var(--home-accent-soft);
+  transform: translateY(-1px);
+}
+
+.launch-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.launch-copy h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-default);
+}
+
+.launch-copy p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.launch-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  color: var(--home-accent);
+  background: rgba(15, 111, 255, 0.12);
+}
+
+.launch-cta {
+  font-size: 12px;
+  color: var(--home-accent);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.panel-grid {
+  animation-delay: 0.08s;
+  align-items: stretch;
+}
+
+.panel-grid :deep(.el-col) {
+  display: flex;
+}
+
+.panel-card {
+  min-height: 320px;
+  border: 1px solid var(--border-color);
+  width: 100%;
+  height: 100%;
+}
+
+.panel-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.empty-tip {
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 6px 0;
+}
+
+.task-list,
+.op-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.task-item,
+.op-item {
+  border-bottom: 1px solid var(--border-color);
+  padding: 10px 0;
+}
+
+.task-list li:last-child,
+.op-list li:last-child {
+  border-bottom: none;
+}
+
+.task-main,
+.op-main,
+.op-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.task-sub {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.task-name {
+  font-weight: 600;
+}
+
+.op-meta {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.empty-state {
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 992px) {
+  .launch-list {
+    grid-template-columns: 1fr;
+  }
+
+  .launch-item:nth-child(odd) {
+    border-right: none;
+  }
 }
 </style>
 

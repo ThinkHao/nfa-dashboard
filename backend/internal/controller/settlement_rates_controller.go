@@ -66,7 +66,7 @@ func (ctl *SettlementRatesController) ExportCustomerRatesXLSX(c *gin.Context) {
 		"客户费归属", "线路费归属", "节点通用费归属", "渠道费归属",
 		"存量起算日期", "增量起算日期", "存量占比", "增量占比",
 		// 隐藏的ID列（用于导入与公式映射）
-		"客户费归属ID", "线路费归属ID", "节点通用费归属ID", "渠道费归属ID",
+		"客户费归属用户ID", "线路费归属用户ID", "节点通用费归属用户ID", "渠道费归属用户ID",
 	}
 	for i, h := range header {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
@@ -366,7 +366,7 @@ func (ctl *SettlementRatesController) ExportCustomerRates(c *gin.Context) {
 	_ = w.Write([]string{
 		"区域", "CP", "学校",
 		"客户费率", "线路费率", "节点通用费率", "渠道费率",
-		"客户费归属ID", "线路费归属ID", "节点通用费归属ID", "渠道费归属ID",
+		"客户费归属用户ID", "线路费归属用户ID", "节点通用费归属用户ID", "渠道费归属用户ID",
 		"存量起算日期", "增量起算日期", "存量占比", "增量占比",
 	})
 	toStrF := func(p *float64, prec int) string {
@@ -506,10 +506,10 @@ func (ctl *SettlementRatesController) ImportCustomerRates(c *gin.Context) {
 			"network_line_fee":          "线路费率",
 			"general_fee":               "节点通用费率",
 			"channel_rate":              "渠道费率",
-			"customer_fee_owner_id":     "客户费归属ID",
-			"network_line_fee_owner_id": "线路费归属ID",
-			"general_fee_owner_id":      "节点通用费归属ID",
-			"channel_owner_user_id":     "渠道费归属ID",
+			"customer_fee_owner_id":     "客户费归属用户ID",
+			"network_line_fee_owner_id": "线路费归属用户ID",
+			"general_fee_owner_id":      "节点通用费归属用户ID",
+			"channel_owner_user_id":     "渠道费归属用户ID",
 			"start_at":                  "存量起算日期",
 			"increment_start_at":        "增量起算日期",
 			"stock_ratio":               "存量占比",
@@ -767,7 +767,7 @@ func (ctl *SettlementRatesController) CustomerRatesImportTemplate(c *gin.Context
 	_ = w.Write([]string{
 		"区域", "CP", "学校",
 		"客户费率", "线路费率", "节点通用费率", "渠道费率",
-		"客户费归属ID", "线路费归属ID", "节点通用费归属ID", "渠道费归属ID",
+		"客户费归属用户ID", "线路费归属用户ID", "节点通用费归属用户ID", "渠道费归属用户ID",
 		"存量起算日期", "增量起算日期", "存量占比", "增量占比", "当日增量值",
 	})
 	_ = w.Write([]string{"华东", "CMCC", "示例学校", "100", "50", "10", "0.0200", "1001", "1002", "1003", "1004", "2025-01-01", "2025-07-01", "0.70", "0.30", ""})
@@ -1081,3 +1081,4 @@ func (ctl *SettlementRatesController) CleanupInvalidFinalCustomerRates(c *gin.Co
 	}
 	c.JSON(http.StatusOK, gin.H{"affected": affected})
 }
+

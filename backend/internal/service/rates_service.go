@@ -42,10 +42,11 @@ type RatesService interface {
 type ratesService struct {
 	repo         repository.RatesRepository
 	discountRepo repository.RateDiscountRepository
+	userRepo     repository.UserRepository
 }
 
-func NewRatesService(repo repository.RatesRepository, discountRepo repository.RateDiscountRepository) RatesService {
-	return &ratesService{repo: repo, discountRepo: discountRepo}
+func NewRatesService(repo repository.RatesRepository, discountRepo repository.RateDiscountRepository, userRepo repository.UserRepository) RatesService {
+	return &ratesService{repo: repo, discountRepo: discountRepo, userRepo: userRepo}
 }
 
 func (s *ratesService) ListCustomerRates(region, cp, schoolName string, settlementReady *bool, page, pageSize int) ([]model.RateCustomer, int64, error) {
@@ -81,7 +82,65 @@ func (s *ratesService) UpsertCustomerRate(rate *model.RateCustomer) error {
 }
 
 func (s *ratesService) ValidateCustomerRate(rate *model.RateCustomer) error {
-	return normalizeIncrementConfig(rate)
+	if err := normalizeIncrementConfig(rate); err != nil {
+		return err
+	}
+	return s.validateCustomerRateOwnerUsers(rate)
+}
+
+func (s *ratesService) validateCustomerRateOwnerUsers(rate *model.RateCustomer) error {
+	if rate == nil {
+		return NewBadRequest("rate is required")
+	}
+	if s.userRepo == nil {
+		return NewBadRequest("user repository is required")
+	}
+
+	type ownerRef struct {
+		field string
+		id    uint64
+	}
+	owners := make([]ownerRef, 0, 4)
+	push := func(field string, idPtr *uint64) {
+		if idPtr == nil || *idPtr == 0 {
+			return
+		}
+		owners = append(owners, ownerRef{field: field, id: *idPtr})
+	}
+	push("customer_fee_owner_id", rate.CustomerFeeOwnerID)
+	push("network_line_fee_owner_id", rate.NetworkLineFeeOwnerID)
+	push("general_fee_owner_id", rate.GeneralFeeOwnerID)
+	push("channel_owner_user_id", rate.ChannelOwnerUserID)
+	if len(owners) == 0 {
+		return nil
+	}
+
+	uniq := make([]uint64, 0, len(owners))
+	seen := make(map[uint64]struct{}, len(owners))
+	for _, o := range owners {
+		if _, ok := seen[o.id]; ok {
+			continue
+		}
+		seen[o.id] = struct{}{}
+		uniq = append(uniq, o.id)
+	}
+
+	users, err := s.userRepo.FindByIDs(uniq)
+	if err != nil {
+		return err
+	}
+	userSet := make(map[uint64]struct{}, len(users))
+	for _, u := range users {
+		userSet[u.ID] = struct{}{}
+	}
+
+	for _, o := range owners {
+		if _, ok := userSet[o.id]; ok {
+			continue
+		}
+		return NewBadRequest(o.field + " must be a valid system user id")
+	}
+	return nil
 }
 
 func normalizeIncrementConfig(rate *model.RateCustomer) error {

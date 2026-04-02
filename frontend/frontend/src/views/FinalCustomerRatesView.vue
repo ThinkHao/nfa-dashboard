@@ -154,7 +154,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api'
-import type { DiscountedFinalCustomerRate, PaginatedData, UpsertRateFinalCustomerRequest, BusinessEntity, RateFinalCustomer } from '@/types/api'
+import type { DiscountedFinalCustomerRate, PaginatedData, UpsertRateFinalCustomerRequest, RateFinalCustomer } from '@/types/api'
 import { useAuthStore } from '@/stores/auth'
 import { buildCsvContent, formatExportFilename, triggerBlobDownload } from '@/utils/export'
 import { EXPORT_FILENAME_PREFIX, EXPORT_HEADERS } from '@/utils/export-standards'
@@ -230,37 +230,6 @@ function onReset() { Object.assign(query, { region: undefined, cp: undefined, sc
 function onPageChange(p: number) { page.value = p; fetchData() }
 function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; fetchData() }
 
-// 业务对象映射（id -> name），用于展示归属名称
-const entityMap = ref<Record<number, string>>({})
-
-async function fetchEntitiesAll() {
-  try {
-    const pageSize = 1000
-    let page = 1
-    const map: Record<number, string> = {}
-    while (true) {
-      const res = await api.settlementEntities.list({ page, page_size: pageSize })
-      const list = (res?.items || []) as BusinessEntity[]
-      for (const e of list) {
-        if (e && typeof e.id === 'number') {
-          map[e.id] = e.entity_name
-        }
-      }
-      const total = Number(res?.total || 0)
-      if (page * pageSize >= total || list.length === 0) break
-      page += 1
-    }
-    entityMap.value = map
-  } catch (_) {
-    // 显示归属名是增强体验，失败不阻塞主流程
-  }
-}
-
-function getEntityName(id?: number | null): string {
-  if (id == null) return '-'
-  return entityMap.value[id] || `#${id}`
-}
-
 // 系统用户映射（id -> 用户基本信息），用于优先显示“系统用户别名/名称”
 const userMap = ref<Record<number, { id: number; alias?: string; display_name?: string; username: string }>>({})
 
@@ -284,7 +253,7 @@ async function loadUsersForItems() {
   } catch { userMap.value = {} }
 }
 
-// 统一的 owner 显示：优先系统用户别名/名称，其次业务对象名，最后 #ID
+// 统一的 owner 显示：仅系统用户别名/名称
 function displayOwner(id?: number | null): string {
   if (!id) return '-'
   const key = Number(id)
@@ -295,8 +264,7 @@ function displayOwner(id?: number | null): string {
     const un = (u.username && String(u.username).trim()) ? String(u.username).trim() : ''
     return alias || dn || un || `用户#${key}`
   }
-  const name = entityMap.value[key]
-  return name || `#${key}`
+  return `无效用户ID#${key}`
 }
 
 // Dialog
@@ -359,7 +327,7 @@ async function onCleanupInvalid() {
   }
 }
 
-onMounted(() => { fetchEntitiesAll(); fetchData() })
+onMounted(() => { fetchData() })
 
 // 导出当前页为 CSV（根据视图类型导出对应列）
 async function onExport() {

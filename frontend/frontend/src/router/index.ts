@@ -15,16 +15,15 @@ const router = createRouter({
         { path: '', name: 'home', component: HomeView, meta: { title: '首页', order: 0, icon: 'House' } },
         { path: 'traffic', name: 'traffic', component: () => import('../views/TrafficView.vue'), meta: { title: '流量监控', permissions: ['traffic.read'], order: 10, icon: 'TrendCharts' } },
         { path: 'schools', name: 'schools', component: () => import('../views/SchoolsView.vue'), meta: { title: '学校管理', permissions: ['school.manage'], order: 20, icon: 'School' } },
-        { path: 'settlement/dashboard', name: 'settlement-dashboard', component: () => import('../views/SettlementDashboardView.vue'), meta: { title: '结算结果总览', permissions: ['settlement.results.read'], order: 29, icon: 'DataLine', group: 'settlement-dashboard' } },
+        { path: 'settlement/dashboard', redirect: '/settlement/user-query' },
         { path: 'settlement/user-query', name: 'settlement-user-query', component: () => import('../views/SettlementUserQueryView.vue'), meta: { title: '单用户结算查询', permissions: ['settlement.data.read'], order: 33, icon: 'User', group: 'settlement-dashboard' } },
         { path: 'settlement', name: 'settlement', component: () => import('../views/SettlementView.vue'), meta: { title: '结算系统配置', permissions: ['settlement.read', 'settlement.calculate'], order: 30, icon: 'Wallet', group: 'settlement-config' } },
         { path: 'settlement/rates/customer', name: 'settlement-rates-customer', component: () => import('../views/CustomerRatesView.vue'), meta: { title: '客户业务费率', permissions: ['rates.customer.read'], cache: true, order: 31, icon: 'User', group: 'settlement-config' } },
         { path: 'settlement/rates/node', name: 'settlement-rates-node', component: () => import('../views/NodeRatesView.vue'), meta: { title: '节点业务费率', permissions: ['rates.node.read'], cache: true, order: 32, icon: 'Share', group: 'settlement-config' } },
         { path: 'settlement/rates/final', name: 'settlement-rates-final', component: () => import('../views/FinalCustomerRatesView.vue'), meta: { title: '最终客户费率', permissions: ['rates.final.read'], cache: true, order: 33, icon: 'CircleCheck', group: 'settlement-config' } },
         { path: 'settlement/rates/discount-rules', name: 'settlement-rates-discount-rules', component: () => import('../views/DiscountRulesView.vue'), meta: { title: '折损规则管理', permissions: ['rates.discount_rule.read'], order: 38, icon: 'Coin', group: 'settlement-config' } },
-        { path: 'settlement/channels', name: 'settlement-channels', component: () => import('../views/ChannelSettlementView.vue'), meta: { title: '用户维度结算', permissions: ['settlement.results.read'], order: 34, icon: 'Operation', group: 'settlement-dashboard' } },
+        { path: 'settlement/channels', redirect: '/settlement/user-query' },
         { path: 'settlement/rates/sync-rules', name: 'settlement-rates-sync-rules', component: () => import('../views/SyncRulesView.vue'), meta: { title: '同步规则管理', permissions: ['rates.sync_rules.read'], order: 39, icon: 'Refresh', group: 'settlement-config' } },
-        { path: 'settlement/entities', name: 'settlement-entities', component: () => import('../views/SettlementEntitiesView.vue'), meta: { title: '业务对象', permissions: ['entities.read'], cache: true, order: 35, icon: 'Collection', group: 'settlement-config' } },
         { path: 'settlement/business-types', name: 'settlement-business-types', component: () => import('../views/BusinessTypesView.vue'), meta: { title: '业务类型管理', permissions: ['business_types.read'], cache: true, order: 36, icon: 'Box', group: 'settlement-config' } },
         { path: 'operation-logs', name: 'operation-logs', component: () => import('../views/OperationLogsView.vue'), meta: { title: '操作日志', permissions: ['operation_logs.read'], cache: true, order: 70, icon: 'Notebook' } },
         { path: 'system/users', name: 'system-users', component: () => import('../views/SystemUsersView.vue'), meta: { title: '用户管理', permissions: ['system.user.manage'], order: 80, icon: 'UserFilled' } },
@@ -44,6 +43,11 @@ const router = createRouter({
   ],
 })
 
+function isPublicMeta(meta: unknown): boolean {
+  if (!meta || typeof meta !== 'object') return false
+  return Boolean((meta as { public?: boolean }).public)
+}
+
 // 鉴权与权限守卫 + 设置页面标题
 router.beforeEach(async (to, from, next) => {
   document.title = `${to.meta.title || '学校流量监控系统'} - NFA Dashboard`
@@ -51,7 +55,7 @@ router.beforeEach(async (to, from, next) => {
   if (!auth.token) auth.initFromStorage()
 
   // 公共路由放行
-  if (to.meta && (to.meta as any).public) return next()
+  if (isPublicMeta(to.meta)) return next()
 
   // 未登录，跳转登录
   if (!auth.token) {
@@ -76,7 +80,7 @@ router.afterEach((to) => {
   try {
     const tags = useTagsViewStore()
     // public 页面（如 login/403）不纳入标签
-    if (!(to.meta && (to.meta as any).public)) {
+    if (!isPublicMeta(to.meta)) {
       tags.addRoute(to)
     }
   } catch {}

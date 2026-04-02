@@ -425,7 +425,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api'
-import type { RateCustomer, PaginatedData, UpsertRateCustomerRequest, BusinessEntity } from '@/types/api'
+import type { RateCustomer, PaginatedData, UpsertRateCustomerRequest } from '@/types/api'
 import { useAuthStore } from '@/stores/auth'
 import { buildCsvContent, formatExportFilename, triggerBlobDownload } from '@/utils/export'
 import { EXPORT_FILENAME_PREFIX, EXPORT_HEADERS } from '@/utils/export-standards'
@@ -456,11 +456,6 @@ const cpOptions = ref<string[]>([])
 type SchoolOption = { name: string; inRate: boolean }
 const schoolOptions = ref<SchoolOption[]>([])
 const schoolsLoading = ref(false)
-const entitiesLoading = ref(false)
-// 客户费归属（销售）由系统用户提供，不再使用实体列表
-const entityOptionsCustomer = ref<BusinessEntity[]>([])
-// ID -> 实体 映射，用于兼容旧数据的列表展示（历史可能存了业务对象ID）
-const entityMap = ref<Record<number, BusinessEntity>>({})
 // ID -> 用户映射，用于显示“客户费/线路费归属”为系统用户时的别名
 const userMap = ref<Record<number, { id: number; alias?: string; display_name?: string; username: string }>>({})
 
@@ -532,8 +527,8 @@ async function fetchData() {
     const res: PaginatedData<RateCustomer> = await api.settlementRates.customer.list(buildParams())
     items.value = res.items || []
     total.value = res.total || 0
-    // 批量加载归属对象信息，构建映射
-    await Promise.all([loadEntitiesForItems(), loadUsersForItems()])
+    // 批量加载系统用户映射，用于归属显示
+    await loadUsersForItems()
     await loadDiscountRules()
     try {
       const ids = new Set<number>()
@@ -552,25 +547,6 @@ async function fetchData() {
   } finally {
     loading.value = false
   }
-}
-
-// 根据当前 items 收集 owner_id，批量按ids获取实体并缓存映射
-async function loadEntitiesForItems() {
-  const ids = new Set<number>()
-  for (const r of items.value) {
-    if (r?.customer_fee_owner_id) ids.add(r.customer_fee_owner_id)
-    if (r?.network_line_fee_owner_id) ids.add(r.network_line_fee_owner_id)
-    if (r?.general_fee_owner_id) ids.add(r.general_fee_owner_id)
-  }
-  if (ids.size === 0) { entityMap.value = {}; return }
-  try {
-    const params: any = { ids: Array.from(ids).join(',') }
-    const res = await api.settlementEntities.list(params)
-    const list: BusinessEntity[] = Array.isArray((res as any)?.items) ? (res as any).items as BusinessEntity[] : []
-    const m: Record<number, BusinessEntity> = {}
-    for (const e of list) { if (e && typeof e.id === 'number') m[e.id] = e }
-    entityMap.value = m
-  } catch {}
 }
 
 // 根据当前 items 收集 owner_id，批量按 ids 获取系统用户并缓存映射（优先用于显示别名）
@@ -614,9 +590,7 @@ function displayOwner(id?: number | null): string {
     const un = (u.username && String(u.username).trim()) ? String(u.username).trim() : ''
     return alias || dn || un || `用户#${key}`
   }
-  const e = entityMap.value[key]
-  if (e) return `${e.entity_name}`
-  return String(key)
+  return `无效用户ID#${key}`
 }
 
 // 生成系统用户在下拉中的显示标签：alias > display_name > username > 用户#ID
@@ -760,16 +734,6 @@ async function remoteSearchSchoolsDialog(q: string) {
     schoolOptions.value = Array.from(meta.values()).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
   } catch {}
   finally { schoolsLoading.value = false }
-}
-
-// 业务对象远程搜索
-async function remoteSearchEntitiesForCustomer(q: string) {
-  entitiesLoading.value = true
-  try {
-    const res = await api.settlementEntities.list({ page: 1, page_size: 20, entity_name: q || undefined })
-    entityOptionsCustomer.value = Array.isArray((res as any)?.items) ? (res as any).items as BusinessEntity[] : []
-  } catch {}
-  finally { entitiesLoading.value = false }
 }
 
 function onSearch() { page.value = 1; fetchData() }
@@ -942,7 +906,6 @@ async function openDialog(row?: RateCustomer) {
   // 显示弹窗
   dialogVisible.value = true
   // 异步加载下拉数据（包含合并已选用户项的逻辑）
-  try { remoteSearchEntitiesForCustomer('') } catch {}
   try { remoteSearchSystemUsers('') } catch {}
   try { remoteSearchSystemUsersLine('') } catch {}
   try { remoteSearchSystemUsersNode('') } catch {}

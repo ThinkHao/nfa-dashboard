@@ -45,7 +45,7 @@ func BuildEngine() *gin.Engine {
 
 	ratesRepo := repository.NewRatesRepository()
 	rateDiscountRepo := repository.NewRateDiscountRepository()
-	ratesSvc := service.NewRatesService(ratesRepo, rateDiscountRepo)
+	ratesSvc := service.NewRatesService(ratesRepo, rateDiscountRepo, userRepo)
 	ratesController := controller.NewSettlementRatesController(ratesSvc)
 
 	customerFieldsRepo := repository.NewCustomerFieldsRepository()
@@ -265,3 +265,4 @@ func BuildEngine() *gin.Engine {
 
 	return r
 }
+

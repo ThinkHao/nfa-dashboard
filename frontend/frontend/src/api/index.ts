@@ -479,7 +479,7 @@ export default {
           return Number.isFinite(affected) ? affected : 0
         })
     },
-    // 统一的费用归属主体（entity/user）下拉
+    // 统一的费用归属主体（system user）下拉
     ownerSubjects(params?: any): Promise<Array<{ type: string; id: number; label: string }>> {
       return api
         .get('/api/v1/settlement/data/customer/owner-subjects', { params })
@@ -502,7 +502,7 @@ export default {
           return Number.isFinite(taskId) ? taskId : 0
         })
     },
-    // 已使用过的费用归属对象（业务对象）下拉
+    // 已使用过的费用归属主体ID（兼容历史数据）下拉
     usedOwners(): Promise<Array<{ id: number; entity_name: string }>> {
       return api
         .get('/api/v1/settlement/data/customer/owners')
@@ -558,3 +558,4 @@ export default {
     },
   }
 }
+

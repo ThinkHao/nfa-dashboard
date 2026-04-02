@@ -43,9 +43,21 @@ func (r *schoolRepository) GetAllSchools(filter map[string]interface{}, limit, o
 	var count int64
 
 	query := model.DB.Model(&model.School{})
+	orderBy := "id ASC"
 
 	// 应用过滤条件，优化查询性能
 	for key, value := range filter {
+		if key == "sort" {
+			if sortValue, ok := value.(string); ok {
+				switch strings.ToLower(strings.TrimSpace(sortValue)) {
+				case "id_desc":
+					orderBy = "id DESC"
+				case "id_asc":
+					orderBy = "id ASC"
+				}
+			}
+			continue
+		}
 		// 特殊处理 user_id（用于 v2 按用户过滤）
 		if key == "user_id" {
 			switch v := value.(type) {
@@ -88,8 +100,8 @@ func (r *schoolRepository) GetAllSchools(filter map[string]interface{}, limit, o
 		}
 	}
 
-	// 添加排序以提高查询性能
-	query = query.Order("id ASC")
+	// 添加排序（默认 id ASC，v2 可选 id_desc / id_asc）
+	query = query.Order(orderBy)
 
 	// 获取总数
 	err := query.Count(&count).Error
@@ -208,7 +220,7 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
             SUM(total_recv) AS total_recv,
             SUM(total_send) AS total_send
         FROM nfa_school_traffic
-        WHERE create_time BETWEEN ? AND ?`
+        WHERE create_time >= ? AND create_time < ?`
 
 	args := []interface{}{filter.StartTime, filter.EndTime}
 
@@ -237,6 +249,8 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 	query += " GROUP BY " + strings.Join(groupBy, ", ")
 	query += " ORDER BY create_time ASC, region ASC, cp ASC, school_name ASC"
 
+	log.Printf("[traffic.repo] query window start=%s end=%s region=%s cp=%s school=%s user_id=%v",
+		filter.StartTime.Format(time.RFC3339), filter.EndTime.Format(time.RFC3339), filter.Region, filter.CP, filter.SchoolName, filter.UserID)
 	log.Printf("最终查询SQL: %s", query)
 	log.Printf("查询参数: %v", args)
 

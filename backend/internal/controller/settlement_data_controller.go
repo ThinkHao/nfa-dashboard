@@ -29,7 +29,7 @@ func (c *SettlementDataController) ListUsedChannelOwners(ctx *gin.Context) {
 }
 
 // ListUsedOwnerSubjects GET /api/v1/settlement/data/customer/owner-subjects
-// 统一返回四类归属主体的去重列表：entity(业务对象) 与 user(系统用户)
+// 统一返回费用归属主体的去重列表（仅 system user）
 func (c *SettlementDataController) ListUsedOwnerSubjects(ctx *gin.Context) {
 	filter := parseSettlementFilter(ctx)
 	items, err := c.dataSvc.ListUsedOwnerSubjects(filter)
@@ -405,3 +405,4 @@ func writeCSVLine(w http.ResponseWriter, cols ...string) {
 	}
 	w.Write([]byte("\n"))
 }
+
