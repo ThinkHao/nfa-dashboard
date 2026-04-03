@@ -152,8 +152,8 @@
               <span class="row-hint">通用费率</span>
             </div>
             <div class="template-row">
-              <el-input-number v-model="templateValues.final_fee" :step="0.01" :min="0" />
-              <span class="row-hint">毛利</span>
+              <el-input-number v-model="templateValues.channel_rate" :step="0.01" :min="0" />
+              <span class="row-hint">渠道费率</span>
             </div>
           </div>
         </el-form-item>
@@ -260,7 +260,7 @@ const kvRows = ref<{ key: string; value: string }[]>([])
 const fieldsToUpdateText = ref('') // 仅 json 模式使用
 // 动作：template/expr/json 三种模式
 const actionMode = ref<'template' | 'expr' | 'json'>('template')
-const templateValues = reactive<{ customer_fee?: number | null; network_line_fee?: number | null; general_fee?: number | null; final_fee?: number | null }>({})
+const templateValues = reactive<{ customer_fee?: number | null; network_line_fee?: number | null; general_fee?: number | null; channel_rate?: number | null }>({})
 const exprText = ref('')
 const actionsText = ref('') // 仅 json 模式使用
 
@@ -315,7 +315,7 @@ function openDialog(row?: SyncRule) {
     templateValues.customer_fee = null
     templateValues.network_line_fee = null
     templateValues.general_fee = null
-    templateValues.final_fee = null
+    templateValues.channel_rate = null
     const act = row.actions as any
     if (act && typeof act === 'object' && typeof act.type === 'string') {
       if (act.type === 'template') {
@@ -324,7 +324,8 @@ function openDialog(row?: SyncRule) {
         templateValues.customer_fee = v.customer_fee ?? null
         templateValues.network_line_fee = v.network_line_fee ?? null
         templateValues.general_fee = v.general_fee ?? null
-        templateValues.final_fee = v.final_fee ?? null
+        // 历史兼容：旧规则用 final_fee 表达渠道费率
+        templateValues.channel_rate = v.channel_rate ?? v.final_fee ?? null
       } else if (act.type === 'expr') {
         actionMode.value = 'expr'
         exprText.value = String(act.expr || '')
@@ -353,6 +354,7 @@ function openDialog(row?: SyncRule) {
     templateValues.customer_fee = null
     templateValues.network_line_fee = null
     templateValues.general_fee = null
+    templateValues.channel_rate = null
     exprText.value = ''
     actionsText.value = ''
   }
@@ -397,7 +399,7 @@ async function onSave() {
     if (templateValues.customer_fee != null) values.customer_fee = Number(templateValues.customer_fee)
     if (templateValues.network_line_fee != null) values.network_line_fee = Number(templateValues.network_line_fee)
     if (templateValues.general_fee != null) values.general_fee = Number(templateValues.general_fee)
-    if (templateValues.final_fee != null) values.final_fee = Number(templateValues.final_fee)
+    if (templateValues.channel_rate != null) values.channel_rate = Number(templateValues.channel_rate)
     if (Object.keys(values).length === 0) { ElMessage.warning('请至少填写一项模板值'); return }
     actions = { type: 'template', values }
   } else if (actionMode.value === 'expr') {

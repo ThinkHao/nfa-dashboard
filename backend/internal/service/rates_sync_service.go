@@ -200,6 +200,7 @@ func (s *ratesSyncService) applyRuleToCustomer(rc *model.RateCustomer, rule mode
             if rc.CustomerFee != nil { ctx["customer_fee"] = strconv.FormatFloat(*rc.CustomerFee, 'f', -1, 64) }
             if rc.NetworkLineFee != nil { ctx["network_line_fee"] = strconv.FormatFloat(*rc.NetworkLineFee, 'f', -1, 64) }
             if rc.GeneralFee != nil { ctx["general_fee"] = strconv.FormatFloat(*rc.GeneralFee, 'f', -1, 64) }
+            if rc.ChannelRate != nil { ctx["channel_rate"] = strconv.FormatFloat(*rc.ChannelRate, 'f', -1, 64) }
             // 将 extra 展平为 extra.<key>
             for k, v := range cur {
                 key := "extra." + k
@@ -242,7 +243,7 @@ func (s *ratesSyncService) applyRuleToCustomer(rc *model.RateCustomer, rule mode
 	changed := false
 	updates := map[string]interface{}{}
 	// 顶层支持的费率字段（与前端模板字段一致）
-	topFields := map[string]struct{}{"customer_fee": {}, "network_line_fee": {}, "general_fee": {}}
+	topFields := map[string]struct{}{"customer_fee": {}, "network_line_fee": {}, "general_fee": {}, "channel_rate": {}}
 
 	for k, v := range setMap {
 		if !isValidFieldKeyLocal(k) {
@@ -292,6 +293,8 @@ func (s *ratesSyncService) applyRuleToCustomer(rc *model.RateCustomer, rule mode
 				curPtr = &rc.NetworkLineFee
 			case "general_fee":
 				curPtr = &rc.GeneralFee
+			case "channel_rate":
+				curPtr = &rc.ChannelRate
 			}
 			if f != nil && curPtr != nil {
 				switch rule.OverwriteStrategy {
@@ -368,6 +371,13 @@ func parseActionsSet(data []byte) (map[string]interface{}, error) {
 	// 兼容前端 template 格式：{"type":"template","values":{...}}
 	if t, ok := obj["type"].(string); ok && t == "template" {
 		if vals, ok := obj["values"].(map[string]interface{}); ok {
+			// 历史兼容：曾使用 final_fee 代表渠道费率，统一规范为 channel_rate
+			if _, hasChannelRate := vals["channel_rate"]; !hasChannelRate {
+				if legacy, hasLegacy := vals["final_fee"]; hasLegacy {
+					vals["channel_rate"] = legacy
+				}
+			}
+			delete(vals, "final_fee")
 			return vals, nil
 		}
 		return map[string]interface{}{}, nil
