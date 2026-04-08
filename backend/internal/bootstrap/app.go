@@ -52,6 +52,10 @@ func BuildEngine() *gin.Engine {
 	customerFieldsSvc := service.NewCustomerFieldsService(customerFieldsRepo)
 	customerFieldsController := controller.NewCustomerFieldsController(customerFieldsSvc)
 
+	filterRulesRepo := repository.NewFilterRulesRepository()
+	filterRulesSvc := service.NewFilterRulesService(filterRulesRepo)
+	filterRulesController := controller.NewFilterRulesController(filterRulesSvc)
+
 	syncRulesRepo := repository.NewSyncRulesRepository()
 	syncRulesSvc := service.NewSyncRulesService(syncRulesRepo)
 	syncRulesController := controller.NewSyncRulesController(syncRulesSvc)
@@ -185,6 +189,16 @@ func BuildEngine() *gin.Engine {
 					fields.DELETE("/:id", authMW.PermissionRequired("rates.customer_fields.write"), customerFieldsController.Delete)
 				}
 
+				filterRules := rates.Group("/filter-rules")
+				{
+					filterRules.GET("", authMW.PermissionRequired("rates.filter_rules.read"), filterRulesController.List)
+					filterRules.POST("", authMW.PermissionRequired("rates.filter_rules.write"), filterRulesController.Create)
+					filterRules.PUT("/:id", authMW.PermissionRequired("rates.filter_rules.write"), filterRulesController.Update)
+					filterRules.DELETE("/:id", authMW.PermissionRequired("rates.filter_rules.write"), filterRulesController.Delete)
+					filterRules.PUT("/:id/priority", authMW.PermissionRequired("rates.filter_rules.write"), filterRulesController.UpdatePriority)
+					filterRules.PUT("/:id/enabled", authMW.PermissionRequired("rates.filter_rules.write"), filterRulesController.SetEnabled)
+				}
+
 				rules := rates.Group("/sync-rules")
 				{
 					rules.GET("", authMW.PermissionRequired("rates.sync_rules.read"), syncRulesController.List)
@@ -265,4 +279,3 @@ func BuildEngine() *gin.Engine {
 
 	return r
 }
-

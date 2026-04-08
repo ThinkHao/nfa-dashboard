@@ -8,6 +8,7 @@
           <div>
             <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
             <el-button @click="onReset">重置</el-button>
+            <el-button v-if="canManageFilterRules" @click="goFilterRules">过滤规则管理</el-button>
             <el-button v-if="canManageSyncRules" @click="goSyncRules">同步规则管理</el-button>
             <el-button v-if="canManageDiscountRules" @click="goDiscountRules">折损规则管理</el-button>
             <el-button v-if="canSync" type="warning" :loading="syncing" @click="onExecuteSync">执行规则同步</el-button>
@@ -435,6 +436,7 @@ const auth = useAuthStore()
 const router = useRouter()
 const canWrite = computed(() => auth.hasPermission('rates.customer.write'))
 const canSync = computed(() => auth.hasPermission('rates.sync.execute'))
+const canManageFilterRules = computed(() => auth.hasPermission('rates.filter_rules.read'))
 const canManageSyncRules = computed(() => auth.hasPermission('rates.sync_rules.read'))
 const canManageDiscountRules = computed(() => auth.hasPermission('rates.discount_rule.read'))
 const canExport = computed(() => auth.hasPermission('rates.customer.export'))
@@ -741,6 +743,7 @@ function onReset() { Object.assign(query, { region: undefined, cp: undefined, sc
 function onPageChange(p: number) { page.value = p; fetchData() }
 function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; fetchData() }
 
+function goFilterRules() { router.push({ name: 'settlement-rates-filter-rules' }) }
 function goSyncRules() { router.push({ name: 'settlement-rates-sync-rules' }) }
 function goDiscountRules() { router.push({ name: 'settlement-rates-discount-rules' }) }
 
@@ -1262,5 +1265,4 @@ watch(() => (form as any).increment_start_at, (val) => {
 .school-option { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; }
 .school-option-tags { display: inline-flex; gap: 4px; }
 </style>
-
 

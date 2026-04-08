@@ -76,6 +76,11 @@ func (r *ratesRepository) ListCustomerRates(filter map[string]interface{}, limit
 			}
 		}
 	}
+	if v, ok := filter["exclude_filtered"]; ok {
+		if b, ok2 := v.(bool); ok2 && b {
+			q = excludeFilteredCustomerRates(q, "rate_customer")
+		}
+	}
 	if err := q.Count(&count).Error; err != nil {
 		return nil, 0, err
 	}
@@ -241,6 +246,9 @@ FROM rate_customer rc
 WHERE rc.school_name IS NOT NULL AND rc.school_name <> ''
   AND rc.customer_fee IS NOT NULL
   AND rc.network_line_fee IS NOT NULL
+  AND NOT EXISTS (
+` + enabledFilterRuleExistsClause("rc") + `
+  )
 ON DUPLICATE KEY UPDATE
   fee_type = IF(rate_final_customer.fee_type = 'config', rate_final_customer.fee_type, 'auto'),
   customer_fee = IF(rate_final_customer.fee_type = 'config', rate_final_customer.customer_fee, VALUES(customer_fee)),
@@ -269,7 +277,10 @@ JOIN rate_customer rc
 WHERE (fc.fee_type = 'auto' OR fc.fee_type IS NULL OR fc.fee_type = '')
   AND rc.school_name IS NOT NULL AND rc.school_name <> ''
   AND rc.customer_fee IS NOT NULL
-  AND rc.network_line_fee IS NOT NULL`
+  AND rc.network_line_fee IS NOT NULL
+  AND NOT EXISTS (
+` + enabledFilterRuleExistsClause("rc") + `
+  )`
 	if err := model.DB.Raw(countSQL).Scan(&matched).Error; err != nil {
 		return 0, err
 	}
@@ -290,7 +301,10 @@ SET
 WHERE (fc.fee_type = 'auto' OR fc.fee_type IS NULL OR fc.fee_type = '')
   AND rc.school_name IS NOT NULL AND rc.school_name <> ''
   AND rc.customer_fee IS NOT NULL
-  AND rc.network_line_fee IS NOT NULL`
+  AND rc.network_line_fee IS NOT NULL
+  AND NOT EXISTS (
+` + enabledFilterRuleExistsClause("rc") + `
+  )`
 	if err := model.DB.Exec(updateSQL).Error; err != nil {
 		return 0, err
 	}

@@ -63,6 +63,7 @@ func (s *ratesService) ListCustomerRates(region, cp, schoolName string, settleme
 	if settlementReady != nil {
 		filter["settlement_ready"] = *settlementReady
 	}
+	filter["exclude_filtered"] = true
 	if page <= 0 {
 		page = 1
 	}
@@ -284,6 +285,7 @@ func (s *ratesService) ListFinalCustomerRatesDiscounted(region, cp, schoolName, 
 	limit := pageSize
 	offset := (page - 1) * pageSize
 
+	filter["exclude_filtered"] = true
 	customers, total, err := s.repo.ListCustomerRates(filter, limit, offset)
 	if err != nil {
 		return nil, 0, err

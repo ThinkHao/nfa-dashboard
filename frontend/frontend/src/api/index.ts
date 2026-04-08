@@ -31,6 +31,9 @@ import type {
   SyncRule,
   CreateSyncRuleRequest,
   UpdateSyncRuleRequest,
+  FilterRule,
+  CreateFilterRuleRequest,
+  UpdateFilterRuleRequest,
   SettlementFormulaItem,
   CreateSettlementFormulaRequest,
   UpdateSettlementFormulaRequest,
@@ -394,6 +397,26 @@ export default {
         return api.put(`/api/v1/settlement/rates/sync-rules/${id}/enabled`, { enabled }).then(() => undefined)
       },
     },
+    filterRules: {
+      list(params?: any): Promise<PaginatedData<FilterRule>> {
+        return api.get('/api/v1/settlement/rates/filter-rules', { params }).then((d: any) => d as PaginatedData<FilterRule>)
+      },
+      create(data: CreateFilterRuleRequest): Promise<FilterRule> {
+        return api.post('/api/v1/settlement/rates/filter-rules', data).then((d: any) => d as FilterRule)
+      },
+      update(id: number, data: UpdateFilterRuleRequest): Promise<void> {
+        return api.put(`/api/v1/settlement/rates/filter-rules/${id}`, data).then(() => undefined)
+      },
+      remove(id: number): Promise<void> {
+        return api.delete(`/api/v1/settlement/rates/filter-rules/${id}`).then(() => undefined)
+      },
+      updatePriority(id: number, priority: number): Promise<void> {
+        return api.put(`/api/v1/settlement/rates/filter-rules/${id}/priority`, { priority }).then(() => undefined)
+      },
+      setEnabled(id: number, enabled: boolean): Promise<void> {
+        return api.put(`/api/v1/settlement/rates/filter-rules/${id}/enabled`, { enabled }).then(() => undefined)
+      },
+    },
     // 折损规则管理
     discountRules: {
       list(params?: any): Promise<PaginatedData<any>> {
@@ -558,4 +581,3 @@ export default {
     },
   }
 }
-

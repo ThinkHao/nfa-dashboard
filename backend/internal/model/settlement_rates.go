@@ -257,6 +257,29 @@ type RateCustomerSyncRule struct {
 
 func (RateCustomerSyncRule) TableName() string { return "rate_customer_sync_rules" }
 
+// RateCustomerFilterRule 对应 rate_customer_filter_rules 表
+// 过滤规则：按 region/cp/school_name 维度排除不参与结算的院校
+type RateCustomerFilterRule struct {
+	ID                  uint64         `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+	Name                string         `gorm:"column:name;size:100;not null" json:"name"`
+	Enabled             bool           `gorm:"column:enabled;not null" json:"enabled"`
+	Priority            int            `gorm:"column:priority;not null" json:"priority"`
+	ScopeRegion         datatypes.JSON `gorm:"column:scope_region" json:"scope_region,omitempty"`
+	ScopeCP             datatypes.JSON `gorm:"column:scope_cp" json:"scope_cp,omitempty"`
+	SchoolNameMatchType string         `gorm:"column:school_name_match_type;size:16;not null" json:"school_name_match_type"`
+	SchoolNameValues    datatypes.JSON `gorm:"column:school_name_values" json:"school_name_values,omitempty"`
+	CreatedBy           *uint64        `gorm:"column:created_by" json:"created_by,omitempty"`
+	UpdatedBy           *uint64        `gorm:"column:updated_by" json:"updated_by,omitempty"`
+	CreatedAt           time.Time      `gorm:"column:created_at;autoCreateTime" json:"created_at"`
+	UpdatedAt           time.Time      `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
+
+	MatchCount         int64    `gorm:"-" json:"match_count"`
+	MatchedSchoolNames []string `gorm:"-" json:"matched_school_names,omitempty"`
+	MatchedSummary     string   `gorm:"-" json:"matched_summary,omitempty"`
+}
+
+func (RateCustomerFilterRule) TableName() string { return "rate_customer_filter_rules" }
+
 // RateDiscountRule 对应 rate_discount_rule 表
 // 客户费率折损规则主表
 type RateDiscountRule struct {

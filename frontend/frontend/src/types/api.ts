@@ -441,3 +441,41 @@ export interface UpdateSyncRuleRequest {
   overwrite_strategy?: string;
   actions?: any;
 }
+
+export interface FilterRule {
+  id: number;
+  name: string;
+  enabled: boolean;
+  priority: number;
+  scope_region?: any;
+  scope_cp?: any;
+  school_name_match_type?: '' | 'exact' | 'contains';
+  school_name_values?: any;
+  created_by?: number | null;
+  updated_by?: number | null;
+  created_at?: string;
+  updated_at?: string;
+  match_count?: number;
+  matched_school_names?: string[];
+  matched_summary?: string;
+}
+
+export interface CreateFilterRuleRequest {
+  name: string;
+  enabled?: boolean;
+  priority?: number;
+  scope_region?: any;
+  scope_cp?: any;
+  school_name_match_type?: '' | 'exact' | 'contains';
+  school_name_values?: any;
+}
+
+export interface UpdateFilterRuleRequest {
+  name?: string;
+  enabled?: boolean;
+  priority?: number;
+  scope_region?: any;
+  scope_cp?: any;
+  school_name_match_type?: '' | 'exact' | 'contains';
+  school_name_values?: any;
+}

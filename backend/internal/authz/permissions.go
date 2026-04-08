@@ -46,6 +46,8 @@ var BuiltinPermissions = []PermissionDef{
 	// Rates - customer fields & sync rules
 	{Code: "rates.customer_fields.read", Name: "客户费率字段定义查看", Description: s("查看客户费率的自定义字段定义")},
 	{Code: "rates.customer_fields.write", Name: "客户费率字段定义维护", Description: s("新增/修改/删除客户费率的自定义字段定义")},
+	{Code: "rates.filter_rules.read", Name: "客户费率过滤规则查看", Description: s("查看客户费率过滤规则列表")},
+	{Code: "rates.filter_rules.write", Name: "客户费率过滤规则维护", Description: s("新增/修改/删除/排序/启停客户费率过滤规则")},
 	{Code: "rates.sync_rules.read", Name: "客户费率同步规则查看", Description: s("查看客户费率同步规则列表")},
 	{Code: "rates.sync_rules.write", Name: "客户费率同步规则维护", Description: s("新增/修改/删除/排序/启停客户费率同步规则")},
 	{Code: "rates.sync.execute", Name: "客户费率同步执行", Description: s("执行客户费率同步任务")},
