@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"nfa-dashboard/internal/model"
+	"gorm.io/gorm"
 )
 
 // SchoolRepository 学校数据仓库接口
@@ -17,10 +18,10 @@ type SchoolRepository interface {
 	GetAllRegions() ([]string, error)
 	// 获取所有运营商
 	GetAllCPs() ([]string, error)
-	// v2：按用户过滤的地区列表
-	GetRegionsWithUser(userID *uint64) ([]string, error)
-	// v2：按用户过滤的运营商列表
-	GetCPsWithUser(userID *uint64) ([]string, error)
+	// v2：按院校范围过滤的地区列表
+	GetRegionsWithScope(allowedSchoolKeys []model.TrafficScopeSchoolKey) ([]string, error)
+	// v2：按院校范围过滤的运营商列表
+	GetCPsWithScope(allowedSchoolKeys []model.TrafficScopeSchoolKey) ([]string, error)
 	// 根据过滤条件获取流量数据
 	GetTrafficData(filter model.TrafficFilter) ([]model.TrafficResponse, error)
 	// 获取流量汇总数据
@@ -58,22 +59,10 @@ func (r *schoolRepository) GetAllSchools(filter map[string]interface{}, limit, o
 			}
 			continue
 		}
-		// 特殊处理 user_id（用于 v2 按用户过滤）
-		if key == "user_id" {
-			switch v := value.(type) {
-			case uint64:
-				if v > 0 {
-					query = query.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", v)
-				}
-			case *uint64:
-				if v != nil && *v > 0 {
-					query = query.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", *v)
-				}
-			case string:
-				// 兼容字符串形式
-				if v != "" {
-					query = query.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", v)
-				}
+		// 特殊处理 allowed_school_keys（用于 v2 范围过滤）
+		if key == "allowed_school_keys" {
+			if keys, ok := value.([]model.TrafficScopeSchoolKey); ok && len(keys) > 0 {
+				query = applyAllowedSchoolKeysQuery(query, keys)
 			}
 			continue
 		}
@@ -132,12 +121,12 @@ func (r *schoolRepository) GetAllCPs() ([]string, error) {
 	return cps, err
 }
 
-// GetRegionsWithUser v2：按用户过滤可见院校范围的地区列表
-func (r *schoolRepository) GetRegionsWithUser(userID *uint64) ([]string, error) {
+// GetRegionsWithScope v2：按院校范围过滤可见地区列表
+func (r *schoolRepository) GetRegionsWithScope(allowedSchoolKeys []model.TrafficScopeSchoolKey) ([]string, error) {
 	var regions []string
 	q := model.DB.Model(&model.School{})
-	if userID != nil && *userID > 0 {
-		q = q.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", *userID)
+	if len(allowedSchoolKeys) > 0 {
+		q = applyAllowedSchoolKeysQuery(q, allowedSchoolKeys)
 	}
 	if err := q.Distinct().Pluck("region", &regions).Error; err != nil {
 		return nil, err
@@ -145,12 +134,12 @@ func (r *schoolRepository) GetRegionsWithUser(userID *uint64) ([]string, error) 
 	return regions, nil
 }
 
-// GetCPsWithUser v2：按用户过滤可见院校范围的运营商列表
-func (r *schoolRepository) GetCPsWithUser(userID *uint64) ([]string, error) {
+// GetCPsWithScope v2：按院校范围过滤可见运营商列表
+func (r *schoolRepository) GetCPsWithScope(allowedSchoolKeys []model.TrafficScopeSchoolKey) ([]string, error) {
 	var cps []string
 	q := model.DB.Model(&model.School{})
-	if userID != nil && *userID > 0 {
-		q = q.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", *userID)
+	if len(allowedSchoolKeys) > 0 {
+		q = applyAllowedSchoolKeysQuery(q, allowedSchoolKeys)
 	}
 	if err := q.Distinct().Pluck("cp", &cps).Error; err != nil {
 		return nil, err
@@ -241,16 +230,15 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 		query += " AND cp = ?"
 		args = append(args, filter.CP)
 	}
-	if filter.UserID != nil && *filter.UserID > 0 {
-		query += " AND school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)"
-		args = append(args, *filter.UserID)
+	if len(filter.AllowedSchoolKeys) > 0 {
+		query, args = appendAllowedSchoolKeysSQL(query, args, filter.AllowedSchoolKeys)
 	}
 
 	query += " GROUP BY " + strings.Join(groupBy, ", ")
 	query += " ORDER BY create_time ASC, region ASC, cp ASC, school_name ASC"
 
-	log.Printf("[traffic.repo] query window start=%s end=%s region=%s cp=%s school=%s user_id=%v",
-		filter.StartTime.Format(time.RFC3339), filter.EndTime.Format(time.RFC3339), filter.Region, filter.CP, filter.SchoolName, filter.UserID)
+	log.Printf("[traffic.repo] query window start=%s end=%s region=%s cp=%s school=%s scope_source=%s allowed_school_count=%d",
+		filter.StartTime.Format(time.RFC3339), filter.EndTime.Format(time.RFC3339), filter.Region, filter.CP, filter.SchoolName, filter.ScopeSource, len(filter.AllowedSchoolKeys))
 	log.Printf("最终查询SQL: %s", query)
 	log.Printf("查询参数: %v", args)
 
@@ -334,9 +322,9 @@ func (r *schoolRepository) GetTrafficSummary(filter model.TrafficFilter) (model.
 	if filter.CP != "" {
 		query = query.Where("cp = ?", filter.CP)
 	}
-	// v2：按用户过滤可见院校范围
-	if filter.UserID != nil && *filter.UserID > 0 {
-		query = query.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", *filter.UserID)
+	// v2：按范围过滤可见院校范围
+	if len(filter.AllowedSchoolKeys) > 0 {
+		query = applyAllowedSchoolKeysTrafficQuery(query, filter.AllowedSchoolKeys)
 	}
 
 	// 计算总流量
@@ -358,4 +346,43 @@ func (r *schoolRepository) ExistsBySchoolID(schoolID string) (bool, error) {
 		return false, err
 	}
 	return cnt > 0, nil
+}
+
+func applyAllowedSchoolKeysQuery(query *gorm.DB, keys []model.TrafficScopeSchoolKey) *gorm.DB {
+	if len(keys) == 0 {
+		return query
+	}
+	clauses := make([]string, 0, len(keys))
+	args := make([]interface{}, 0, len(keys)*3)
+	for _, key := range keys {
+		clauses = append(clauses, "(school_id = ? AND region = ? AND cp = ?)")
+		args = append(args, key.SchoolID, key.Region, key.CP)
+	}
+	return query.Where("("+strings.Join(clauses, " OR ")+")", args...)
+}
+
+func applyAllowedSchoolKeysTrafficQuery(query *gorm.DB, keys []model.TrafficScopeSchoolKey) *gorm.DB {
+	if len(keys) == 0 {
+		return query
+	}
+	clauses := make([]string, 0, len(keys))
+	args := make([]interface{}, 0, len(keys)*3)
+	for _, key := range keys {
+		clauses = append(clauses, "(school_id = ? AND region = ? AND cp = ?)")
+		args = append(args, key.SchoolID, key.Region, key.CP)
+	}
+	return query.Where("("+strings.Join(clauses, " OR ")+")", args...)
+}
+
+func appendAllowedSchoolKeysSQL(query string, args []interface{}, keys []model.TrafficScopeSchoolKey) (string, []interface{}) {
+	if len(keys) == 0 {
+		return query, args
+	}
+	clauses := make([]string, 0, len(keys))
+	for _, key := range keys {
+		clauses = append(clauses, "(school_id = ? AND region = ? AND cp = ?)")
+		args = append(args, key.SchoolID, key.Region, key.CP)
+	}
+	query += " AND (" + strings.Join(clauses, " OR ") + ")"
+	return query, args
 }

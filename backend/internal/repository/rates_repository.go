@@ -2,6 +2,7 @@ package repository
 
 import (
 	"nfa-dashboard/internal/model"
+	"strings"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -33,6 +34,8 @@ type RatesRepository interface {
 
 	// 根据 region+cp+school_name 获取单条最终客户费率
 	GetFinalCustomerRate(region, cp, schoolName string) (*model.RateFinalCustomer, error)
+	ListDistinctCustomerRegions() ([]string, error)
+	ListDistinctCustomerCPs() ([]string, error)
 }
 
 // CleanupInvalidFinalCustomerRates 清理无效数据：
@@ -49,6 +52,44 @@ WHERE fee_type = 'auto'
 type ratesRepository struct{}
 
 func NewRatesRepository() RatesRepository { return &ratesRepository{} }
+
+func normalizeDistinctOptionValues(items []string) []string {
+	out := make([]string, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		value := strings.TrimSpace(item)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func (r *ratesRepository) listDistinctCustomerColumn(column string) ([]string, error) {
+	values := make([]string, 0)
+	if err := model.DB.Model(&model.RateCustomer{}).
+		Where(column+" IS NOT NULL").
+		Where("TRIM("+column+") <> ''").
+		Distinct(column).
+		Order(column+" ASC").
+		Pluck(column, &values).Error; err != nil {
+		return nil, err
+	}
+	return normalizeDistinctOptionValues(values), nil
+}
+
+func (r *ratesRepository) ListDistinctCustomerRegions() ([]string, error) {
+	return r.listDistinctCustomerColumn("region")
+}
+
+func (r *ratesRepository) ListDistinctCustomerCPs() ([]string, error) {
+	return r.listDistinctCustomerColumn("cp")
+}
 
 // ListCustomerRates 列表查询客户业务费率
 func (r *ratesRepository) ListCustomerRates(filter map[string]interface{}, limit, offset int) ([]model.RateCustomer, int64, error) {

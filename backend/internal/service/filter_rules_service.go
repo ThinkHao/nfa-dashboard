@@ -12,6 +12,7 @@ import (
 
 type FilterRulesService interface {
 	List(name string, enabled *bool, page, pageSize int) ([]model.RateCustomerFilterRule, int64, error)
+	ListOptions() ([]string, []string, error)
 	Create(rule *model.RateCustomerFilterRule) (*model.RateCustomerFilterRule, error)
 	Update(id uint64, updates map[string]interface{}) error
 	Delete(id uint64) error
@@ -57,6 +58,18 @@ func (s *filterRulesService) List(name string, enabled *bool, page, pageSize int
 		items[i].MatchedSummary = summarizeMatchedSchoolNames(names, 10)
 	}
 	return items, total, nil
+}
+
+func (s *filterRulesService) ListOptions() ([]string, []string, error) {
+	regions, err := s.repo.ListDistinctCustomerRegions()
+	if err != nil {
+		return nil, nil, err
+	}
+	cps, err := s.repo.ListDistinctCustomerCPs()
+	if err != nil {
+		return nil, nil, err
+	}
+	return regions, cps, nil
 }
 
 func (s *filterRulesService) Create(rule *model.RateCustomerFilterRule) (*model.RateCustomerFilterRule, error) {

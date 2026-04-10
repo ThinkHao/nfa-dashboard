@@ -64,7 +64,7 @@
     </el-card>
 
     <!-- 新建角色弹窗 -->
-    <el-dialog v-model="createVisible" title="新建角色" width="520px">
+    <el-dialog v-model="createVisible" title="新建角色" width="520px" destroy-on-close>
       <el-form label-width="90px">
         <el-form-item label="角色名" required>
           <el-input v-model="form.name" placeholder="请输入角色名" />
@@ -82,7 +82,7 @@
     </el-dialog>
 
     <!-- 编辑角色弹窗 -->
-    <el-dialog v-model="editVisible" title="编辑角色" width="520px">
+    <el-dialog v-model="editVisible" title="编辑角色" width="520px" destroy-on-close>
       <el-form label-width="90px">
         <el-form-item label="角色名" required>
           <el-input v-model="form.name" placeholder="请输入角色名" />
@@ -100,7 +100,7 @@
     </el-dialog>
 
     <!-- 设置权限弹窗 -->
-    <el-dialog v-model="permVisible" title="设置权限" width="560px">
+    <el-dialog v-model="permVisible" title="设置权限" width="560px" destroy-on-close>
       <div class="mb-8">角色：{{ currentRole?.name }}</div>
       <el-select v-model="selectedPermIds" multiple filterable placeholder="选择权限" class="field-w-full" @visible-change="onPermSelectVisible">
         <el-option v-for="p in allPerms" :key="p.id" :label="p.name" :value="p.id" />
@@ -114,7 +114,7 @@
     </el-dialog>
 
     <!-- 权限预览抽屉 -->
-    <el-drawer v-model="permPreviewVisible" title="角色权限" direction="rtl" size="40%">
+    <el-drawer v-model="permPreviewVisible" title="角色权限" direction="rtl" size="40%" destroy-on-close>
       <div class="mb-8">角色：{{ previewRole?.name }}</div>
       <el-skeleton v-if="previewLoading" :rows="6" animated />
       <el-empty v-else-if="previewPerms.length === 0" description="暂无权限" />
@@ -128,7 +128,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, reactive } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api'
 import type { Role, PermissionLite } from '@/types/api'
@@ -157,6 +157,35 @@ const previewRole = ref<Role | null>(null)
 const previewPerms = ref<PermissionLite[]>([])
 const previewLoading = ref(false)
 
+function resetPopupState() {
+  createVisible.value = false
+  editVisible.value = false
+  permVisible.value = false
+  permPreviewVisible.value = false
+  currentRole.value = null
+  previewRole.value = null
+  previewPerms.value = []
+  selectedPermIds.value = []
+  if (typeof document !== 'undefined') {
+    document.body.classList.remove('el-popup-parent--hidden')
+    document.querySelectorAll('.el-overlay').forEach((node) => {
+      const overlay = node as HTMLElement
+      if (overlay.style.display === 'block' && overlay.textContent?.includes('设置权限')) {
+        overlay.style.display = 'none'
+      }
+      if (overlay.style.display === 'block' && overlay.textContent?.includes('角色权限')) {
+        overlay.style.display = 'none'
+      }
+      if (overlay.style.display === 'block' && overlay.textContent?.includes('新建角色')) {
+        overlay.style.display = 'none'
+      }
+      if (overlay.style.display === 'block' && overlay.textContent?.includes('编辑角色')) {
+        overlay.style.display = 'none'
+      }
+    })
+  }
+}
+
 function formatTime(ts?: string) {
   if (!ts) return ''
   const d = new Date(ts)
@@ -181,7 +210,11 @@ async function fetchData() {
 function onPageChange(p: number) { page.value = p; fetchData() }
 function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; fetchData() }
 
-onMounted(fetchData)
+onMounted(() => {
+  resetPopupState()
+  fetchData()
+})
+onBeforeUnmount(resetPopupState)
 
 function openCreate() {
   form.id = null; form.name = ''; form.description = ''

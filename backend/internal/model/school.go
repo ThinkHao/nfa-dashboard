@@ -68,6 +68,9 @@ type TrafficFilter struct {
 	UseSampling            bool      `form:"-"` // 是否使用采样，内部使用，不从表单获取
 	OriginalExpectedPoints int       `form:"-"` // 原始预期数据点数量，内部使用，不从表单获取
 	UserID                 *uint64   `form:"user_id" json:"user_id"` // v2：按用户可见院校范围过滤（nil/0 表示不启用）
+	AllowedSchoolIDs       []string  `form:"-" json:"-"`
+	AllowedSchoolKeys      []TrafficScopeSchoolKey `form:"-" json:"-"`
+	ScopeSource            string    `form:"-" json:"-"`
 }
 
 // UserSchool 对应 user_schools 表，用于 v2 过滤用途（按用户过滤）

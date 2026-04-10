@@ -10,16 +10,16 @@ import (
 type SchoolService interface {
 	// 获取所有学校
 	GetAllSchools(schoolName, region, cp string, limit, offset int) ([]model.School, int64, error)
-	// v2：按用户过滤的学校列表（userID 为 nil 或 0 表示不过滤）
-	GetAllSchoolsWithUser(schoolName, region, cp, sort string, userID *uint64, limit, offset int) ([]model.School, int64, error)
+	// v2：按院校范围过滤的学校列表（为空时不过滤）
+	GetAllSchoolsWithScope(schoolName, region, cp, sort string, allowedSchoolKeys []model.TrafficScopeSchoolKey, limit, offset int) ([]model.School, int64, error)
 	// 获取所有地区
 	GetAllRegions() ([]string, error)
 	// 获取所有运营商
 	GetAllCPs() ([]string, error)
-	// v2：按用户过滤的地区列表
-	GetRegionsWithUser(userID *uint64) ([]string, error)
-	// v2：按用户过滤的运营商列表
-	GetCPsWithUser(userID *uint64) ([]string, error)
+	// v2：按院校范围过滤的地区列表
+	GetRegionsWithScope(allowedSchoolKeys []model.TrafficScopeSchoolKey) ([]string, error)
+	// v2：按院校范围过滤的运营商列表
+	GetCPsWithScope(allowedSchoolKeys []model.TrafficScopeSchoolKey) ([]string, error)
 	// 根据过滤条件获取流量数据
 	GetTrafficData(filter model.TrafficFilter) ([]model.TrafficResponse, error)
 	// 获取流量汇总数据
@@ -55,8 +55,8 @@ func (s *schoolService) GetAllSchools(schoolName, region, cp string, limit, offs
 	return s.repo.GetAllSchools(filter, limit, offset)
 }
 
-// GetAllSchoolsWithUser v2：支持按用户过滤
-func (s *schoolService) GetAllSchoolsWithUser(schoolName, region, cp, sort string, userID *uint64, limit, offset int) ([]model.School, int64, error) {
+// GetAllSchoolsWithScope v2：支持按院校范围过滤
+func (s *schoolService) GetAllSchoolsWithScope(schoolName, region, cp, sort string, allowedSchoolKeys []model.TrafficScopeSchoolKey, limit, offset int) ([]model.School, int64, error) {
 	filter := make(map[string]interface{})
 	if schoolName != "" {
 		filter["school_name"] = schoolName
@@ -70,8 +70,8 @@ func (s *schoolService) GetAllSchoolsWithUser(schoolName, region, cp, sort strin
 	if sort != "" {
 		filter["sort"] = sort
 	}
-	if userID != nil && *userID > 0 {
-		filter["user_id"] = *userID
+	if len(allowedSchoolKeys) > 0 {
+		filter["allowed_school_keys"] = allowedSchoolKeys
 	}
 	return s.repo.GetAllSchools(filter, limit, offset)
 }
@@ -86,14 +86,14 @@ func (s *schoolService) GetAllCPs() ([]string, error) {
 	return s.repo.GetAllCPs()
 }
 
-// GetRegionsWithUser v2：按用户过滤
-func (s *schoolService) GetRegionsWithUser(userID *uint64) ([]string, error) {
-	return s.repo.GetRegionsWithUser(userID)
+// GetRegionsWithScope v2：按院校范围过滤
+func (s *schoolService) GetRegionsWithScope(allowedSchoolKeys []model.TrafficScopeSchoolKey) ([]string, error) {
+	return s.repo.GetRegionsWithScope(allowedSchoolKeys)
 }
 
-// GetCPsWithUser v2：按用户过滤
-func (s *schoolService) GetCPsWithUser(userID *uint64) ([]string, error) {
-	return s.repo.GetCPsWithUser(userID)
+// GetCPsWithScope v2：按院校范围过滤
+func (s *schoolService) GetCPsWithScope(allowedSchoolKeys []model.TrafficScopeSchoolKey) ([]string, error) {
+	return s.repo.GetCPsWithScope(allowedSchoolKeys)
 }
 
 // GetTrafficData 根据过滤条件获取流量数据

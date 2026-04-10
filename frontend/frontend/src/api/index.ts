@@ -38,6 +38,12 @@ import type {
   CreateSettlementFormulaRequest,
   UpdateSettlementFormulaRequest,
   DiscountedFinalCustomerRate,
+  TrafficScopePreview,
+  TrafficScopeOptionItem,
+  TrafficScopeOptionParams,
+  TrafficScopeRuleGroup,
+  TrafficScopeUserLite,
+  SettlementRuleScopeOptions,
 } from '@/types/api'
 import { api, raw } from './httpClient'
 
@@ -257,6 +263,23 @@ export default {
         return api.post('/api/v1/system/user-schools/owner', data).then(() => undefined)
       },
     },
+    trafficScopes: {
+      listUsers(params?: any): Promise<PaginatedData<TrafficScopeUserLite>> {
+        return api.get('/api/v1/system/traffic-scopes/users', { params }).then((d: any) => d as PaginatedData<TrafficScopeUserLite>)
+      },
+      options(params: TrafficScopeOptionParams): Promise<PaginatedData<TrafficScopeOptionItem>> {
+        return api.get('/api/v1/system/traffic-scopes/options', { params }).then((d: any) => d as PaginatedData<TrafficScopeOptionItem>)
+      },
+      list(userId: number): Promise<PaginatedData<TrafficScopeRuleGroup>> {
+        return api.get(`/api/v1/system/traffic-scopes/${userId}`).then((d: any) => d as PaginatedData<TrafficScopeRuleGroup>)
+      },
+      replace(userId: number, rules: TrafficScopeRuleGroup[]): Promise<void> {
+        return api.put(`/api/v1/system/traffic-scopes/${userId}`, { rules }).then(() => undefined)
+      },
+      preview(userId: number): Promise<TrafficScopePreview> {
+        return api.get(`/api/v1/system/traffic-scopes/${userId}/preview`).then((d: any) => d as TrafficScopePreview)
+      },
+    },
     roles: {
       list(params?: any): Promise<PaginatedData<Role>> {
         return api.get('/api/v1/system/roles', { params }).then((d: any) => d as PaginatedData<Role>)
@@ -378,6 +401,9 @@ export default {
       },
     },
     syncRules: {
+      options(): Promise<SettlementRuleScopeOptions> {
+        return api.get('/api/v1/settlement/rates/sync-rules/options').then((d: any) => d as SettlementRuleScopeOptions)
+      },
       list(params?: any): Promise<PaginatedData<SyncRule>> {
         return api.get('/api/v1/settlement/rates/sync-rules', { params }).then((d: any) => d as PaginatedData<SyncRule>)
       },
@@ -398,6 +424,9 @@ export default {
       },
     },
     filterRules: {
+      options(): Promise<SettlementRuleScopeOptions> {
+        return api.get('/api/v1/settlement/rates/filter-rules/options').then((d: any) => d as SettlementRuleScopeOptions)
+      },
       list(params?: any): Promise<PaginatedData<FilterRule>> {
         return api.get('/api/v1/settlement/rates/filter-rules', { params }).then((d: any) => d as PaginatedData<FilterRule>)
       },

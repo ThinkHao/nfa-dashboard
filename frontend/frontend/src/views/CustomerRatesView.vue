@@ -1,13 +1,20 @@
 <template>
   <div class="rates-view">
-    <h1 class="page-title">客户业务费率</h1>
-    <el-card shadow="never" class="box-card">
+    <div class="page-heading">
+      <div>
+        <h1 class="page-title">客户业务费率</h1>
+        <p class="page-subtitle">集中维护客户费率，统一处理规则同步、过滤排除和导入导出。</p>
+      </div>
+    </div>
+
+    <el-card shadow="never" class="box-card filter-panel">
       <template #header>
         <div class="card-header">
-          <span class="card-title">客户业务费率筛选</span>
           <div>
-            <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
-            <el-button @click="onReset">重置</el-button>
+            <span class="card-title">筛选</span>
+            <p class="card-subtitle">按区域、CP 和学校快速定位客户业务费率。</p>
+          </div>
+          <div class="header-actions">
             <el-button v-if="canManageFilterRules" @click="goFilterRules">过滤规则管理</el-button>
             <el-button v-if="canManageSyncRules" @click="goSyncRules">同步规则管理</el-button>
             <el-button v-if="canManageDiscountRules" @click="goDiscountRules">折损规则管理</el-button>
@@ -17,47 +24,56 @@
         </div>
       </template>
 
-      <el-form :inline="true" :model="query" label-width="90px" class="filter-form">
-        <el-form-item label="区域">
-          <el-select v-model="query.region" clearable filterable placeholder="选择区域" class="field-w-180">
-            <el-option v-for="r in regionOptions" :key="r" :label="r" :value="r" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="CP">
-          <el-select v-model="query.cp" clearable filterable placeholder="选择 CP" class="field-w-180">
-            <el-option v-for="c in cpOptions" :key="c" :label="c" :value="c" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="学校">
-          <el-select
-            v-model="query.school_name"
-            clearable
-            filterable
-            remote
-            :remote-method="remoteSearchSchoolsFilter"
-            :loading="schoolsLoading"
-            placeholder="搜索学校"
-            class="field-w-240"
-          >
-            <el-option v-for="s in schoolOptions" :key="s.name" :label="s.name" :value="s.name">
-              <div class="school-option">
-                <span>{{ s.name }}</span>
-                <span class="school-option-tags">
-                  <el-tag v-if="s.inRate" size="small" type="success">已纳入费率</el-tag>
-                  <el-tag v-else size="small" type="warning">未纳入费率</el-tag>
-                </span>
-              </div>
-            </el-option>
-          </el-select>
-        </el-form-item>
+      <el-form :model="query" label-position="top" class="filter-form">
+        <div class="filter-grid">
+          <el-form-item label="区域" class="filter-item">
+            <el-select v-model="query.region" clearable filterable placeholder="选择区域" class="field-w-full">
+              <el-option v-for="r in regionOptions" :key="r" :label="r" :value="r" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="CP" class="filter-item">
+            <el-select v-model="query.cp" clearable filterable placeholder="选择 CP" class="field-w-full">
+              <el-option v-for="c in cpOptions" :key="c" :label="c" :value="c" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="学校" class="filter-item filter-item-wide">
+            <el-select
+              v-model="query.school_name"
+              clearable
+              filterable
+              remote
+              :remote-method="remoteSearchSchoolsFilter"
+              :loading="schoolsLoading"
+              placeholder="搜索学校"
+              class="field-w-full"
+            >
+              <el-option v-for="s in schoolOptions" :key="s.name" :label="s.name" :value="s.name">
+                <div class="school-option">
+                  <span>{{ s.name }}</span>
+                  <span class="school-option-tags">
+                    <el-tag v-if="s.inRate" size="small" type="success">已纳入费率</el-tag>
+                    <el-tag v-else size="small" type="warning">未纳入费率</el-tag>
+                  </span>
+                </div>
+              </el-option>
+            </el-select>
+          </el-form-item>
+          <div class="filter-actions">
+            <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
+            <el-button @click="onReset">重置</el-button>
+          </div>
+        </div>
       </el-form>
     </el-card>
 
-    <el-card shadow="never" class="box-card mt-2">
+    <el-card shadow="never" class="box-card mt-2 list-panel">
       <template #header>
         <div class="card-header">
           <div class="header-left">
-            <span class="card-title">费率列表</span>
+            <div>
+              <span class="card-title">费率列表</span>
+              <p class="card-subtitle">默认只展示参与过滤后仍保留在结算流程中的院校费率。</p>
+            </div>
             <el-radio-group v-model="settlementTab" size="small" @change="onSettlementTabChange">
               <el-radio-button label="all">全部</el-radio-button>
               <el-radio-button label="ready">参与</el-radio-button>
@@ -65,39 +81,47 @@
             </el-radio-group>
           </div>
           <div class="header-right">
-            <el-popover placement="bottom" trigger="click" width="360">
-              <template #reference>
-                <el-button size="small" class="ml-8">显示开关</el-button>
-              </template>
-              <div class="d-flex gap-16">
-                <div>
-                  <div class="fw-600 mb-4">费率列</div>
-                  <el-checkbox v-model="colVisible.customer_fee">客户费</el-checkbox>
-                  <el-checkbox v-model="colVisible.network_line_fee">线路费</el-checkbox>
-                  <el-checkbox v-model="colVisible.general_fee">节点通用费</el-checkbox>
-                  <el-checkbox v-model="colVisible.channel_rate">渠道费率</el-checkbox>
+            <div class="toolbar-group">
+              <el-popover placement="bottom" trigger="click" width="360">
+                <template #reference>
+                  <el-button size="small">显示开关</el-button>
+                </template>
+                <div class="d-flex gap-16">
+                  <div>
+                    <div class="fw-600 mb-4">费率列</div>
+                    <el-checkbox v-model="colVisible.customer_fee">客户费</el-checkbox>
+                    <el-checkbox v-model="colVisible.network_line_fee">线路费</el-checkbox>
+                    <el-checkbox v-model="colVisible.general_fee">节点通用费</el-checkbox>
+                    <el-checkbox v-model="colVisible.channel_rate">渠道费率</el-checkbox>
+                  </div>
+                  <div>
+                    <div class="fw-600 mb-4">归属/其它</div>
+                    <el-checkbox v-model="colVisible.general_fee_owner">节点通用费归属</el-checkbox>
+                    <el-checkbox v-model="colVisible.customer_fee_owner">客户费归属</el-checkbox>
+                    <el-checkbox v-model="colVisible.network_line_fee_owner">线路费归属</el-checkbox>
+                    <el-checkbox v-model="colVisible.channel_owner">渠道费归属</el-checkbox>
+                    <el-checkbox v-model="colVisible.start_at">存量起算日期</el-checkbox>
+                    <el-checkbox v-model="colVisible.increment_start_at">增量起算日期</el-checkbox>
+                    <el-checkbox v-model="colVisible.stock_ratio">存量占比</el-checkbox>
+                    <el-checkbox v-model="colVisible.increment_ratio">增量占比</el-checkbox>
+                    <el-checkbox v-model="colVisible.extra">扩展</el-checkbox>
+                    <el-checkbox v-model="colVisible.updated_at">更新时间</el-checkbox>
+                  </div>
                 </div>
-                <div>
-                  <div class="fw-600 mb-4">归属/其它</div>
-                  <el-checkbox v-model="colVisible.general_fee_owner">节点通用费归属</el-checkbox>
-                  <el-checkbox v-model="colVisible.customer_fee_owner">客户费归属</el-checkbox>
-                  <el-checkbox v-model="colVisible.network_line_fee_owner">线路费归属</el-checkbox>
-                  <el-checkbox v-model="colVisible.channel_owner">渠道费归属</el-checkbox>
-                  <el-checkbox v-model="colVisible.start_at">存量起算日期</el-checkbox>
-                  <el-checkbox v-model="colVisible.increment_start_at">增量起算日期</el-checkbox>
-                  <el-checkbox v-model="colVisible.stock_ratio">存量占比</el-checkbox>
-                  <el-checkbox v-model="colVisible.increment_ratio">增量占比</el-checkbox>
-                  <el-checkbox v-model="colVisible.extra">扩展</el-checkbox>
-                  <el-checkbox v-model="colVisible.updated_at">更新时间</el-checkbox>
-                </div>
-              </div>
-            </el-popover>
-            <el-button v-if="canExport" size="small" @click="onExport" class="ml-8">导出</el-button>
-            <el-button v-if="canExport" size="small" @click="onExportXlsx" class="ml-4">导出Excel</el-button>
-            <el-button v-if="canExport" size="small" @click="onDownloadTemplate" class="ml-4">下载模板</el-button>
-            <el-button v-if="canImport" size="small" type="primary" @click="onImportClick" :loading="importing" class="ml-4">导入</el-button>
-            <el-checkbox v-if="canImport" v-model="importValidateOnly" class="ml-8">仅校验</el-checkbox>
-            <el-button v-if="lastImportErrors.length>0" size="small" type="danger" plain @click="onExportImportErrors" class="ml-4">导出错误明细</el-button>
+              </el-popover>
+            </div>
+            <div class="toolbar-group">
+              <el-button v-if="canExport" size="small" @click="onExport">导出</el-button>
+              <el-button v-if="canExport" size="small" @click="onExportXlsx">导出Excel</el-button>
+              <el-button v-if="canExport" size="small" @click="onDownloadTemplate">下载模板</el-button>
+            </div>
+            <div class="toolbar-group">
+              <el-button v-if="canImport" size="small" type="primary" @click="onImportClick" :loading="importing">导入</el-button>
+              <label v-if="canImport" class="inline-check">
+                <el-checkbox v-model="importValidateOnly">仅校验</el-checkbox>
+              </label>
+              <el-button v-if="lastImportErrors.length>0" size="small" type="danger" plain @click="onExportImportErrors">导出错误明细</el-button>
+            </div>
             <input ref="fileInput" type="file" accept=".csv, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden-input" @change="onFileChange" />
           </div>
         </div>
@@ -1258,11 +1282,116 @@ watch(() => (form as any).increment_start_at, (val) => {
 
 <style scoped>
 .box-card { margin-bottom: 12px; }
-.card-header { display: flex; justify-content: space-between; align-items: center; }
-.header-left { display: flex; flex-direction: column; align-items: flex-start; row-gap: 8px; }
-.filter-form { row-gap: var(--form-item-gap); }
+
+.filter-panel,
+.list-panel {
+  overflow: hidden;
+}
+
+.page-subtitle {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.card-subtitle {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.header-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+}
+
+.header-right {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+  flex: 1 1 420px;
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+}
+
+.filter-form :deep(.el-form-item) {
+  margin-bottom: 0;
+}
+
+.filter-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(180px, 0.8fr) minmax(240px, 1.4fr) auto;
+  gap: 12px 16px;
+  align-items: end;
+}
+
+.filter-item,
+.filter-item-wide {
+  min-width: 0;
+}
+
+.filter-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
 .pagination { display: flex; justify-content: flex-end; margin-top: 12px; }
 .school-option { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; }
 .school-option-tags { display: inline-flex; gap: 4px; }
-</style>
 
+@media (max-width: 980px) {
+  .filter-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .filter-item-wide,
+  .filter-actions {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 720px) {
+  .filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .header-actions,
+  .header-right {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+</style>

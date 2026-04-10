@@ -12,6 +12,7 @@ type UserSchoolRepository interface {
 	// SetSchoolOwner 以“替换”的方式为 school 设置单一可见用户；
 	// 若 userID 为空或 0，则清空该 school 的所有绑定
 	SetSchoolOwner(schoolID string, userID *uint64) error
+	GetSchoolIDsByUser(userID uint64) ([]string, error)
 }
 
 type userSchoolRepository struct{}
@@ -33,4 +34,16 @@ func (r *userSchoolRepository) SetSchoolOwner(schoolID string, userID *uint64) e
 		}
 		return nil
 	})
+}
+
+func (r *userSchoolRepository) GetSchoolIDsByUser(userID uint64) ([]string, error) {
+	out := make([]string, 0)
+	if userID == 0 {
+		return out, nil
+	}
+	err := model.DB.Model(&model.UserSchool{}).
+		Where("user_id = ?", userID).
+		Order("school_id ASC").
+		Pluck("school_id", &out).Error
+	return out, err
 }

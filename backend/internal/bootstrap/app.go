@@ -23,7 +23,8 @@ func BuildEngine() *gin.Engine {
 
 	schoolRepo := repository.NewSchoolRepository()
 	schoolService := service.NewSchoolService(schoolRepo)
-	schoolController := controller.NewSchoolController(schoolService)
+	trafficScopeRuleRepo := repository.NewTrafficScopeRuleRepository()
+	trafficScopeSchoolRepo := repository.NewTrafficScopeSchoolRepository()
 
 	settlementRepo := repository.NewSettlementRepository()
 	settlementService := service.NewSettlementService(settlementRepo)
@@ -92,6 +93,9 @@ func BuildEngine() *gin.Engine {
 	userSchoolRepo := repository.NewUserSchoolRepository()
 	userSchoolService := service.NewUserSchoolService(userRepo, schoolRepo, userSchoolRepo)
 	userSchoolController := controller.NewSystemUserSchoolController(userSchoolService)
+	trafficScopeService := service.NewTrafficScopeService(trafficScopeRuleRepo, trafficScopeSchoolRepo, userSchoolRepo, userRepo)
+	schoolController := controller.NewSchoolController(schoolService, trafficScopeService)
+	trafficScopeController := controller.NewSystemTrafficScopeController(trafficScopeService, userService, schoolService)
 
 	opLogRepo := repository.NewOperationLogRepository()
 	opLogService := service.NewOperationLogService(opLogRepo)
@@ -191,6 +195,7 @@ func BuildEngine() *gin.Engine {
 
 				filterRules := rates.Group("/filter-rules")
 				{
+					filterRules.GET("/options", authMW.PermissionRequired("rates.filter_rules.read"), filterRulesController.ListOptions)
 					filterRules.GET("", authMW.PermissionRequired("rates.filter_rules.read"), filterRulesController.List)
 					filterRules.POST("", authMW.PermissionRequired("rates.filter_rules.write"), filterRulesController.Create)
 					filterRules.PUT("/:id", authMW.PermissionRequired("rates.filter_rules.write"), filterRulesController.Update)
@@ -201,6 +206,7 @@ func BuildEngine() *gin.Engine {
 
 				rules := rates.Group("/sync-rules")
 				{
+					rules.GET("/options", authMW.PermissionRequired("rates.sync_rules.read"), syncRulesController.ListOptions)
 					rules.GET("", authMW.PermissionRequired("rates.sync_rules.read"), syncRulesController.List)
 					rules.POST("", authMW.PermissionRequired("rates.sync_rules.write"), syncRulesController.Create)
 					rules.PUT("/:id", authMW.PermissionRequired("rates.sync_rules.write"), syncRulesController.Update)
@@ -272,6 +278,11 @@ func BuildEngine() *gin.Engine {
 
 			system.POST("/user-schools/owner", authMW.PermissionRequired("system.user.manage"), userSchoolController.SetOwner)
 			system.GET("/binding/allowed-user-roles", authMW.PermissionRequired("system.user.manage"), bindingController.GetAllowedUserRoles)
+			system.GET("/traffic-scopes/users", authMW.PermissionRequired("traffic.scope.manage"), trafficScopeController.ListUsers)
+			system.GET("/traffic-scopes/options", authMW.PermissionRequired("traffic.scope.manage"), trafficScopeController.ListOptions)
+			system.GET("/traffic-scopes/:user_id", authMW.PermissionRequired("traffic.scope.manage"), trafficScopeController.ListRules)
+			system.PUT("/traffic-scopes/:user_id", authMW.PermissionRequired("traffic.scope.manage"), trafficScopeController.ReplaceRules)
+			system.GET("/traffic-scopes/:user_id/preview", authMW.PermissionRequired("traffic.scope.manage"), trafficScopeController.Preview)
 			system.GET("/operation-logs", authMW.PermissionRequired("operation_logs.read"), opLogController.List)
 			system.GET("/operation-logs/export", authMW.PermissionRequired("operation_logs.read"), opLogController.Export)
 		}

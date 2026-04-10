@@ -143,6 +143,56 @@ export interface SetUserRolesRequest {
   role_ids: number[];
 }
 
+export interface TrafficScopeCondition {
+  id?: number;
+  dimension_type: 'region' | 'cp' | 'school';
+  dimension_value: string;
+  created_at?: string;
+}
+
+export interface TrafficScopeRuleGroup {
+  id?: number;
+  user_id?: number;
+  rule_type: 'allow' | 'deny';
+  conditions: TrafficScopeCondition[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface TrafficScopeUserLite {
+  id: number;
+  username: string;
+  alias?: string;
+  display_name: string;
+  status: number;
+}
+
+export interface TrafficScopeOptionItem {
+  value: string;
+  label: string;
+  dimension: 'region' | 'cp' | 'school';
+  school_id?: string;
+  school_name?: string;
+  region?: string;
+  cp?: string;
+}
+
+export interface TrafficScopeOptionParams {
+  dimension: 'region' | 'cp' | 'school';
+  q?: string;
+  region?: string;
+  cp?: string;
+  limit?: number;
+}
+
+export interface TrafficScopePreview {
+  user_id: number;
+  source: 'policy_rule' | 'legacy_user_school' | 'default_admin_role' | 'none';
+  rules: TrafficScopeRuleGroup[];
+  legacy_school_ids: string[];
+  allowed_schools: School[];
+}
+
 // 新建系统用户请求
 export interface CreateUserRequest {
   username: string;
@@ -478,4 +528,9 @@ export interface UpdateFilterRuleRequest {
   scope_cp?: any;
   school_name_match_type?: '' | 'exact' | 'contains';
   school_name_values?: any;
+}
+
+export interface SettlementRuleScopeOptions {
+  regions: string[];
+  cps: string[];
 }

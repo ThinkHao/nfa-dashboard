@@ -9,6 +9,8 @@ import (
 // FilterRulesRepository 管理 rate_customer_filter_rules 的持久化
 type FilterRulesRepository interface {
 	List(filter map[string]interface{}, limit, offset int) ([]model.RateCustomerFilterRule, int64, error)
+	ListDistinctCustomerRegions() ([]string, error)
+	ListDistinctCustomerCPs() ([]string, error)
 	Create(rule *model.RateCustomerFilterRule) (*model.RateCustomerFilterRule, error)
 	Update(id uint64, updates map[string]interface{}) error
 	Delete(id uint64) error
@@ -20,6 +22,14 @@ type FilterRulesRepository interface {
 type filterRulesRepository struct{}
 
 func NewFilterRulesRepository() FilterRulesRepository { return &filterRulesRepository{} }
+
+func (r *filterRulesRepository) ListDistinctCustomerRegions() ([]string, error) {
+	return (&ratesRepository{}).ListDistinctCustomerRegions()
+}
+
+func (r *filterRulesRepository) ListDistinctCustomerCPs() ([]string, error) {
+	return (&ratesRepository{}).ListDistinctCustomerCPs()
+}
 
 func (r *filterRulesRepository) List(filter map[string]interface{}, limit, offset int) ([]model.RateCustomerFilterRule, int64, error) {
 	var (

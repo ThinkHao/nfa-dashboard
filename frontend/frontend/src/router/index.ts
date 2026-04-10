@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/auth'
 import DefaultLayout from '@/layouts/DefaultLayout.vue'
 import BlankLayout from '@/layouts/BlankLayout.vue'
 import { useTagsViewStore } from '@/stores/tagsView'
+import { cleanupStaleElementOverlays } from '@/utils/overlayCleanup'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -30,6 +31,7 @@ const router = createRouter({
         { path: 'system/users', name: 'system-users', component: () => import('../views/SystemUsersView.vue'), meta: { title: '用户管理', permissions: ['system.user.manage'], order: 80, icon: 'UserFilled' } },
         { path: 'system/roles', name: 'system-roles', component: () => import('../views/SystemRolesView.vue'), meta: { title: '角色管理', permissions: ['system.role.manage'], order: 81, icon: 'Avatar' } },
         { path: 'system/permissions', name: 'system-permissions', component: () => import('../views/SystemPermissionsView.vue'), meta: { title: '权限设置', permissions: ['system.role.manage', 'system.permission.manage'], order: 82, icon: 'Lock' } },
+        { path: 'system/traffic-scopes', name: 'system-traffic-scopes', component: () => import('../views/SystemTrafficScopesView.vue'), meta: { title: '流量范围管理', permissions: ['traffic.scope.manage'], order: 83, icon: 'Connection' } },
       ]
     },
     {
@@ -84,6 +86,11 @@ router.afterEach((to) => {
     if (!isPublicMeta(to.meta)) {
       tags.addRoute(to)
     }
+  } catch {}
+  try {
+    window.setTimeout(() => {
+      cleanupStaleElementOverlays(document)
+    }, 0)
   } catch {}
 })
 

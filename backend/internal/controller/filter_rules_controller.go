@@ -18,6 +18,15 @@ func NewFilterRulesController(svc service.FilterRulesService) *FilterRulesContro
 	return &FilterRulesController{svc: svc}
 }
 
+func (ctl *FilterRulesController) ListOptions(c *gin.Context) {
+	regions, cps, err := ctl.svc.ListOptions()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"regions": regions, "cps": cps})
+}
+
 func (ctl *FilterRulesController) List(c *gin.Context) {
 	page := parseIntDefault(c.Query("page"), 1)
 	pageSize := parseIntDefault(c.Query("page_size"), 10)

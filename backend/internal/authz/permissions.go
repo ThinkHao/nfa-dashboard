@@ -19,6 +19,7 @@ var BuiltinPermissions = []PermissionDef{
 
 	// Traffic monitor
 	{Code: "traffic.read", Name: "流量监控查看", Description: s("查看流量监控面板")},
+	{Code: "traffic.scope.manage", Name: "流量监控范围管理", Description: s("配置用户的流量监控数据可见范围")},
 
 	// School management
 	{Code: "school.read", Name: "学校查看", Description: s("查看学校基础信息与列表")},

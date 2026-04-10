@@ -15,7 +15,8 @@ import (
 
 // SchoolController 学校控制器
 type SchoolController struct {
-	schoolService service.SchoolService
+	schoolService       service.SchoolService
+	trafficScopeService service.TrafficScopeService
 }
 
 func parseTrafficTimeParam(raw string) (time.Time, error) {
@@ -44,18 +45,16 @@ func validateTrafficTimeRange(start, end time.Time) error {
 
 // GetAllRegionsV2 获取所有地区（v2：按 user_id 过滤，普通用户强制为自身；管理员可查看全量或指定 user_id）
 func (c *SchoolController) GetAllRegionsV2(ctx *gin.Context) {
-	var reqUserID *uint64
-	if v := ctx.Query("user_id"); v != "" {
-		if uv, err := strconv.ParseUint(v, 10, 64); err == nil && uv > 0 {
-			reqUserID = &uv
-		}
+	scope, err := c.resolveTrafficScope(ctx)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "解析流量可见范围失败", "error": err.Error()})
+		return
 	}
-	if !hasAnyPermission(ctx, "system.user.manage") {
-		if uid, ok := currentUserID(ctx); ok {
-			reqUserID = &uid
-		}
+	if scope.Source == model.TrafficScopeSourceNone {
+		ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取地区列表成功", "data": []string{}})
+		return
 	}
-	regions, err := c.schoolService.GetRegionsWithUser(reqUserID)
+	regions, err := c.schoolService.GetRegionsWithScope(scope.AllowedSchoolKeys)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取地区列表失败", "error": err.Error()})
 		return
@@ -65,18 +64,16 @@ func (c *SchoolController) GetAllRegionsV2(ctx *gin.Context) {
 
 // GetAllCPsV2 获取所有运营商（v2：按 user_id 过滤，普通用户强制为自身；管理员可查看全量或指定 user_id）
 func (c *SchoolController) GetAllCPsV2(ctx *gin.Context) {
-	var reqUserID *uint64
-	if v := ctx.Query("user_id"); v != "" {
-		if uv, err := strconv.ParseUint(v, 10, 64); err == nil && uv > 0 {
-			reqUserID = &uv
-		}
+	scope, err := c.resolveTrafficScope(ctx)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "解析流量可见范围失败", "error": err.Error()})
+		return
 	}
-	if !hasAnyPermission(ctx, "system.user.manage") {
-		if uid, ok := currentUserID(ctx); ok {
-			reqUserID = &uid
-		}
+	if scope.Source == model.TrafficScopeSourceNone {
+		ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取运营商列表成功", "data": []string{}})
+		return
 	}
-	cps, err := c.schoolService.GetCPsWithUser(reqUserID)
+	cps, err := c.schoolService.GetCPsWithScope(scope.AllowedSchoolKeys)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取运营商列表失败", "error": err.Error()})
 		return
@@ -143,21 +140,20 @@ func (c *SchoolController) GetTrafficDataV2(ctx *gin.Context) {
 		filter.Granularity = g
 	}
 
-	// v2：处理 user_id
-	var reqUserID *uint64
-	if v := ctx.Query("user_id"); v != "" {
-		if uv, err := strconv.ParseUint(v, 10, 64); err == nil && uv > 0 {
-			reqUserID = &uv
-		}
+	scope, err := c.resolveTrafficScope(ctx)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "解析流量可见范围失败", "error": err.Error()})
+		return
 	}
-	if !hasAnyPermission(ctx, "system.user.manage") {
-		if uid, ok := currentUserID(ctx); ok {
-			reqUserID = &uid
-		}
+	if scope.Source == model.TrafficScopeSourceNone {
+		ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取流量数据成功，但没有符合条件的数据", "data": []interface{}{}, "scope_source": scope.Source})
+		return
 	}
-	filter.UserID = reqUserID
-	log.Printf("[traffic.v2] parsed time range start=%s end=%s region=%s cp=%s school=%s user_id=%v",
-		filter.StartTime.Format(time.RFC3339), filter.EndTime.Format(time.RFC3339), filter.Region, filter.CP, filter.SchoolName, filter.UserID)
+	filter.AllowedSchoolIDs = scope.AllowedSchoolIDs
+	filter.AllowedSchoolKeys = scope.AllowedSchoolKeys
+	filter.ScopeSource = scope.Source
+	log.Printf("[traffic.v2] parsed time range start=%s end=%s region=%s cp=%s school=%s scope_source=%s allowed_school_count=%d",
+		filter.StartTime.Format(time.RFC3339), filter.EndTime.Format(time.RFC3339), filter.Region, filter.CP, filter.SchoolName, scope.Source, len(scope.AllowedSchoolKeys))
 
 	// 调用服务
 	trafficData, err := c.schoolService.GetTrafficData(filter)
@@ -191,19 +187,18 @@ func (c *SchoolController) GetTrafficSummaryV2(ctx *gin.Context) {
 	filter.SchoolName = ctx.Query("school_name")
 	filter.Region = ctx.Query("region")
 	filter.CP = ctx.Query("cp")
-	// v2：user_id
-	var reqUserID *uint64
-	if v := ctx.Query("user_id"); v != "" {
-		if uv, err := strconv.ParseUint(v, 10, 64); err == nil && uv > 0 {
-			reqUserID = &uv
-		}
+	scope, err := c.resolveTrafficScope(ctx)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "解析流量可见范围失败", "error": err.Error()})
+		return
 	}
-	if !hasAnyPermission(ctx, "system.user.manage") {
-		if uid, ok := currentUserID(ctx); ok {
-			reqUserID = &uid
-		}
+	if scope.Source == model.TrafficScopeSourceNone {
+		ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取流量汇总数据成功", "data": model.TrafficResponse{}, "scope_source": scope.Source})
+		return
 	}
-	filter.UserID = reqUserID
+	filter.AllowedSchoolIDs = scope.AllowedSchoolIDs
+	filter.AllowedSchoolKeys = scope.AllowedSchoolKeys
+	filter.ScopeSource = scope.Source
 
 	summary, err := c.schoolService.GetTrafficSummary(filter)
 	if err != nil {
@@ -220,41 +215,46 @@ func (c *SchoolController) GetAllSchoolsV2(ctx *gin.Context) {
 	region := ctx.Query("region")
 	cp := ctx.Query("cp")
 	sort := ctx.DefaultQuery("sort", "")
-	// user_id 可选（仅特权用户可自定义），普通用户将被覆盖
-	var reqUserID *uint64
-	if v := ctx.Query("user_id"); v != "" {
-		if uv, err := strconv.ParseUint(v, 10, 64); err == nil && uv > 0 {
-			reqUserID = &uv
-		}
-	}
-
 	// 分页
 	limitStr := ctx.DefaultQuery("limit", "10")
 	offsetStr := ctx.DefaultQuery("offset", "0")
 	limit, _ := strconv.Atoi(limitStr)
 	offset, _ := strconv.Atoi(offsetStr)
 
-	// 权限判断：无管理权限则强制使用自身 user_id
-	// 选用较高权限作为“特权”：system.user.manage
-	if !hasAnyPermission(ctx, "system.user.manage") {
-		if uid, ok := currentUserID(ctx); ok {
-			reqUserID = &uid
-		}
+	scope, err := c.resolveTrafficScope(ctx)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "解析流量可见范围失败", "error": err.Error()})
+		return
 	}
-
-	schools, total, err := c.schoolService.GetAllSchoolsWithUser(schoolName, region, cp, sort, reqUserID, limit, offset)
+	if scope.Source == model.TrafficScopeSourceNone {
+		ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取学校列表成功", "data": gin.H{"total": 0, "items": []model.School{}, "limit": limit, "offset": offset}, "scope_source": scope.Source})
+		return
+	}
+	schools, total, err := c.schoolService.GetAllSchoolsWithScope(schoolName, region, cp, sort, scope.AllowedSchoolKeys, limit, offset)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取学校列表失败", "error": err.Error()})
 		return
 	}
-	ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取学校列表成功", "data": gin.H{"total": total, "items": schools, "limit": limit, "offset": offset}})
+	ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取学校列表成功", "data": gin.H{"total": total, "items": schools, "limit": limit, "offset": offset}, "scope_source": scope.Source})
 }
 
 // NewSchoolController 创建学校控制器实例
-func NewSchoolController(schoolService service.SchoolService) *SchoolController {
+func NewSchoolController(schoolService service.SchoolService, trafficScopeService service.TrafficScopeService) *SchoolController {
 	return &SchoolController{
-		schoolService: schoolService,
+		schoolService:       schoolService,
+		trafficScopeService: trafficScopeService,
 	}
+}
+
+func (c *SchoolController) resolveTrafficScope(ctx *gin.Context) (model.EffectiveTrafficScope, error) {
+	if c.trafficScopeService == nil {
+		return model.EffectiveTrafficScope{Source: model.TrafficScopeSourceNone, AllowedSchoolKeys: []model.TrafficScopeSchoolKey{}, AllowedSchoolIDs: []string{}}, nil
+	}
+	uid, ok := currentUserID(ctx)
+	if !ok || uid == 0 {
+		return model.EffectiveTrafficScope{Source: model.TrafficScopeSourceNone, AllowedSchoolKeys: []model.TrafficScopeSchoolKey{}, AllowedSchoolIDs: []string{}}, nil
+	}
+	return c.trafficScopeService.ResolveEffectiveScope(uid)
 }
 
 // GetAllSchools 获取所有学校

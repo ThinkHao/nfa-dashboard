@@ -13,6 +13,7 @@ import zhCn from 'element-plus/dist/locale/zh-cn.mjs' // 导入中文语言包
 import App from './App.vue'
 import router from './router'
 import { useThemeStore } from '@/stores/theme'
+import { cleanupStaleElementOverlays } from '@/utils/overlayCleanup'
 
 const app = createApp(App)
 const pinia = createPinia()
@@ -33,5 +34,24 @@ app.config.errorHandler = (err, instance, info) => {
   console.error('错误信息:', info)
 }
 
+function installOverlayCleanupHooks() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return
+
+  const cleanup = () => {
+    window.setTimeout(() => {
+      cleanupStaleElementOverlays(document)
+    }, 0)
+  }
+
+  cleanup()
+  window.addEventListener('focus', cleanup)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      cleanup()
+    }
+  })
+}
+
+installOverlayCleanupHooks()
 
 app.mount('#app')

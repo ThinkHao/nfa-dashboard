@@ -1,43 +1,60 @@
 <template>
   <div class="discount-rules-view">
-    <h1 class="page-title">折损规则管理</h1>
+    <div class="page-heading">
+      <div>
+        <h1 class="page-title">折损规则管理</h1>
+        <p class="page-subtitle">按范围和字段维护折损规则，用于后续费率结算的折损计算。</p>
+      </div>
+    </div>
 
-    <el-card shadow="never" class="box-card">
+    <el-card shadow="never" class="box-card filter-panel">
       <template #header>
         <div class="card-header">
-          <span class="card-title">筛选</span>
           <div>
-            <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
-            <el-button @click="onReset">重置</el-button>
+            <span class="card-title">筛选</span>
+            <p class="card-subtitle">按名称、范围和启用状态快速定位折损规则。</p>
+          </div>
+          <div class="header-actions">
             <el-button v-if="canManage" type="success" @click="openEdit()">新增规则</el-button>
           </div>
         </div>
       </template>
 
-      <el-form :inline="true" :model="query" label-width="90px" class="filter-form">
-        <el-form-item label="名称">
-          <el-input v-model="query.name" clearable placeholder="规则名" class="field-w-220" />
-        </el-form-item>
-        <el-form-item label="范围">
-          <el-select v-model="query.scope_type" clearable placeholder="选择范围" class="field-w-160">
-            <el-option label="global" value="global" />
-            <el-option label="region" value="region" />
-            <el-option label="cp" value="cp" />
-            <el-option label="school" value="school" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="启用">
-          <el-select v-model="query.enabled" clearable placeholder="全部" class="field-w-140">
-            <el-option label="是" :value="'true'" />
-            <el-option label="否" :value="'false'" />
-          </el-select>
-        </el-form-item>
+      <el-form :model="query" label-position="top" class="filter-form">
+        <div class="filter-grid">
+          <el-form-item label="名称" class="filter-item">
+            <el-input v-model="query.name" clearable placeholder="规则名" class="field-w-full" />
+          </el-form-item>
+          <el-form-item label="范围" class="filter-item">
+            <el-select v-model="query.scope_type" clearable placeholder="选择范围" class="field-w-full">
+              <el-option label="global" value="global" />
+              <el-option label="region" value="region" />
+              <el-option label="cp" value="cp" />
+              <el-option label="school" value="school" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="启用" class="filter-item filter-item-small">
+            <el-select v-model="query.enabled" clearable placeholder="全部" class="field-w-full">
+              <el-option label="是" :value="'true'" />
+              <el-option label="否" :value="'false'" />
+            </el-select>
+          </el-form-item>
+          <div class="filter-actions">
+            <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
+            <el-button @click="onReset">重置</el-button>
+          </div>
+        </div>
       </el-form>
     </el-card>
 
-    <el-card shadow="never" class="box-card mt-2">
+    <el-card shadow="never" class="box-card mt-2 list-panel">
       <template #header>
-        <div class="card-header"><span class="card-title">折损规则列表</span></div>
+        <div class="card-header">
+          <div>
+            <span class="card-title">折损规则列表</span>
+            <p class="card-subtitle">范围越具体、优先级越靠前的规则越先参与匹配。</p>
+          </div>
+        </div>
       </template>
 
       <el-table :data="items" border stripe height="600px" v-loading="loading">
@@ -58,10 +75,12 @@
         </el-table-column>
         <el-table-column v-if="canManage" label="操作" fixed="right" width="220">
           <template #default="{ row }">
-            <el-button type="primary" link @click="openEdit(row)">编辑</el-button>
-            <el-button type="primary" link @click="openItems(row)">条目</el-button>
-            <el-button type="warning" link @click="toggleEnabled(row)">{{ row.enabled ? '禁用' : '启用' }}</el-button>
-            <el-button type="danger" link @click="onRemove(row)">删除</el-button>
+            <div class="row-actions">
+              <el-button type="primary" link @click="openEdit(row)">编辑</el-button>
+              <el-button type="primary" link @click="openItems(row)">条目</el-button>
+              <el-button type="warning" link @click="toggleEnabled(row)">{{ row.enabled ? '禁用' : '启用' }}</el-button>
+              <el-button type="danger" link @click="onRemove(row)">删除</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -81,57 +100,72 @@
     </el-card>
 
     <!-- 规则基础信息编辑弹窗 -->
-    <el-dialog v-model="editVisible" :title="editForm.id ? '编辑规则' : '新增规则'" width="640px">
-      <el-form :model="editForm" label-width="140px">
-        <el-form-item label="名称" required>
-          <el-input v-model="editForm.name" />
-        </el-form-item>
-        <el-form-item label="范围类型" required>
-          <el-select v-model="editForm.scope_type" class="field-w-200">
-            <el-option label="global" value="global" />
-            <el-option label="region" value="region" />
-            <el-option label="cp" value="cp" />
-            <el-option label="school" value="school" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="editForm.scope_type === 'region'" label="区域">
-          <el-select v-model="editForm.scope_key" filterable placeholder="选择区域" class="field-w-240">
-            <el-option v-for="r in regionOptions" :key="r" :label="r" :value="r" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="editForm.scope_type === 'cp'" label="CP">
-          <el-select v-model="editForm.scope_key" filterable placeholder="选择 CP" class="field-w-240">
-            <el-option v-for="c in cpOptions" :key="c" :label="c" :value="c" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="editForm.scope_type === 'school'" label="学校">
-          <el-select
-            v-model="editForm.scope_key"
-            clearable
-            filterable
-            remote
-            :remote-method="remoteSearchSchools"
-            :loading="schoolsLoading"
-            placeholder="搜索学校"
-            class="field-w-300"
-          >
-            <el-option v-for="s in schoolOptions" :key="s" :label="s" :value="s" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="优先级">
-          <el-input-number v-model="editForm.priority" :min="0" :step="1" />
-        </el-form-item>
-        <el-form-item label="启用">
-          <el-switch v-model="editForm.enabled" />
-        </el-form-item>
-        <el-form-item label="作用字段">
-          <el-checkbox-group v-model="fieldsSelected">
-            <el-checkbox label="customer_fee">客户费率</el-checkbox>
-            <el-checkbox label="network_line_fee">线路费率</el-checkbox>
-            <el-checkbox label="general_fee">节点通用费率</el-checkbox>
-            <el-checkbox label="channel_rate">渠道费率</el-checkbox>
-          </el-checkbox-group>
-        </el-form-item>
+    <el-dialog v-model="editVisible" :title="editForm.id ? '编辑规则' : '新增规则'" width="720px">
+      <el-form :model="editForm" label-position="top" class="rule-form">
+        <div class="dialog-section">
+          <div class="dialog-section-title">基础信息</div>
+          <div class="dialog-grid dialog-grid-basic">
+            <el-form-item label="名称" required class="dialog-item dialog-item-wide">
+              <el-input v-model="editForm.name" />
+            </el-form-item>
+            <el-form-item label="优先级" class="dialog-item">
+              <el-input-number v-model="editForm.priority" :min="0" :step="1" controls-position="right" class="field-w-full" />
+            </el-form-item>
+            <el-form-item label="启用" class="dialog-item">
+              <el-switch v-model="editForm.enabled" />
+            </el-form-item>
+          </div>
+        </div>
+
+        <div class="dialog-section">
+          <div class="dialog-section-title">适用范围</div>
+          <div class="dialog-grid">
+            <el-form-item label="范围类型" required class="dialog-item">
+              <el-select v-model="editForm.scope_type" class="field-w-full">
+                <el-option label="global" value="global" />
+                <el-option label="region" value="region" />
+                <el-option label="cp" value="cp" />
+                <el-option label="school" value="school" />
+              </el-select>
+            </el-form-item>
+            <el-form-item v-if="editForm.scope_type === 'region'" label="区域" class="dialog-item">
+              <el-select v-model="editForm.scope_key" filterable placeholder="选择区域" class="field-w-full">
+                <el-option v-for="r in regionOptions" :key="r" :label="r" :value="r" />
+              </el-select>
+            </el-form-item>
+            <el-form-item v-if="editForm.scope_type === 'cp'" label="CP" class="dialog-item">
+              <el-select v-model="editForm.scope_key" filterable placeholder="选择 CP" class="field-w-full">
+                <el-option v-for="c in cpOptions" :key="c" :label="c" :value="c" />
+              </el-select>
+            </el-form-item>
+            <el-form-item v-if="editForm.scope_type === 'school'" label="学校" class="dialog-item dialog-item-wide">
+              <el-select
+                v-model="editForm.scope_key"
+                clearable
+                filterable
+                remote
+                :remote-method="remoteSearchSchools"
+                :loading="schoolsLoading"
+                placeholder="搜索学校"
+                class="field-w-full"
+              >
+                <el-option v-for="s in schoolOptions" :key="s" :label="s" :value="s" />
+              </el-select>
+            </el-form-item>
+          </div>
+        </div>
+
+        <div class="dialog-section">
+          <div class="dialog-section-title">作用字段</div>
+          <el-form-item label="字段范围">
+            <el-checkbox-group v-model="fieldsSelected" class="field-group">
+              <el-checkbox label="customer_fee">客户费率</el-checkbox>
+              <el-checkbox label="network_line_fee">线路费率</el-checkbox>
+              <el-checkbox label="general_fee">节点通用费率</el-checkbox>
+              <el-checkbox label="channel_rate">渠道费率</el-checkbox>
+            </el-checkbox-group>
+          </el-form-item>
+        </div>
       </el-form>
       <template #footer>
         <el-button @click="editVisible=false">取消</el-button>
@@ -141,12 +175,14 @@
 
     <!-- 规则条目编辑弹窗 -->
     <el-dialog v-model="itemsVisible" title="编辑规则条目" width="960px" :append-to-body="true">
-      <div class="d-flex items-center justify-between mb-8">
-        <div v-if="!itemsAdvancedJsonMode" class="d-flex items-center gap-8">
+      <div class="items-toolbar">
+        <div v-if="!itemsAdvancedJsonMode" class="toolbar-group">
           <el-button @click="onQuickFillStandard">快速填充 100%/75%/25%</el-button>
           <el-button @click="addRow">新增区间</el-button>
         </div>
-        <el-checkbox v-model="itemsAdvancedJsonMode">JSON 编辑</el-checkbox>
+        <label class="inline-check">
+          <el-checkbox v-model="itemsAdvancedJsonMode">JSON 编辑</el-checkbox>
+        </label>
       </div>
       <div v-if="!itemsAdvancedJsonMode">
         <el-table :data="itemsRows" border size="small" max-height="480">
@@ -491,10 +527,146 @@ watch(() => route.query, () => { handleRouteOpen() })
 
 <style scoped>
 .box-card { margin-bottom: 12px; }
-.card-header { display: flex; justify-content: space-between; align-items: center; }
-.filter-form { row-gap: var(--form-item-gap); }
+
+.filter-panel,
+.list-panel {
+  overflow: hidden;
+}
+
+.page-subtitle {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.card-subtitle {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+}
+
+.filter-form :deep(.el-form-item) {
+  margin-bottom: 0;
+}
+
+.filter-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.3fr) minmax(180px, 0.9fr) minmax(160px, 0.7fr) auto;
+  gap: 12px 16px;
+  align-items: end;
+}
+
+.filter-item,
+.dialog-item,
+.dialog-item-wide {
+  min-width: 0;
+}
+
+.filter-item-small {
+  max-width: 220px;
+}
+
+.filter-actions,
+.row-actions,
+.toolbar-group {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.row-actions {
+  align-items: center;
+}
+
+.rule-form {
+  padding-top: 4px;
+}
+
+.dialog-section + .dialog-section {
+  margin-top: 20px;
+}
+
+.dialog-section-title {
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.dialog-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+
+.dialog-grid-basic {
+  grid-template-columns: minmax(0, 1.8fr) minmax(140px, 0.8fr) minmax(120px, 0.6fr);
+}
+
+.field-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+
+.items-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+}
+
 .pagination { display: flex; justify-content: flex-end; margin-top: 12px; }
 .rate-percent { color: var(--text-muted); min-width: 40px; }
+
+@media (max-width: 960px) {
+  .filter-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .filter-actions {
+    grid-column: 1 / -1;
+  }
+
+  .dialog-grid,
+  .dialog-grid-basic {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .header-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
 </style>
 
 
