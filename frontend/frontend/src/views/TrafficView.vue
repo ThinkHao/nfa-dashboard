@@ -5,6 +5,9 @@ import api from '../api'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import FilterPanel from '@/components/ui/FilterPanel.vue'
 import SectionCard from '@/components/ui/SectionCard.vue'
+import SearchSelect from '@/components/ui/SearchSelect.vue'
+import UnifiedDateRange from '@/components/ui/UnifiedDateRange.vue'
+import { buildRangeValue, splitRangeValue } from '@/components/ui/unified-date-range-utils'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart } from 'echarts/charts'
@@ -191,6 +194,15 @@ const queryForm = reactive({
   start_time: '',
   end_time: '',
   timeRange: 'last1h' // 默认选择过去1小时
+})
+
+const customDateRange = computed<[string, string] | null>({
+  get: () => buildRangeValue(queryForm.start_time, queryForm.end_time),
+  set: (value) => {
+    const { start, end } = splitRangeValue(value)
+    queryForm.start_time = start
+    queryForm.end_time = end
+  },
 })
 
 // 是否已选择任一筛选条件（地区/内容方/学校）
@@ -1011,36 +1023,15 @@ function formatDate(date: Date | string, granularity: string) {
     <FilterPanel>
       <ElForm :model="queryForm" label-width="80px" inline class="filter-form">
         <ElFormItem label="地区">
-          <ElSelect v-model="queryForm.region" placeholder="选择地区（可输入）" clearable filterable allow-create default-first-option @change="handleRegionChange" class="field-sm">
-            <ElOption 
-              v-for="region in regions" 
-              :key="region" 
-              :label="region" 
-              :value="region" 
-            />
-          </ElSelect>
+          <SearchSelect v-model="queryForm.region" :options="regions" placeholder="选择地区" clearable @change="handleRegionChange" class="field-sm" />
         </ElFormItem>
         
         <ElFormItem label="CP">
-          <ElSelect v-model="queryForm.cp" placeholder="选择 CP（可输入）" clearable filterable allow-create default-first-option @change="handleCPChange" class="field-sm">
-            <ElOption 
-              v-for="cp in cps" 
-              :key="cp" 
-              :label="cp" 
-              :value="cp" 
-            />
-          </ElSelect>
+          <SearchSelect v-model="queryForm.cp" :options="cps" placeholder="选择 CP" clearable @change="handleCPChange" class="field-sm" />
         </ElFormItem>
         
         <ElFormItem label="学校名称">
-          <ElSelect v-model="queryForm.school_name" placeholder="选择或输入学校" clearable filterable allow-create default-first-option :reserve-keyword="false" class="field-lg">
-            <ElOption 
-              v-for="school in schools" 
-              :key="school.school_name" 
-              :label="school.school_name" 
-              :value="school.school_name" 
-            />
-          </ElSelect>
+          <SearchSelect v-model="queryForm.school_name" :options="schools" label-key="school_name" value-key="school_name" placeholder="选择学校" clearable class="field-lg" />
         </ElFormItem>
         
         <ElFormItem label="时间范围">
@@ -1055,18 +1046,9 @@ function formatDate(date: Date | string, granularity: string) {
           
           <template v-if="queryForm.timeRange === 'custom'">
             <span class="date-separator"></span>
-            <ElDatePicker
-              v-model="queryForm.start_time"
-              type="datetime"
-              placeholder="开始时间"
-              format="YYYY-MM-DD HH:mm:ss"
-              value-format="YYYY-MM-DDTHH:mm:ss.SSSZ"
-            />
-            <span class="date-separator">至</span>
-            <ElDatePicker
-              v-model="queryForm.end_time"
-              type="datetime"
-              placeholder="结束时间"
+            <UnifiedDateRange
+              v-model="customDateRange"
+              type="datetimerange"
               format="YYYY-MM-DD HH:mm:ss"
               value-format="YYYY-MM-DDTHH:mm:ss.SSSZ"
             />

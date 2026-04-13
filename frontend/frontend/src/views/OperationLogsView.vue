@@ -35,14 +35,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="时间范围">
-          <el-date-picker
-            v-model="queryRange"
-            type="datetimerange"
-            range-separator="至"
-            start-placeholder="开始时间"
-            end-placeholder="结束时间"
-            value-format="x"
-          />
+          <UnifiedDateRange v-model="queryRange" type="datetimerange" value-format="x" />
         </el-form-item>
         <el-form-item label="关键词">
           <el-input v-model="query.keyword" placeholder="匹配 path / error" clearable class="field-w-260" />
@@ -100,6 +93,7 @@ import api from '@/api'
 import type { OperationLog, PaginatedData } from '@/types/api'
 import { buildCsvContent, formatExportFilename, triggerBlobDownload } from '@/utils/export'
 import { EXPORT_FILENAME_PREFIX, EXPORT_HEADERS } from '@/utils/export-standards'
+import UnifiedDateRange from '@/components/ui/UnifiedDateRange.vue'
 
 const methods = ['GET','POST','PUT','DELETE','PATCH','OPTIONS','HEAD']
 

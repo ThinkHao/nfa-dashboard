@@ -99,8 +99,10 @@ type trafficScopeUserRepoStub struct {
 	rolesByUser  map[uint64][]model.Role
 }
 
-func (s *trafficScopeUserRepoStub) GetByUsername(username string) (*model.User, error) { return nil, nil }
-func (s *trafficScopeUserRepoStub) GetByID(id uint64) (*model.User, error)             { return nil, nil }
+func (s *trafficScopeUserRepoStub) GetByUsername(username string) (*model.User, error) {
+	return nil, nil
+}
+func (s *trafficScopeUserRepoStub) GetByID(id uint64) (*model.User, error) { return nil, nil }
 func (s *trafficScopeUserRepoStub) GetUserRoles(userID uint64) ([]model.Role, error) {
 	return append([]model.Role(nil), s.rolesByUser[userID]...), nil
 }
@@ -111,7 +113,11 @@ func (s *trafficScopeUserRepoStub) List(username string, status *int8, roles []s
 	return nil, 0, nil
 }
 func (s *trafficScopeUserRepoStub) FindByIDs(ids []uint64) ([]model.User, error) { return nil, nil }
-func (s *trafficScopeUserRepoStub) Create(u *model.User) (*model.User, error)     { return u, nil }
+func (s *trafficScopeUserRepoStub) FindActiveByDisplayNames(names []string) ([]model.User, error) {
+	return nil, nil
+}
+func (s *trafficScopeUserRepoStub) UsernameExists(username string) (bool, error) { return false, nil }
+func (s *trafficScopeUserRepoStub) Create(u *model.User) (*model.User, error)    { return u, nil }
 func (s *trafficScopeUserRepoStub) SetRoles(userID uint64, roleIDs []uint64) error {
 	return nil
 }

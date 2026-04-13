@@ -34,15 +34,11 @@
           </el-select>
         </el-form-item>
         <el-form-item label="日期范围" class="min-w-400">
-          <el-date-picker
+          <UnifiedDateRange
             v-model="dateRange"
             type="daterange"
-            range-separator="至"
-            start-placeholder="开始日期"
-            end-placeholder="结束日期"
             format="YYYY-MM-DD"
-            value-format="YYYY-MM-DD"
-            class="field-w-300"
+            value-format="YYYY-MM-DD HH:mm:ss"
             @change="handleDateRangeChange"
           />
         </el-form-item>
@@ -109,6 +105,7 @@ import type { School } from '../../types/api'
 import { useTasksStore } from '@/stores/tasks'
 import { buildCsvContent, formatExportFilename, triggerBlobDownload } from '@/utils/export'
 import { EXPORT_FILENAME_PREFIX, EXPORT_HEADERS } from '@/utils/export-standards'
+import UnifiedDateRange from '@/components/ui/UnifiedDateRange.vue'
 
 // 定义日95明细数据项接口
 interface DailySettlementDetail {

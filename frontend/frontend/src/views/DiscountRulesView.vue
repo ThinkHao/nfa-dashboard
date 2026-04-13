@@ -129,28 +129,22 @@
               </el-select>
             </el-form-item>
             <el-form-item v-if="editForm.scope_type === 'region'" label="区域" class="dialog-item">
-              <el-select v-model="editForm.scope_key" filterable placeholder="选择区域" class="field-w-full">
-                <el-option v-for="r in regionOptions" :key="r" :label="r" :value="r" />
-              </el-select>
+              <SearchSelect v-model="editForm.scope_key" :options="regionOptions" placeholder="选择区域" class="field-w-full" />
             </el-form-item>
             <el-form-item v-if="editForm.scope_type === 'cp'" label="CP" class="dialog-item">
-              <el-select v-model="editForm.scope_key" filterable placeholder="选择 CP" class="field-w-full">
-                <el-option v-for="c in cpOptions" :key="c" :label="c" :value="c" />
-              </el-select>
+              <SearchSelect v-model="editForm.scope_key" :options="cpOptions" placeholder="选择 CP" class="field-w-full" />
             </el-form-item>
             <el-form-item v-if="editForm.scope_type === 'school'" label="学校" class="dialog-item dialog-item-wide">
-              <el-select
+              <SearchSelect
                 v-model="editForm.scope_key"
                 clearable
-                filterable
                 remote
                 :remote-method="remoteSearchSchools"
                 :loading="schoolsLoading"
+                :options="schoolOptions"
                 placeholder="搜索学校"
                 class="field-w-full"
-              >
-                <el-option v-for="s in schoolOptions" :key="s" :label="s" :value="s" />
-              </el-select>
+              />
             </el-form-item>
           </div>
         </div>
@@ -234,6 +228,7 @@ import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api'
 import { useAuthStore } from '@/stores/auth'
+import SearchSelect from '@/components/ui/SearchSelect.vue'
 
 const auth = useAuthStore()
 const canManage = computed(() => auth.hasPermission('rates.discount_rule.manage'))

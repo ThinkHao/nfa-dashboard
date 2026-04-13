@@ -3,7 +3,6 @@ package controller
 import (
 	"encoding/csv"
 	"encoding/json"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -25,7 +24,12 @@ func parseDateField(raw string) (*time.Time, error) {
 	}
 	layouts := []string{
 		"2006-01-02",
+		"2006/01/02",
 		"2006-01-02 15:04:05",
+		"01-02-06",
+		"1-2-06",
+		"01/02/06",
+		"1/2/06",
 		time.RFC3339,
 	}
 	for _, layout := range layouts {
@@ -39,6 +43,22 @@ func parseDateField(raw string) (*time.Time, error) {
 		}
 	}
 	return nil, service.NewBadRequest("invalid date format, expect YYYY-MM-DD")
+}
+
+func normalizeImportNumericField(raw string) string {
+	s := strings.TrimSpace(raw)
+	s = strings.ReplaceAll(s, ",", "")
+	s = strings.ReplaceAll(s, "，", "")
+	return s
+}
+
+func isBlankImportRecord(cols []string) bool {
+	for _, col := range cols {
+		if strings.TrimSpace(col) != "" {
+			return false
+		}
+	}
+	return true
 }
 
 // SettlementRatesController hosts endpoints under /api/v1/settlement/rates
@@ -438,325 +458,94 @@ func (ctl *SettlementRatesController) ExportCustomerRates(c *gin.Context) {
 // ImportCustomerRates 从 CSV 导入客户业务费率
 // 要求首行包含表头：region,cp,school_name,customer_fee,network_line_fee,general_fee,channel_rate,customer_fee_owner_id,network_line_fee_owner_id,general_fee_owner_id,channel_owner_user_id,start_at,increment_start_at,stock_ratio,increment_ratio
 func (ctl *SettlementRatesController) ImportCustomerRates(c *gin.Context) {
-	file, err := c.FormFile("file")
+	filename, content, resumableToken, validateOnly, autoCreateMissingUsers, err := readCustomerRateImportRequest(c)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "file is required"})
+		if service.IsBadRequest(err) {
+			c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+			return
+		}
+		if strings.Contains(err.Error(), "file is required") {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "file is required"})
+			return
+		}
+		if strings.Contains(err.Error(), "open file failed") {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "open file failed"})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
-	f, err := file.Open()
+
+	header, rows, err := parseCustomerRateImportFile(filename, content)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "open file failed"})
+		if service.IsBadRequest(err) {
+			c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"message": "read import file failed"})
 		return
 	}
-	defer f.Close()
-
-	parseF := func(s string) *float64 {
-		if s == "" {
-			return nil
-		}
-		if v, err := strconv.ParseFloat(s, 64); err == nil {
-			return &v
-		}
-		return nil
-	}
-	parseU := func(s string) *uint64 {
-		if s == "" {
-			return nil
-		}
-		if v, err := strconv.ParseUint(s, 10, 64); err == nil {
-			return &v
-		}
-		return nil
-	}
-	parseRatio := func(s string) (*float64, bool) {
-		if s == "" {
-			return nil, true
-		}
-		vtxt := strings.TrimSpace(strings.TrimSuffix(s, "%"))
-		v, err := strconv.ParseFloat(vtxt, 64)
-		if err != nil {
-			return nil, false
-		}
-		if strings.HasSuffix(strings.TrimSpace(s), "%") || v > 1 {
-			v = v / 100
-		}
-		return &v, true
-	}
-	var affected int
-	errs := make([]map[string]interface{}, 0, 16)
-	validateOnly := func() bool {
-		q := strings.TrimSpace(c.Query("validate_only"))
-		if q == "1" || strings.EqualFold(q, "true") {
-			return true
-		}
-		p := strings.TrimSpace(c.PostForm("validate_only"))
-		if p == "1" || strings.EqualFold(p, "true") {
-			return true
-		}
-		return false
-	}()
-
-	process := func(header []string, rows [][]string) {
-		idx := map[string]int{}
-		fieldLabel := map[string]string{
-			"region":                    "区域",
-			"cp":                        "CP",
-			"school_name":               "学校",
-			"customer_fee":              "客户费率",
-			"network_line_fee":          "线路费率",
-			"general_fee":               "节点通用费率",
-			"channel_rate":              "渠道费率",
-			"customer_fee_owner_id":     "客户费归属用户ID",
-			"network_line_fee_owner_id": "线路费归属用户ID",
-			"general_fee_owner_id":      "节点通用费归属用户ID",
-			"channel_owner_user_id":     "渠道费归属用户ID",
-			"start_at":                  "存量起算日期",
-			"increment_start_at":        "增量起算日期",
-			"stock_ratio":               "存量占比",
-			"increment_ratio":           "增量占比",
-			"daily_increment_value":     "当日增量值",
-		}
-		labelOf := func(key string) string {
-			if v, ok := fieldLabel[key]; ok {
-				return v
-			}
-			return key
-		}
-		normalizeKey := func(key string) string {
-			k := strings.ToLower(strings.TrimSpace(key))
-			switch k {
-			case "区域", "地区":
-				return "region"
-			case "cp":
-				return "cp"
-			case "学校", "学校名称":
-				return "school_name"
-			case "客户费率", "客户费":
-				return "customer_fee"
-			case "线路费率", "线路费":
-				return "network_line_fee"
-			case "节点通用费率", "节点通用费":
-				return "general_fee"
-			case "渠道费率":
-				return "channel_rate"
-			case "客户费归属id", "客户费归属":
-				return "customer_fee_owner_id"
-			case "线路费归属id", "线路费归属":
-				return "network_line_fee_owner_id"
-			case "节点通用费归属id", "节点通用费归属":
-				return "general_fee_owner_id"
-			case "渠道费归属id", "渠道费归属":
-				return "channel_owner_user_id"
-			case "存量起算日期", "起算日期":
-				return "start_at"
-			case "增量起算日期":
-				return "increment_start_at"
-			case "存量占比":
-				return "stock_ratio"
-			case "增量占比":
-				return "increment_ratio"
-			case "当日增量值":
-				return "daily_increment_value"
-			default:
-				return k
-			}
-		}
-		for i, h := range header {
-			idx[normalizeKey(h)] = i
-		}
-		get := func(cols []string, key string) string {
-			if p, ok := idx[key]; ok && p >= 0 && p < len(cols) {
-				return strings.TrimSpace(cols[p])
-			}
-			return ""
-		}
-		lineNo := 1
-		for _, rec := range rows {
-			lineNo++
-			region := get(rec, "region")
-			cp := get(rec, "cp")
-			if region == "" || cp == "" {
-				errs = append(errs, map[string]interface{}{"line": lineNo, "message": "区域 和 CP 为必填"})
-				continue
-			}
-			schoolName := func() *string {
-				s := get(rec, "school_name")
-				if s == "" {
-					return nil
-				}
-				return &s
-			}()
-			cfStr := get(rec, "customer_fee")
-			nlfStr := get(rec, "network_line_fee")
-			gfStr := get(rec, "general_fee")
-			crStr := get(rec, "channel_rate")
-			cfoStr := get(rec, "customer_fee_owner_id")
-			nfoStr := get(rec, "network_line_fee_owner_id")
-			gfoStr := get(rec, "general_fee_owner_id")
-			choStr := get(rec, "channel_owner_user_id")
-			incrementStartAtStr := get(rec, "increment_start_at")
-			stockRatioStr := get(rec, "stock_ratio")
-			incrementRatioStr := get(rec, "increment_ratio")
-
-			customerFee := parseF(cfStr)
-			networkLineFee := parseF(nlfStr)
-			generalFee := parseF(gfStr)
-			channelRate := parseF(crStr)
-			cOwner := parseU(cfoStr)
-			nOwner := parseU(nfoStr)
-			gOwner := parseU(gfoStr)
-			chOwner := parseU(choStr)
-			stockRatio, okStock := parseRatio(stockRatioStr)
-			incrementRatio, okInc := parseRatio(incrementRatioStr)
-
-			if cfStr != "" && customerFee == nil {
-				errs = append(errs, map[string]interface{}{"line": lineNo, "message": labelOf("customer_fee") + " 格式错误"})
-				continue
-			}
-			if nlfStr != "" && networkLineFee == nil {
-				errs = append(errs, map[string]interface{}{"line": lineNo, "message": labelOf("network_line_fee") + " 格式错误"})
-				continue
-			}
-			if gfStr != "" && generalFee == nil {
-				errs = append(errs, map[string]interface{}{"line": lineNo, "message": labelOf("general_fee") + " 格式错误"})
-				continue
-			}
-			if crStr != "" && channelRate == nil {
-				errs = append(errs, map[string]interface{}{"line": lineNo, "message": labelOf("channel_rate") + " 格式错误"})
-				continue
-			}
-			if cfoStr != "" && cOwner == nil {
-				errs = append(errs, map[string]interface{}{"line": lineNo, "message": labelOf("customer_fee_owner_id") + " 格式错误"})
-				continue
-			}
-			if nfoStr != "" && nOwner == nil {
-				errs = append(errs, map[string]interface{}{"line": lineNo, "message": labelOf("network_line_fee_owner_id") + " 格式错误"})
-				continue
-			}
-			if gfoStr != "" && gOwner == nil {
-				errs = append(errs, map[string]interface{}{"line": lineNo, "message": labelOf("general_fee_owner_id") + " 格式错误"})
-				continue
-			}
-			if choStr != "" && chOwner == nil {
-				errs = append(errs, map[string]interface{}{"line": lineNo, "message": labelOf("channel_owner_user_id") + " 格式错误"})
-				continue
-			}
-			if stockRatioStr != "" && !okStock {
-				errs = append(errs, map[string]interface{}{"line": lineNo, "message": labelOf("stock_ratio") + " 格式错误"})
-				continue
-			}
-			if incrementRatioStr != "" && !okInc {
-				errs = append(errs, map[string]interface{}{"line": lineNo, "message": labelOf("increment_ratio") + " 格式错误"})
-				continue
-			}
-
-			var startAtPtr *time.Time
-			if s := get(rec, "start_at"); s != "" {
-				if t, err := time.Parse("2006-01-02", s); err == nil {
-					startAtPtr = &t
-				} else {
-					errs = append(errs, map[string]interface{}{"line": lineNo, "message": labelOf("start_at") + " 格式错误，期望 YYYY-MM-DD"})
-					continue
-				}
-			}
-			var incrementStartAtPtr *time.Time
-			if s := strings.TrimSpace(incrementStartAtStr); s != "" {
-				if t, err := time.Parse("2006-01-02", s); err == nil {
-					incrementStartAtPtr = &t
-				} else {
-					errs = append(errs, map[string]interface{}{"line": lineNo, "message": labelOf("increment_start_at") + " 格式错误，期望 YYYY-MM-DD"})
-					continue
-				}
-			}
-
-			rate := &model.RateCustomer{
-				Region:                region,
-				CP:                    cp,
-				SchoolName:            schoolName,
-				CustomerFee:           customerFee,
-				NetworkLineFee:        networkLineFee,
-				GeneralFee:            generalFee,
-				ChannelRate:           channelRate,
-				CustomerFeeOwnerID:    cOwner,
-				NetworkLineFeeOwnerID: nOwner,
-				GeneralFeeOwnerID:     gOwner,
-				ChannelOwnerUserID:    chOwner,
-				StartAt:               startAtPtr,
-				IncrementStartAt:      incrementStartAtPtr,
-				StockRatio:            stockRatio,
-				IncrementRatio:        incrementRatio,
-			}
-			if customerFee != nil || networkLineFee != nil || generalFee != nil {
-				rate.FeeMode = "configed"
-			}
-			if err := ctl.svc.ValidateCustomerRate(rate); err != nil {
-				errs = append(errs, map[string]interface{}{"line": lineNo, "message": err.Error()})
-				continue
-			}
-			if validateOnly {
-				affected++
-			} else {
-				if err := ctl.svc.UpsertCustomerRate(rate); err == nil {
-					affected++
-				} else {
-					errs = append(errs, map[string]interface{}{"line": lineNo, "message": err.Error()})
-				}
-			}
-		}
+	preparedRows, prepareErrors := prepareCustomerRateImportRows(header, rows)
+	missingUsers, missingLookupErrors, err := collectMissingCustomerRateImportUsers(ctl.svc, preparedRows)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		return
 	}
 
-	nameLower := strings.ToLower(strings.TrimSpace(file.Filename))
-	if strings.HasSuffix(nameLower, ".xlsx") || strings.HasSuffix(nameLower, ".xls") {
-		xl, err := excelize.OpenReader(f)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"message": "read excel failed"})
+	allErrors := append([]customerRateImportError{}, prepareErrors...)
+	allErrors = append(allErrors, missingLookupErrors...)
+
+	if len(missingUsers) > 0 && !autoCreateMissingUsers {
+		token, tokenErr := saveCustomerRateImportSession(filename, content, validateOnly)
+		if tokenErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": tokenErr.Error()})
 			return
 		}
-		defer func() { _ = xl.Close() }()
-		sheets := xl.GetSheetList()
-		if len(sheets) == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"message": "excel has no sheets"})
-			return
-		}
-		rows, err := xl.GetRows(sheets[0])
-		if err != nil || len(rows) == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"message": "read excel rows failed or empty"})
-			return
-		}
-		header := rows[0]
-		data := [][]string{}
-		if len(rows) > 1 {
-			data = rows[1:]
-		}
-		process(header, data)
-	} else {
-		cr := csv.NewReader(f)
-		cr.FieldsPerRecord = -1
-		header, err := cr.Read()
+		c.JSON(http.StatusOK, gin.H{
+			"stage":                 "needs_user_creation",
+			"affected":              0,
+			"errors":                allErrors,
+			"validate_only":         validateOnly,
+			"missing_users":         missingUsers,
+			"can_auto_create_users": true,
+			"resumable_token":       token,
+			"created_users":         []service.CreatedImportUser{},
+		})
+		return
+	}
+
+	createdUsers := make([]service.CreatedImportUser, 0)
+	if autoCreateMissingUsers && len(missingUsers) > 0 {
+		createdUsers, err = ctl.svc.CreateCustomerRateImportUsers(missingUsers)
 		if err != nil {
-			if err == io.EOF {
-				c.JSON(http.StatusBadRequest, gin.H{"message": "empty file"})
+			if service.IsBadRequest(err) {
+				c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 				return
 			}
-			c.JSON(http.StatusBadRequest, gin.H{"message": "read header failed"})
+			c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 			return
 		}
-		rows := make([][]string, 0, 1024)
-		for {
-			rec, err := cr.Read()
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				rows = append(rows, []string{})
-				continue
-			}
-			rows = append(rows, rec)
-		}
-		process(header, rows)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"affected": affected, "errors": errs, "validate_only": validateOnly})
+	affected, executionErrors := executeCustomerRateImportRows(ctl.svc, preparedRows, validateOnly)
+	allErrors = append(allErrors, executionErrors...)
+	if len(createdUsers) > 0 {
+		aliases := make([]string, 0, len(createdUsers))
+		for _, item := range createdUsers {
+			aliases = append(aliases, item.Alias+"("+item.Username+")")
+		}
+		c.Set("auditMessage", "客户费率导入自动创建账号 "+strconv.Itoa(len(createdUsers))+" 个："+strings.Join(aliases, ", "))
+	}
+	deleteCustomerRateImportSession(resumableToken)
+
+	c.JSON(http.StatusOK, gin.H{
+		"stage":         "completed",
+		"affected":      affected,
+		"errors":        allErrors,
+		"validate_only": validateOnly,
+		"created_users": createdUsers,
+		"missing_users": []service.MissingImportUser{},
+	})
 }
 
 func (ctl *SettlementRatesController) CustomerRatesImportTemplate(c *gin.Context) {
@@ -1081,4 +870,3 @@ func (ctl *SettlementRatesController) CleanupInvalidFinalCustomerRates(c *gin.Co
 	}
 	c.JSON(http.StatusOK, gin.H{"affected": affected})
 }
-

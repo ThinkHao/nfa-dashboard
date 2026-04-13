@@ -5,6 +5,7 @@ export const EXPORT_HEADERS = {
   operationLogs: ['时间', '用户ID', '方法', '路径', '状态码', '成功', '耗时(ms)', 'IP', '错误信息'],
   finalCustomerRates: ['区域', 'CP', '学校', '服务日期', '客户费', '客户费(折后)', '线路费', '渠道费率', '客户费归属', '线路费归属', '渠道费归属'],
   customerRatesImportErrors: ['行号', '错误信息'],
+  customerRatesCreatedUsers: ['别名', '用户名', '随机密码'],
 } as const
 
 export const EXPORT_FILENAME_PREFIX = {
@@ -18,5 +19,6 @@ export const EXPORT_FILENAME_PREFIX = {
   customerRates: '客户业务费率',
   customerRatesTemplate: '客户业务费率_导入模板',
   customerRatesImportErrors: '客户业务费率_导入错误明细',
+  customerRatesCreatedUsers: '客户业务费率_自动创建账号明细',
   finalCustomerRates: '最终客户费率',
 } as const

@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -12,6 +13,7 @@ import (
 func Audit() gin.HandlerFunc {
 	// duplicate the context key to avoid import cycle
 	const contextUserKey = "currentUser"
+	const contextAuditMessageKey = "auditMessage"
 	return func(c *gin.Context) {
 		start := time.Now()
 		c.Next()
@@ -38,9 +40,17 @@ func Audit() gin.HandlerFunc {
 
 		latMS := int(latency / time.Millisecond)
 		var errMsg *string
-		if last := c.Errors.Last(); last != nil {
-			s := last.Error()
-			errMsg = &s
+		if v, ok := c.Get(contextAuditMessageKey); ok {
+			if msg, ok := v.(string); ok && strings.TrimSpace(msg) != "" {
+				s := strings.TrimSpace(msg)
+				errMsg = &s
+			}
+		}
+		if errMsg == nil {
+			if last := c.Errors.Last(); last != nil {
+				s := last.Error()
+				errMsg = &s
+			}
 		}
 
 		log := model.OperationLog{

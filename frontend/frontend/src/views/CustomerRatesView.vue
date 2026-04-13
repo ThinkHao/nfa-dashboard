@@ -27,36 +27,34 @@
       <el-form :model="query" label-position="top" class="filter-form">
         <div class="filter-grid">
           <el-form-item label="区域" class="filter-item">
-            <el-select v-model="query.region" clearable filterable placeholder="选择区域" class="field-w-full">
-              <el-option v-for="r in regionOptions" :key="r" :label="r" :value="r" />
-            </el-select>
+            <SearchSelect v-model="query.region" :options="regionOptions" clearable placeholder="选择区域" class="field-w-full" />
           </el-form-item>
           <el-form-item label="CP" class="filter-item">
-            <el-select v-model="query.cp" clearable filterable placeholder="选择 CP" class="field-w-full">
-              <el-option v-for="c in cpOptions" :key="c" :label="c" :value="c" />
-            </el-select>
+            <SearchSelect v-model="query.cp" :options="cpOptions" clearable placeholder="选择 CP" class="field-w-full" />
           </el-form-item>
           <el-form-item label="学校" class="filter-item filter-item-wide">
-            <el-select
+            <SearchSelect
               v-model="query.school_name"
               clearable
-              filterable
               remote
               :remote-method="remoteSearchSchoolsFilter"
               :loading="schoolsLoading"
+              :options="schoolOptions"
+              label-key="name"
+              value-key="name"
               placeholder="搜索学校"
               class="field-w-full"
             >
-              <el-option v-for="s in schoolOptions" :key="s.name" :label="s.name" :value="s.name">
+              <template #option="{ option }">
                 <div class="school-option">
-                  <span>{{ s.name }}</span>
+                  <span>{{ (option as any).name }}</span>
                   <span class="school-option-tags">
-                    <el-tag v-if="s.inRate" size="small" type="success">已纳入费率</el-tag>
+                    <el-tag v-if="(option as any).inRate" size="small" type="success">已纳入费率</el-tag>
                     <el-tag v-else size="small" type="warning">未纳入费率</el-tag>
                   </span>
                 </div>
-              </el-option>
-            </el-select>
+              </template>
+            </SearchSelect>
           </el-form-item>
           <div class="filter-actions">
             <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
@@ -121,6 +119,7 @@
                 <el-checkbox v-model="importValidateOnly">仅校验</el-checkbox>
               </label>
               <el-button v-if="lastImportErrors.length>0" size="small" type="danger" plain @click="onExportImportErrors">导出错误明细</el-button>
+              <el-button v-if="lastCreatedUsers.length>0" size="small" type="success" plain @click="onExportCreatedUsers">导出新建账号</el-button>
             </div>
             <input ref="fileInput" type="file" accept=".csv, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden-input" @change="onFileChange" />
           </div>
@@ -237,36 +236,34 @@
     <el-dialog v-model="dialogVisible" title="新增/更新 客户业务费率" width="720px">
       <el-form :model="form" label-width="140px">
         <el-form-item label="区域" required>
-          <el-select v-model="form.region" filterable placeholder="选择区域" class="field-w-240">
-            <el-option v-for="r in regionOptions" :key="r" :label="r" :value="r" />
-          </el-select>
+          <SearchSelect v-model="form.region" :options="regionOptions" placeholder="选择区域" class="field-w-240" />
         </el-form-item>
         <el-form-item label="CP" required>
-          <el-select v-model="form.cp" filterable placeholder="选择 CP" class="field-w-240">
-            <el-option v-for="c in cpOptions" :key="c" :label="c" :value="c" />
-          </el-select>
+          <SearchSelect v-model="form.cp" :options="cpOptions" placeholder="选择 CP" class="field-w-240" />
         </el-form-item>
         <el-form-item label="学校">
-          <el-select
+          <SearchSelect
             v-model="form.school_name"
             clearable
-            filterable
             remote
             :remote-method="remoteSearchSchoolsDialog"
             :loading="schoolsLoading"
+            :options="schoolOptions"
+            label-key="name"
+            value-key="name"
             placeholder="搜索学校"
             class="field-w-300"
           >
-            <el-option v-for="s in schoolOptions" :key="s.name" :label="s.name" :value="s.name">
+            <template #option="{ option }">
               <div class="school-option">
-                <span>{{ s.name }}</span>
+                <span>{{ (option as any).name }}</span>
                 <span class="school-option-tags">
-                  <el-tag v-if="s.inRate" size="small" type="success">已纳入费率</el-tag>
+                  <el-tag v-if="(option as any).inRate" size="small" type="success">已纳入费率</el-tag>
                   <el-tag v-else size="small" type="warning">未纳入费率</el-tag>
                 </span>
               </div>
-            </el-option>
-          </el-select>
+            </template>
+          </SearchSelect>
         </el-form-item>
         <el-form-item label="存量起算日期">
           <el-date-picker v-model="(form as any).start_at" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" />
@@ -337,85 +334,70 @@
         <el-row :gutter="12">
           <el-col :span="12">
             <el-form-item label="客户费归属">
-              <el-select
+              <SearchSelect
                 v-model="form.customer_fee_owner_id"
-                filterable
                 remote
                 clearable
                 :remote-method="remoteSearchSystemUsers"
                 :loading="ownerUserLoading"
+                :options="ownerUserOptions"
+                label-key="label"
+                value-key="id"
                 placeholder="搜索销售用户（系统用户，受角色配置过滤）"
                 class="field-w-300"
                 @visible-change="(v) => v && remoteSearchSystemUsers('')"
-              >
-                <el-option
-                  v-for="u in ownerUserOptions"
-                  :key="u.id"
-                  :label="u.label"
-                  :value="u.id"
-                />
-              </el-select>
+              />
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="线路费归属">
-              <el-select
+              <SearchSelect
                 v-model="form.network_line_fee_owner_id"
-                filterable
                 remote
                 clearable
                 :remote-method="remoteSearchSystemUsersLine"
                 :loading="ownerUserLineLoading"
+                :options="ownerUserLineOptions"
+                label-key="label"
+                value-key="id"
                 placeholder="搜索线路相关用户（按配置的线路角色过滤）"
                 class="field-w-300"
                 @visible-change="(v) => v && remoteSearchSystemUsersLine('')"
-              >
-                <el-option
-                  v-for="u in ownerUserLineOptions"
-                  :key="u.id"
-                  :label="u.label"
-                  :value="u.id"
-                />
-              </el-select>
+              />
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="节点通用费归属">
-              <el-select
+              <SearchSelect
                 v-model="form.general_fee_owner_id"
-                filterable
                 remote
                 clearable
                 :remote-method="remoteSearchSystemUsersNode"
                 :loading="ownerUserNodeLoading"
+                :options="ownerUserNodeOptions"
+                label-key="label"
+                value-key="id"
                 placeholder="搜索节点供应商（按配置的节点角色过滤）"
                 class="field-w-300"
                 @visible-change="(v) => v && remoteSearchSystemUsersNode('')"
-              >
-                <el-option
-                  v-for="u in ownerUserNodeOptions"
-                  :key="u.id"
-                  :label="u.label"
-                  :value="u.id"
-                />
-              </el-select>
+              />
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="渠道费归属">
-              <el-select
+              <SearchSelect
                 v-model="form.channel_owner_user_id"
-                filterable
                 remote
                 clearable
                 :remote-method="remoteSearchSystemUsersAny"
                 :loading="ownerUserAnyLoading"
+                :options="ownerUserAnyOptions"
+                label-key="label"
+                value-key="id"
                 placeholder="搜索渠道相关用户"
                 class="field-w-300"
                 @visible-change="(v) => v && remoteSearchSystemUsersAny('')"
-              >
-                <el-option v-for="u in ownerUserAnyOptions" :key="u.id" :label="u.label" :value="u.id" />
-              </el-select>
+              />
             </el-form-item>
           </el-col>
         </el-row>
@@ -450,11 +432,13 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api'
-import type { RateCustomer, PaginatedData, UpsertRateCustomerRequest } from '@/types/api'
+import type { RateCustomer, PaginatedData, UpsertRateCustomerRequest, CustomerRateImportResponse, CreatedImportUser } from '@/types/api'
 import { useAuthStore } from '@/stores/auth'
 import { buildCsvContent, formatExportFilename, triggerBlobDownload } from '@/utils/export'
 import { EXPORT_FILENAME_PREFIX, EXPORT_HEADERS } from '@/utils/export-standards'
 import { clampPercent, normalizeRatioPairForEdit, normalizeRatioPayloadForSave } from './customer-rates-ratio'
+import { buildCreatedUsersExportRows, buildMissingUsersPreview, shouldPromptAutoCreateUsers } from './customer-rate-import'
+import SearchSelect from '@/components/ui/SearchSelect.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -775,6 +759,7 @@ function goDiscountRules() { router.push({ name: 'settlement-rates-discount-rule
 const importing = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
 const lastImportErrors = ref<{ line: number; message: string }[]>([])
+const lastCreatedUsers = ref<CreatedImportUser[]>([])
 const importValidateOnly = ref(false)
 async function onExport() {
   try {
@@ -810,22 +795,12 @@ async function onFileChange(e: Event) {
     const fd = new FormData()
     fd.append('file', f)
     if (importValidateOnly.value) fd.append('validate_only', '1')
-    const res = await api.settlementRates.customer.import(fd, { validateOnly: importValidateOnly.value })
-    const affected = Number(res?.affected || 0)
-    const errors = Array.isArray((res as any)?.errors) ? (res as any).errors as Array<{ line: number; message: string }> : []
-    const validateOnly = !!(res as any)?.validate_only
-    if (errors.length > 0) {
-      const preview = errors.slice(0, 20).map((e: any) => `第${e.line}行：${e.message}`).join('\n')
-      const more = errors.length > 20 ? `\n... 其余 ${errors.length - 20} 条未展示` : ''
-      const title = validateOnly ? '仅校验完成（存在错误）' : '导入完成（存在错误）'
-      ElMessageBox.alert(`成功 ${affected} 行，失败 ${errors.length} 行。\n\n${preview}${more}`.replace(/\n/g, '<br/>'), title, { dangerouslyUseHTMLString: true })
-      lastImportErrors.value = errors
-    } else {
-      if (validateOnly) ElMessage.success(`仅校验完成，无错误，校验行数：${affected}`)
-      else ElMessage.success(`已导入，受影响行数：${affected}`)
-      lastImportErrors.value = []
+    const res = await runCustomerRateImport(fd)
+    if (!res) return
+    await showCustomerRateImportResult(res)
+    if (res.stage === 'completed') {
+      fetchData()
     }
-    fetchData()
   } catch (err: any) {
     ElMessage.error(err?.response?.data?.message || err?.message || '导入失败')
   } finally {
@@ -842,6 +817,77 @@ function onExportImportErrors() {
   const content = buildCsvContent(header, dataRows)
   const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
   triggerBlobDownload(blob, formatExportFilename(EXPORT_FILENAME_PREFIX.customerRatesImportErrors, 'csv'))
+}
+
+function onExportCreatedUsers() {
+  const rows = lastCreatedUsers.value || []
+  if (rows.length === 0) { ElMessage.info('暂无可导出的新建账号'); return }
+  const header = [...EXPORT_HEADERS.customerRatesCreatedUsers]
+  const dataRows = buildCreatedUsersExportRows(rows)
+  const content = buildCsvContent(header, dataRows)
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
+  triggerBlobDownload(blob, formatExportFilename(EXPORT_FILENAME_PREFIX.customerRatesCreatedUsers, 'csv'))
+}
+
+async function runCustomerRateImport(fd: FormData): Promise<CustomerRateImportResponse | null> {
+  const res = await api.settlementRates.customer.import(fd, { validateOnly: importValidateOnly.value })
+  if (!shouldPromptAutoCreateUsers(res)) return res
+
+  const missingUsers = Array.isArray(res.missing_users) ? res.missing_users : []
+  const preview = buildMissingUsersPreview(missingUsers, 10)
+  const more = missingUsers.length > 10 ? `<br/>... 其余 ${missingUsers.length - 10} 个未展示` : ''
+  try {
+    await ElMessageBox.confirm(
+      `检测到 ${missingUsers.length} 个未匹配到系统用户的归属名称。确认后将自动创建账号并继续导入。<br/><br/>${preview.replace(/\n/g, '<br/>')}${more}`,
+      '发现未匹配用户',
+      {
+        type: 'warning',
+        confirmButtonText: '创建并继续导入',
+        cancelButtonText: '取消',
+        dangerouslyUseHTMLString: true,
+      },
+    )
+  } catch {
+    lastImportErrors.value = Array.isArray(res.errors) ? res.errors : []
+    lastCreatedUsers.value = []
+    ElMessage.info('已取消自动创建账号，本次未继续导入')
+    return null
+  }
+
+  const resumeFd = new FormData()
+  if (res.resumable_token) resumeFd.append('resumable_token', res.resumable_token)
+  resumeFd.append('auto_create_missing_users', '1')
+  return await api.settlementRates.customer.import(resumeFd, { validateOnly: importValidateOnly.value })
+}
+
+async function showCustomerRateImportResult(res: CustomerRateImportResponse) {
+  const affected = Number(res?.affected || 0)
+  const errors = Array.isArray(res?.errors) ? res.errors : []
+  const validateOnly = !!res?.validate_only
+  const createdUsers = Array.isArray(res?.created_users) ? res.created_users : []
+  lastImportErrors.value = errors
+  lastCreatedUsers.value = createdUsers
+
+  const createdPreview = createdUsers.slice(0, 20).map((item) => `${item.alias}：${item.username} / ${item.password}`).join('\n')
+  const createdMore = createdUsers.length > 20 ? `\n... 其余 ${createdUsers.length - 20} 个未展示` : ''
+
+  if (errors.length > 0 || createdUsers.length > 0) {
+    const errorPreview = errors.slice(0, 20).map((item) => `第${item.line}行：${item.message}`).join('\n')
+    const errorMore = errors.length > 20 ? `\n... 其余 ${errors.length - 20} 条未展示` : ''
+    const title = validateOnly ? '仅校验完成' : '导入完成'
+    const sections = [`成功 ${affected} 行，失败 ${errors.length} 行。`]
+    if (createdUsers.length > 0) {
+      sections.push(`本次自动创建账号 ${createdUsers.length} 个：\n${createdPreview}${createdMore}`)
+    }
+    if (errors.length > 0) {
+      sections.push(`错误明细：\n${errorPreview}${errorMore}`)
+    }
+    await ElMessageBox.alert(sections.join('\n\n').replace(/\n/g, '<br/>'), title, { dangerouslyUseHTMLString: true })
+    return
+  }
+
+  if (validateOnly) ElMessage.success(`仅校验完成，无错误，校验行数：${affected}`)
+  else ElMessage.success(`已导入，受影响行数：${affected}`)
 }
 
 // 切换“参与结算”分类（表头标签）

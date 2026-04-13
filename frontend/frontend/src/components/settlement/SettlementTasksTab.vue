@@ -20,14 +20,11 @@
           </el-select>
         </el-form-item>
         <el-form-item label="日期范围">
-          <el-date-picker
+          <UnifiedDateRange
             v-model="dateRange"
             type="daterange"
-            range-separator="至"
-            start-placeholder="开始日期"
-            end-placeholder="结束日期"
             format="YYYY-MM-DD"
-            value-format="YYYY-MM-DD"
+            value-format="YYYY-MM-DD HH:mm:ss"
           />
         </el-form-item>
         <el-form-item>
@@ -201,15 +198,11 @@
         
         <!-- 周结算任务显示日期范围选择器 -->
         <el-form-item v-else label="周日期范围">
-          <el-date-picker
+          <UnifiedDateRange
             v-model="taskForm.dateRange"
             type="daterange"
-            range-separator="至"
-            start-placeholder="开始日期"
-            end-placeholder="结束日期"
             format="YYYY-MM-DD"
-            value-format="YYYY-MM-DD"
-            :default-time="[new Date(2000, 1, 1, 0, 0, 0), new Date(2000, 1, 1, 23, 59, 59)]"
+            value-format="YYYY-MM-DD HH:mm:ss"
           />
         </el-form-item>
       </el-form>
@@ -231,6 +224,8 @@ import api from '../../api'
 import { useTasksStore } from '@/stores/tasks'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { TaskListResponse, SettlementTask, TaskStatus } from '../../types/settlement'
+import UnifiedDateRange from '@/components/ui/UnifiedDateRange.vue'
+import { normalizeRangeValue } from '@/components/ui/unified-date-range-utils'
 
 // 估算结算任务总工作量：按可见学校的 school_id/region/cp 唯一组合数量
 const combosTotal = ref<number | null>(null)
@@ -303,7 +298,7 @@ const taskDialogTitle = ref('创建结算任务')
 const taskForm = reactive({
   type: 'daily',
   date: '',
-  dateRange: [] as string[]
+  dateRange: null as [string, string] | null
 })
 
 // 获取任务列表
@@ -436,7 +431,7 @@ const createDailyTask = () => {
   taskForm.type = 'daily'
   taskDialogTitle.value = '创建日结算任务'
   taskForm.date = formatDateToYYYYMMDD(new Date())
-  taskForm.dateRange = []
+  taskForm.dateRange = null
   createTaskVisible.value = true
 }
 
@@ -454,10 +449,10 @@ const createWeeklyTask = () => {
   const sunday = new Date(monday)
   sunday.setDate(monday.getDate() + 6) // 设置为当前周的周日
   
-  taskForm.dateRange = [
+  taskForm.dateRange = normalizeRangeValue([
     formatDateToYYYYMMDD(monday),
     formatDateToYYYYMMDD(sunday)
-  ]
+  ], 'daterange', 'YYYY-MM-DD HH:mm:ss')
   
   createTaskVisible.value = true
 }

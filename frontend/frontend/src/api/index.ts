@@ -17,6 +17,7 @@ import type {
   PermissionLite,
   CreateUserRequest,
   RateCustomer,
+  CustomerRateImportResponse,
   UpsertRateCustomerRequest,
   RateNode,
   UpsertRateNodeRequest,
@@ -346,7 +347,7 @@ export default {
           .get('/api/v1/settlement/rates/customer/import-template', { responseType: 'blob' as any })
           .then((d: any) => d as Blob)
       },
-      import(form: FormData, opts?: { validateOnly?: boolean }): Promise<{ affected: number; errors: Array<{ line: number; message: string }>; validate_only?: boolean }> {
+      import(form: FormData, opts?: { validateOnly?: boolean }): Promise<CustomerRateImportResponse> {
         const params: any = {}
         if (opts?.validateOnly) params.validate_only = 1
         return api
@@ -355,7 +356,12 @@ export default {
             const affected = d && typeof d === 'object' && 'affected' in d ? Number((d as any).affected) : 0
             const errors = d && typeof d === 'object' && Array.isArray((d as any).errors) ? (d as any).errors as Array<{ line: number; message: string }> : []
             const validate_only = d && typeof d === 'object' && 'validate_only' in d ? Boolean((d as any).validate_only) : undefined
-            return { affected, errors, validate_only }
+            const stage = d && typeof d === 'object' && 'stage' in d ? String((d as any).stage) as CustomerRateImportResponse['stage'] : undefined
+            const missing_users = d && typeof d === 'object' && Array.isArray((d as any).missing_users) ? (d as any).missing_users as CustomerRateImportResponse['missing_users'] : []
+            const created_users = d && typeof d === 'object' && Array.isArray((d as any).created_users) ? (d as any).created_users as CustomerRateImportResponse['created_users'] : []
+            const can_auto_create_users = d && typeof d === 'object' && 'can_auto_create_users' in d ? Boolean((d as any).can_auto_create_users) : undefined
+            const resumable_token = d && typeof d === 'object' && 'resumable_token' in d ? String((d as any).resumable_token || '') : undefined
+            return { affected, errors, validate_only, stage, missing_users, created_users, can_auto_create_users, resumable_token }
           })
       },
     },

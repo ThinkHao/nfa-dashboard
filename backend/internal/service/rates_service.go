@@ -17,6 +17,10 @@ type RatesService interface {
 	ListCustomerRates(region, cp, schoolName string, settlementReady *bool, page, pageSize int) ([]model.RateCustomer, int64, error)
 	UpsertCustomerRate(rate *model.RateCustomer) error
 	ValidateCustomerRate(rate *model.RateCustomer) error
+	LookupCustomerRateOwnerIDsByDisplayName(names CustomerRateOwnerNames) (CustomerRateOwnerIDs, []MissingCustomerRateOwner, error)
+	ResolveCustomerRateOwnerIDsByDisplayName(rate *model.RateCustomer, names CustomerRateOwnerNames) error
+	PreviewCustomerRateImportUsers(aliases []string) ([]MissingImportUser, error)
+	CreateCustomerRateImportUsers(missing []MissingImportUser) ([]CreatedImportUser, error)
 
 	// 节点业务费率
 	ListNodeRates(region, cp, settlementType string, page, pageSize int) ([]model.RateNode, int64, error)
@@ -43,6 +47,13 @@ type ratesService struct {
 	repo         repository.RatesRepository
 	discountRepo repository.RateDiscountRepository
 	userRepo     repository.UserRepository
+}
+
+type CustomerRateOwnerNames struct {
+	CustomerFeeOwnerName    string
+	NetworkLineFeeOwnerName string
+	GeneralFeeOwnerName     string
+	ChannelOwnerName        string
 }
 
 func NewRatesService(repo repository.RatesRepository, discountRepo repository.RateDiscountRepository, userRepo repository.UserRepository) RatesService {

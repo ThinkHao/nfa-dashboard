@@ -15,9 +15,7 @@
 
       <el-form :inline="true" class="query-form">
         <el-form-item label="用户" required>
-          <el-select v-model="filter.userId" filterable clearable placeholder="请选择用户" class="field-w-240">
-            <el-option v-for="u in userOptions" :key="u.id" :label="u.label" :value="u.id" />
-          </el-select>
+          <SearchSelect v-model="filter.userId" :options="userOptions" label-key="label" value-key="id" clearable placeholder="请选择用户" class="field-w-240" />
         </el-form-item>
         <el-form-item label="粒度">
           <el-select v-model="filter.granularity" class="field-w-120">
@@ -32,12 +30,9 @@
           </el-select>
         </el-form-item>
         <el-form-item label="服务月份">
-          <el-date-picker
+          <UnifiedDateRange
             v-model="monthRange"
             type="monthrange"
-            range-separator="至"
-            start-placeholder="开始月份"
-            end-placeholder="结束月份"
             format="YYYY-MM"
             value-format="YYYY-MM"
             class="field-w-260"
@@ -45,19 +40,13 @@
           />
         </el-form-item>
         <el-form-item label="地区">
-          <el-select v-model="filter.region" clearable filterable class="field-w-160" @change="onRegionChange">
-            <el-option v-for="r in regions" :key="r" :label="r" :value="r" />
-          </el-select>
+          <SearchSelect v-model="filter.region" :options="regions" clearable class="field-w-160" @change="onRegionChange" />
         </el-form-item>
         <el-form-item label="CP">
-          <el-select v-model="filter.cp" clearable filterable class="field-w-160" @change="onCPChange">
-            <el-option v-for="c in cps" :key="c" :label="c" :value="c" />
-          </el-select>
+          <SearchSelect v-model="filter.cp" :options="cps" clearable class="field-w-160" @change="onCPChange" />
         </el-form-item>
         <el-form-item label="学校">
-          <el-select v-model="filter.schoolName" clearable filterable class="field-w-280">
-            <el-option v-for="s in schools" :key="s.school_name" :label="s.school_name" :value="s.school_name" />
-          </el-select>
+          <SearchSelect v-model="filter.schoolName" :options="schools" label-key="school_name" value-key="school_name" clearable class="field-w-280" />
         </el-form-item>
       </el-form>
     </el-card>
@@ -135,6 +124,9 @@ import type { School } from '@/types/api'
 import { buildMonthlyAmountColumnView, normalizeDateText, type MonthlyMetricRow } from './settlement-user-query-utils'
 import { buildCsvContent, formatExportFilename, triggerBlobDownload } from '@/utils/export'
 import { EXPORT_FILENAME_PREFIX, EXPORT_HEADERS } from '@/utils/export-standards'
+import SearchSelect from '@/components/ui/SearchSelect.vue'
+import UnifiedDateRange from '@/components/ui/UnifiedDateRange.vue'
+import { expandMonthRangeToDateTime } from '@/components/ui/unified-date-range-utils'
 
 type Granularity = 'daily' | 'monthly'
 type UserOption = { id: number; label: string }
@@ -181,15 +173,11 @@ function parseMonth(ym: string): Date {
 }
 
 function monthStartDate(ym: string): string {
-  return `${ym}-01`
+  return expandMonthRangeToDateTime(ym, ym).start
 }
 
 function monthEndDate(ym: string): string {
-  const d = parseMonth(ym)
-  const y = d.getFullYear()
-  const m = d.getMonth()
-  const last = new Date(y, m + 1, 0).getDate()
-  return `${ym}-${String(last).padStart(2, '0')}`
+  return expandMonthRangeToDateTime(ym, ym).end
 }
 
 function monthDiffInclusive(startYm: string, endYm: string): number {

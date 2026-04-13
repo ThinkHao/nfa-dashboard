@@ -317,6 +317,35 @@ export interface UpsertRateCustomerRequest {
   extra?: any;
 }
 
+export interface CustomerRateImportError {
+  line: number;
+  message: string;
+}
+
+export interface MissingImportUser {
+  alias: string;
+  suggested_username: string;
+  fields?: string[];
+  lines?: number[];
+}
+
+export interface CreatedImportUser {
+  alias: string;
+  username: string;
+  password: string;
+}
+
+export interface CustomerRateImportResponse {
+  affected: number;
+  errors: CustomerRateImportError[];
+  validate_only?: boolean;
+  stage?: 'needs_user_creation' | 'completed';
+  missing_users?: MissingImportUser[];
+  created_users?: CreatedImportUser[];
+  can_auto_create_users?: boolean;
+  resumable_token?: string;
+}
+
 // 节点业务费率（rate_node）
 export interface RateNode {
   id: number;
