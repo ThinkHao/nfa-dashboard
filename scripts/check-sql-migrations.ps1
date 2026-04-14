@@ -1,21 +1,13 @@
 $ErrorActionPreference = "Stop"
 
-$sqlDir = Join-Path $PSScriptRoot "..\sql"
-$files = Get-ChildItem -Path $sqlDir -File -Filter "*.sql" |
-  Where-Object { $_.Name -match '^\d{3}_.+\.sql$' }
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$guardScript = Join-Path $PSScriptRoot "sql_migration_guard.py"
 
-$allowedDuplicates = @("016", "017")
-$groups = $files | Group-Object { ($_.Name -split '_')[0] } | Where-Object {
-  $_.Count -gt 1 -and $allowedDuplicates -notcontains $_.Name
+if (-not (Test-Path $guardScript)) {
+  throw "Missing guard script: $guardScript"
 }
 
-if ($groups.Count -eq 0) {
-  Write-Host "OK: No new duplicate numeric migration prefixes found."
-  exit 0
+python $guardScript --repo-root $repoRoot check
+if ($LASTEXITCODE -ne 0) {
+  exit $LASTEXITCODE
 }
-
-Write-Host "Found duplicate migration prefixes:" -ForegroundColor Yellow
-foreach ($g in $groups) {
-  Write-Host ("- " + $g.Name + ": " + (($g.Group | Select-Object -ExpandProperty Name) -join ", "))
-}
-exit 1

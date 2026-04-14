@@ -119,10 +119,19 @@ assert_db_schema() {
   log "执行关键 schema 预检"
   local checks=(
     "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer_monthly';|settlement_customer_monthly 表缺失"
+    "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='traffic_scope_rules';|traffic_scope_rules 表缺失"
+    "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='traffic_scope_rule_groups';|traffic_scope_rule_groups 表缺失"
+    "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='traffic_scope_rule_conditions';|traffic_scope_rule_conditions 表缺失"
     "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='rate_customer' AND COLUMN_NAME='increment_start_at';|rate_customer.increment_start_at 列缺失"
     "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='rate_customer' AND COLUMN_NAME='stock_ratio';|rate_customer.stock_ratio 列缺失"
     "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='rate_customer' AND COLUMN_NAME='increment_ratio';|rate_customer.increment_ratio 列缺失"
     "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='rate_customer' AND COLUMN_NAME='daily_increment_value';|rate_customer.daily_increment_value 列缺失"
+    "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer' AND COLUMN_NAME='stock_ratio';|settlement_customer.stock_ratio 列缺失"
+    "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer' AND COLUMN_NAME='increment_ratio';|settlement_customer.increment_ratio 列缺失"
+    "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer' AND COLUMN_NAME='daily_increment_value';|settlement_customer.daily_increment_value 列缺失"
+    "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer_monthly' AND COLUMN_NAME='stock_ratio';|settlement_customer_monthly.stock_ratio 列缺失"
+    "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer_monthly' AND COLUMN_NAME='increment_ratio';|settlement_customer_monthly.increment_ratio 列缺失"
+    "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer_monthly' AND COLUMN_NAME='daily_increment_value';|settlement_customer_monthly.daily_increment_value 列缺失"
   )
   for item in "${checks[@]}"; do
     local sql="${item%%|*}"

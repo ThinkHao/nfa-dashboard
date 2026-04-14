@@ -1,3 +1,4 @@
+-- contract: table=settlement_customer_monthly
 -- 月度聚合快照表（由 settlement_customer 回写）
 CREATE TABLE IF NOT EXISTS `settlement_customer_monthly` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

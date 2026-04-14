@@ -1,3 +1,6 @@
+-- contract: column=settlement_customer_monthly.stock_ratio
+-- contract: column=settlement_customer_monthly.increment_ratio
+-- contract: column=settlement_customer_monthly.daily_increment_value
 -- 为月度快照表补充增量相关字段，支持按月聚合展示（幂等）
 SET @ddl := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer_monthly' AND COLUMN_NAME='stock_ratio')=0,
   'ALTER TABLE `settlement_customer_monthly` ADD COLUMN `stock_ratio` DECIMAL(10,6) NULL COMMENT ''存量占比(0-1)月均快照'' AFTER `channel_owner_user_id`', 'SELECT 1');

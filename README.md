@@ -17,6 +17,30 @@ nfa-dashboard/
 
 ## 开发环境
 
+### SQL 迁移约定
+
+- 增量迁移唯一入口是 `sql/migrations/`
+- 不要在根目录 `sql/` 下新增 `NNN_*.sql`
+- 新建迁移请使用：
+  ```bash
+  python scripts/sql_migration_guard.py create "your migration title"
+  ```
+- 若已经在别处草拟了 SQL，请接管到迁移目录：
+  ```bash
+  python scripts/sql_migration_guard.py adopt "your migration title" --source path/to/file.sql
+  ```
+- 提交前建议运行：
+  ```bash
+  python scripts/sql_migration_guard.py check
+  ```
+- 如果迁移包含 schema 变更，请在文件头声明 contract：
+  ```sql
+  -- contract: none
+  -- contract: table=example_table
+  -- contract: column=example_table.example_column
+  ```
+- 如果迁移引入运行时必需的表或列，请同步更新 `scripts/offline-deploy.sh` 中的 `assert_db_schema()`
+
 ### 前端开发
 
 前端使用Vue 3 + TypeScript + Vite构建。
