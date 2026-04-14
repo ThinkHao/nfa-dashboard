@@ -22,3 +22,4 @@
 - Use `python scripts/sql_migration_guard.py adopt "<title>" --source <path>` to move an existing SQL draft into `sql/migrations`.
 - Run `python scripts/sql_migration_guard.py check` or `scripts/check-sql-migrations.ps1` before PR and release to detect duplicate migration numbers or misplaced numbered SQL files.
 - If a migration adds runtime-required tables or columns, update `scripts/offline-deploy.sh` `assert_db_schema()` in the same change.
+- `sql/dist/install_full.sql` is a release/install artifact, not a guaranteed baseline for replaying `sql/migrations` on an empty database. Add a dedicated baseline before restoring migration replay smoke tests.
