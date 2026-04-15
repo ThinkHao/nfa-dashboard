@@ -6,7 +6,7 @@
         <div class="card-header">
           <span class="card-title">节点业务费率筛选</span>
           <div>
-            <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
+            <QueryActionButton :running="queryCtl.running.value" @trigger="onSearch" />
             <el-button @click="onReset">重置</el-button>
             <el-button v-if="canWrite" type="success" @click="openDialog()">新增/更新</el-button>
           </div>
@@ -110,6 +110,9 @@ import { ElMessage } from 'element-plus'
 import api from '@/api'
 import type { RateNode, PaginatedData, UpsertRateNodeRequest } from '@/types/api'
 import { useAuthStore } from '@/stores/auth'
+import QueryActionButton from '@/components/ui/QueryActionButton.vue'
+import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
+import { usePageRefresh } from '@/composables/usePageRefresh'
 
 const auth = useAuthStore()
 const canWrite = computed(() => auth.hasPermission('rates.node.write'))
@@ -119,6 +122,7 @@ const items = ref<RateNode[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
+const queryCtl = useCancelableQuery()
 
 const query = reactive<{ region?: string; cp?: string; settlement_type?: string }>({})
 
@@ -130,23 +134,24 @@ function buildParams() {
   return p
 }
 
-async function fetchData() {
+async function fetchData(signal?: AbortSignal) {
   loading.value = true
   try {
-    const res: PaginatedData<RateNode> = await api.settlementRates.node.list(buildParams())
+    const res: PaginatedData<RateNode> = await api.settlementRates.node.list(buildParams(), { signal })
     items.value = res.items || []
     total.value = res.total || 0
   } catch (e: any) {
+    if (isAbortError(e)) return
     ElMessage.error(e?.response?.data?.message || e?.message || '加载失败')
   } finally {
     loading.value = false
   }
 }
 
-function onSearch() { page.value = 1; fetchData() }
-function onReset() { Object.assign(query, { region: undefined, cp: undefined, settlement_type: undefined }); page.value=1; pageSize.value=10; fetchData() }
-function onPageChange(p: number) { page.value = p; fetchData() }
-function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; fetchData() }
+function onSearch() { page.value = 1; queryCtl.run((signal) => fetchData(signal), { toggleIfRunning: true }) }
+function onReset() { Object.assign(query, { region: undefined, cp: undefined, settlement_type: undefined }); page.value=1; pageSize.value=10; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
+function onPageChange(p: number) { page.value = p; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
+function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
 
 // Dialog
 const dialogVisible = ref(false)
@@ -165,7 +170,7 @@ async function onSave() {
     await api.settlementRates.node.upsert(form)
     ElMessage.success('保存成功')
     dialogVisible.value = false
-    fetchData()
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '保存失败')
   } finally {
@@ -173,7 +178,10 @@ async function onSave() {
   }
 }
 
-onMounted(fetchData)
+onMounted(() => { queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) })
+usePageRefresh(() => {
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
+})
 </script>
 
 <style scoped>
@@ -182,5 +190,4 @@ onMounted(fetchData)
 .filter-form { row-gap: var(--form-item-gap); }
 .pagination { display: flex; justify-content: flex-end; margin-top: 12px; }
 </style>
-
 

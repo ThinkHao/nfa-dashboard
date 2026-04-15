@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -20,8 +22,11 @@ type SettlementDataController struct {
 // 返回在结算明细中实际被使用过的“渠道归属用户”（系统用户）去重列表
 func (c *SettlementDataController) ListUsedChannelOwners(ctx *gin.Context) {
 	filter := parseSettlementFilter(ctx)
-	items, err := c.dataSvc.ListUsedChannelOwners(filter)
+	items, err := c.dataSvc.ListUsedChannelOwners(ctx.Request.Context(), filter)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询渠道归属用户失败", "error": err.Error()})
 		return
 	}
@@ -32,8 +37,11 @@ func (c *SettlementDataController) ListUsedChannelOwners(ctx *gin.Context) {
 // 统一返回费用归属主体的去重列表（仅 system user）
 func (c *SettlementDataController) ListUsedOwnerSubjects(ctx *gin.Context) {
 	filter := parseSettlementFilter(ctx)
-	items, err := c.dataSvc.ListUsedOwnerSubjects(filter)
+	items, err := c.dataSvc.ListUsedOwnerSubjects(ctx.Request.Context(), filter)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询费用归属主体失败", "error": err.Error()})
 		return
 	}
@@ -44,8 +52,11 @@ func (c *SettlementDataController) ListUsedOwnerSubjects(ctx *gin.Context) {
 // 返回在结算明细中实际被使用过的业务对象（费用归属：客户费/线路费/节点通用费）去重列表
 func (c *SettlementDataController) ListUsedOwnerEntities(ctx *gin.Context) {
 	filter := parseSettlementFilter(ctx)
-	items, err := c.dataSvc.ListUsedOwnerEntities(filter)
+	items, err := c.dataSvc.ListUsedOwnerEntities(ctx.Request.Context(), filter)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询费用归属对象失败", "error": err.Error()})
 		return
 	}
@@ -114,8 +125,11 @@ func (c *SettlementDataController) ListCustomerData(ctx *gin.Context) {
 			channelPtr = &cuv
 		}
 	}
-	items, total, err := c.dataSvc.List(service.SettlementCustomerFilter{Region: region, CP: cp, School: school, Start: startPtr, End: endPtr, OwnerEntityID: ownerPtr, ChannelOwnerUserID: channelPtr}, page, size)
+	items, total, err := c.dataSvc.List(ctx.Request.Context(), service.SettlementCustomerFilter{Region: region, CP: cp, School: school, Start: startPtr, End: endPtr, OwnerEntityID: ownerPtr, ChannelOwnerUserID: channelPtr}, page, size)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询结算数据失败", "error": err.Error()})
 		return
 	}
@@ -161,7 +175,7 @@ func (c *SettlementDataController) ListCustomerMonthlyData(ctx *gin.Context) {
 			channelPtr = &cuv
 		}
 	}
-	items, total, err := c.dataSvc.ListMonthly(service.SettlementCustomerFilter{
+	items, total, err := c.dataSvc.ListMonthly(ctx.Request.Context(), service.SettlementCustomerFilter{
 		Region:             region,
 		CP:                 cp,
 		School:             school,
@@ -171,6 +185,9 @@ func (c *SettlementDataController) ListCustomerMonthlyData(ctx *gin.Context) {
 		ChannelOwnerUserID: channelPtr,
 	}, page, size)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询月度结算数据失败", "error": err.Error()})
 		return
 	}
@@ -229,8 +246,11 @@ func (c *SettlementDataController) ExportCustomerData(ctx *gin.Context) {
 			channelPtr = &cuv
 		}
 	}
-	rows, err := c.dataSvc.ListAll(service.SettlementCustomerFilter{Region: region, CP: cp, School: school, Start: startPtr, End: endPtr, OwnerEntityID: ownerPtr, ChannelOwnerUserID: channelPtr})
+	rows, err := c.dataSvc.ListAll(ctx.Request.Context(), service.SettlementCustomerFilter{Region: region, CP: cp, School: school, Start: startPtr, End: endPtr, OwnerEntityID: ownerPtr, ChannelOwnerUserID: channelPtr})
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "导出失败", "error": err.Error()})
 		return
 	}

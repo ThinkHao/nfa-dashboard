@@ -5,7 +5,7 @@
       <div class="card-header">
         <span class="card-title">查询条件</span>
         <div>
-          <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
+          <QueryActionButton :running="queryCtl.running.value" @trigger="onSearch" />
           <el-button @click="onReset">重置</el-button>
           <el-button type="primary" plain @click="openCreateUser">新建用户</el-button>
         </div>
@@ -146,12 +146,16 @@ import type { SystemUser, Role } from '@/types/api'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import FilterPanel from '@/components/ui/FilterPanel.vue'
 import SectionCard from '@/components/ui/SectionCard.vue'
+import QueryActionButton from '@/components/ui/QueryActionButton.vue'
+import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
+import { usePageRefresh } from '@/composables/usePageRefresh'
 
 const loading = ref(false)
 const items = ref<SystemUser[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
+const queryCtl = useCancelableQuery()
 
 const query = reactive<{ username?: string; status?: number }>({})
 
@@ -191,13 +195,14 @@ function buildParams() {
   return p
 }
 
-async function fetchData() {
+async function fetchData(signal?: AbortSignal) {
   loading.value = true
   try {
-    const res = await api.system.users.list(buildParams())
+    const res = await api.system.users.list(buildParams(), { signal })
     items.value = res.items || []
     total.value = res.total || 0
   } catch (e: any) {
+    if (isAbortError(e)) return
     ElMessage.error(e?.response?.data?.message || e?.message || '加载失败')
   } finally {
     loading.value = false
@@ -234,7 +239,7 @@ async function submitCreateUser() {
     await api.system.users.create(payload)
     ElMessage.success('创建成功')
     createDialogVisible.value = false
-    fetchData()
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '创建失败')
   } finally {
@@ -242,12 +247,15 @@ async function submitCreateUser() {
   }
 }
 
-function onSearch() { page.value = 1; fetchData() }
-function onReset() { Object.assign(query, { username: undefined, status: undefined }); page.value = 1; pageSize.value = 10; fetchData() }
-function onPageChange(p: number) { page.value = p; fetchData() }
-function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; fetchData() }
+function onSearch() { page.value = 1; queryCtl.run((signal) => fetchData(signal), { toggleIfRunning: true }) }
+function onReset() { Object.assign(query, { username: undefined, status: undefined }); page.value = 1; pageSize.value = 10; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
+function onPageChange(p: number) { page.value = p; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
+function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
 
-onMounted(fetchData)
+onMounted(() => { queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) })
+usePageRefresh(() => {
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
+})
 
 async function toggleStatus(row: SystemUser) {
   const next = row.status === 1 ? 0 : 1
@@ -258,7 +266,7 @@ async function toggleStatus(row: SystemUser) {
   try {
     await api.system.users.updateStatus(row.id, { status: next })
     ElMessage.success('操作成功')
-    fetchData()
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '操作失败')
   } finally {
@@ -290,7 +298,7 @@ async function submitAssignRoles() {
     await api.system.users.setRoles(roleDialogUser.value.id, { role_ids: selectedRoleIds.value })
     ElMessage.success('分配成功')
     roleDialogVisible.value = false
-    fetchData()
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '分配失败')
   } finally {
@@ -314,7 +322,7 @@ async function submitEditAlias() {
     await api.system.users.updateAlias(editAliasUser.value.id, { alias: trimmed || null })
     ElMessage.success('更新成功')
     editAliasDialogVisible.value = false
-    fetchData()
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '更新失败')
   } finally {
@@ -332,5 +340,4 @@ async function submitEditAlias() {
 .field-sm:deep(.el-input__wrapper),
 .field-sm:deep(.el-select__wrapper) { width: 140px !important; }
 </style>
-
 

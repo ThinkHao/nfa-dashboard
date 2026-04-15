@@ -23,9 +23,9 @@ type SchoolRepository interface {
 	// v2：按院校范围过滤的运营商列表
 	GetCPsWithScope(allowedSchoolKeys []model.TrafficScopeSchoolKey) ([]string, error)
 	// 根据过滤条件获取流量数据
-	GetTrafficData(filter model.TrafficFilter) ([]model.TrafficResponse, error)
+	GetTrafficData(ctx context.Context, filter model.TrafficFilter) ([]model.TrafficResponse, error)
 	// 获取流量汇总数据
-	GetTrafficSummary(filter model.TrafficFilter) (model.TrafficResponse, error)
+	GetTrafficSummary(ctx context.Context, filter model.TrafficFilter) (model.TrafficResponse, error)
 	// ExistsBySchoolID 检查学校是否存在
 	ExistsBySchoolID(schoolID string) (bool, error)
 }
@@ -148,7 +148,7 @@ func (r *schoolRepository) GetCPsWithScope(allowedSchoolKeys []model.TrafficScop
 }
 
 // GetTrafficData 根据过滤条件获取流量数据
-func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.TrafficResponse, error) {
+func (r *schoolRepository) GetTrafficData(ctx context.Context, filter model.TrafficFilter) ([]model.TrafficResponse, error) {
 	var results []model.TrafficResponse
 
 	// 统一时间到本地时区，避免前端使用 RFC3339(Z/UTC) 传参时与库内 DATETIME(+08:00) 比较产生错位
@@ -242,8 +242,10 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 	log.Printf("最终查询SQL: %s", query)
 	log.Printf("查询参数: %v", args)
 
-	backgroundCtx := context.Background()
-	ctxWithTimeout, cancel := context.WithTimeout(backgroundCtx, 60*time.Second)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
 	rows, err := model.DB.WithContext(ctxWithTimeout).Raw(query, args...).Rows()
@@ -261,6 +263,11 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 	batch := make([]model.TrafficResponse, 0, batchSize)
 
 	for rows.Next() {
+		select {
+		case <-ctxWithTimeout.Done():
+			return nil, ctxWithTimeout.Err()
+		default:
+		}
 		var result model.TrafficResponse
 		var createTime time.Time
 		err := rows.Scan(&createTime, &result.SchoolID, &result.SchoolName, &result.Region, &result.CP, &result.TotalRecv, &result.TotalSend)
@@ -300,11 +307,14 @@ func (r *schoolRepository) GetTrafficData(filter model.TrafficFilter) ([]model.T
 }
 
 // GetTrafficSummary 获取流量汇总数据
-func (r *schoolRepository) GetTrafficSummary(filter model.TrafficFilter) (model.TrafficResponse, error) {
+func (r *schoolRepository) GetTrafficSummary(ctx context.Context, filter model.TrafficFilter) (model.TrafficResponse, error) {
 	var result model.TrafficResponse
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
 	// 构建查询
-	query := model.DB.Table("nfa_school_traffic")
+	query := model.DB.WithContext(ctx).Table("nfa_school_traffic")
 
 	// 应用过滤条件
 	if !filter.StartTime.IsZero() {

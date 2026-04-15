@@ -20,7 +20,7 @@
           @keyup.enter="onSearch"
           @clear="onSearch"
         />
-        <el-button type="primary" @click="onSearch">查询</el-button>
+        <QueryActionButton :running="queryCtl.running.value" @trigger="onSearch" />
         <el-button @click="onReset">重置</el-button>
       </div>
     </el-card>
@@ -115,6 +115,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api'
 import type { PermissionLite } from '@/types/api'
 import { useAuthStore } from '@/stores/auth'
+import QueryActionButton from '@/components/ui/QueryActionButton.vue'
+import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
+import { usePageRefresh } from '@/composables/usePageRefresh'
 
 const loading = ref(false)
 const items = ref<PermissionLite[]>([])
@@ -122,6 +125,7 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
 const keyword = ref('')
+const queryCtl = useCancelableQuery()
 
 const auth = useAuthStore()
 const canManage = computed(() => auth.hasPermission('system.permission.manage'))
@@ -133,23 +137,24 @@ const editForm = reactive({ id: 0 as number, code: '', name: '', description: ''
 
 function buildParams() { return { page: page.value, page_size: pageSize.value, keyword: keyword.value || undefined } }
 
-async function fetchData() {
+async function fetchData(signal?: AbortSignal) {
   loading.value = true
   try {
-    const res = await api.system.permissions.list(buildParams())
+    const res = await api.system.permissions.list(buildParams(), { signal })
     items.value = res.items || []
     total.value = res.total || 0
   } catch (e: any) {
+    if (isAbortError(e)) return
     ElMessage.error(e?.response?.data?.message || e?.message || '加载失败')
   } finally {
     loading.value = false
   }
 }
 
-function onPageChange(p: number) { page.value = p; fetchData() }
-function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; fetchData() }
-function onSearch() { page.value = 1; fetchData() }
-function onReset() { keyword.value = ''; page.value = 1; fetchData() }
+function onPageChange(p: number) { page.value = p; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
+function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
+function onSearch() { page.value = 1; queryCtl.run((signal) => fetchData(signal), { toggleIfRunning: true }) }
+function onReset() { keyword.value = ''; page.value = 1; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
 function groupOf(p: PermissionLite) {
   const code = p.code || p.name || ''
   if (!code) return '-'
@@ -173,7 +178,7 @@ async function onCreate() {
     await api.system.permissions.create({ code: createForm.code.trim(), name: createForm.name.trim(), description: createForm.description || undefined })
     ElMessage.success('创建成功')
     createVisible.value = false
-    fetchData()
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '创建失败')
   }
@@ -198,7 +203,7 @@ async function onUpdate() {
     await api.system.permissions.update(editForm.id, { name: editForm.name.trim(), description: editForm.description?.trim() ?? '' })
     ElMessage.success('更新成功')
     editVisible.value = false
-    fetchData()
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '更新失败')
   }
@@ -213,7 +218,7 @@ async function onRemove(row: PermissionLite) {
     if (!row.id) throw new Error('无效的ID')
     await api.system.permissions.remove(row.id)
     ElMessage.success('已删除/禁用')
-    fetchData()
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '删除失败')
   }
@@ -227,13 +232,16 @@ async function onSync() {
   try {
     await api.system.permissions.sync()
     ElMessage.success('同步成功')
-    fetchData()
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '同步失败')
   }
 }
 
-onMounted(fetchData)
+onMounted(() => { queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) })
+usePageRefresh(() => {
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
+})
 </script>
 
 <style scoped>
@@ -242,5 +250,4 @@ onMounted(fetchData)
 .filters { display: flex; align-items: center; gap: 8px; }
 .actions { display: flex; align-items: center; gap: 8px; }
 </style>
-
 

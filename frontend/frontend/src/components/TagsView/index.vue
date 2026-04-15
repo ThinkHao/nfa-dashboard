@@ -2,6 +2,7 @@
 import { useRoute, useRouter } from 'vue-router'
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { useTagsViewStore } from '@/stores/tagsView'
+import { emitPageRefresh } from '@/utils/pageRefresh'
 
 const router = useRouter()
 const route = useRoute()
@@ -61,12 +62,13 @@ function onRefresh() {
   const targetPath = menuPath.value || route.path
   hideMenu()
   if (!targetPath) return
-  // 刷新当前路由：保留其原有查询参数；刷新右键点选的其它标签：仅追加 _r
   if (targetPath === route.path) {
-    router.replace({ path: route.path, query: { ...route.query, _r: Date.now() } })
-  } else {
-    router.replace({ path: targetPath, query: { _r: Date.now() } })
+    emitPageRefresh(targetPath)
+    return
   }
+  router.push(targetPath).then(() => {
+    emitPageRefresh(targetPath)
+  })
 }
 
 function onGlobalClick() { if (menuVisible.value) hideMenu() }
@@ -139,5 +141,4 @@ onBeforeUnmount(() => { document.removeEventListener('click', onGlobalClick) })
   }
 }
 </style>
-
 

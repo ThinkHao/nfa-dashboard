@@ -35,7 +35,7 @@
             </el-select>
           </el-form-item>
           <div class="filter-actions">
-            <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
+            <QueryActionButton :running="queryCtl.running.value" @trigger="onSearch" />
             <el-button @click="onReset">重置</el-button>
           </div>
         </div>
@@ -244,6 +244,9 @@ import api from '@/api'
 import type { PaginatedData, SyncRule, CreateSyncRuleRequest, UpdateSyncRuleRequest } from '@/types/api'
 import { useAuthStore } from '@/stores/auth'
 import { mergeScopeOptions } from './settlement-rule-options'
+import QueryActionButton from '@/components/ui/QueryActionButton.vue'
+import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
+import { usePageRefresh } from '@/composables/usePageRefresh'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -254,6 +257,7 @@ const items = ref<SyncRule[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
+const queryCtl = useCancelableQuery()
 
 const query = reactive<{ name?: string; enabled?: boolean | null }>({})
 
@@ -264,21 +268,22 @@ function buildParams() {
   return p
 }
 
-async function fetchData() {
+async function fetchData(signal?: AbortSignal) {
   loading.value = true
   try {
-    const res: PaginatedData<SyncRule> = await api.settlementRates.syncRules.list(buildParams())
+    const res: PaginatedData<SyncRule> = await api.settlementRates.syncRules.list(buildParams(), { signal })
     items.value = res.items || []
     total.value = res.total || 0
   } catch (e: any) {
+    if (isAbortError(e)) return
     ElMessage.error(e?.response?.data?.message || e?.message || '加载失败')
   } finally { loading.value = false }
 }
 
-function onSearch() { page.value = 1; fetchData() }
-function onReset() { Object.assign(query, { name: undefined, enabled: undefined }); page.value=1; pageSize.value=10; fetchData() }
-function onPageChange(p: number) { page.value = p; fetchData() }
-function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; fetchData() }
+function onSearch() { page.value = 1; queryCtl.run((signal) => fetchData(signal), { toggleIfRunning: true }) }
+function onReset() { Object.assign(query, { name: undefined, enabled: undefined }); page.value=1; pageSize.value=10; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
+function onPageChange(p: number) { page.value = p; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
+function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
 
 async function onToggleEnabled(row: any, val: boolean) {
   if (!canWrite.value) { ElMessage.warning('无写权限'); return }
@@ -298,7 +303,7 @@ async function onSavePriority(row: any) {
   try {
     await api.settlementRates.syncRules.updatePriority(row.id, Number(row.priority) || 0)
     ElMessage.success('优先级已保存')
-    fetchData()
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '保存失败')
   } finally { row.__savingPriority = false }
@@ -518,7 +523,7 @@ async function onSave() {
       ElMessage.success('创建成功')
     }
     dialogVisible.value = false
-    fetchData()
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '保存失败')
   } finally { saving.value = false }
@@ -540,7 +545,13 @@ async function onDelete(row: SyncRule) {
   }
 }
 
-onMounted(() => { fetchData(); loadOptions() })
+onMounted(() => {
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
+  loadOptions()
+})
+usePageRefresh(() => {
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
+})
 
 function goBack() {
   try {

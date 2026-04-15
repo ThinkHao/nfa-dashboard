@@ -6,7 +6,7 @@
         <div class="card-header">
           <span class="card-title">操作日志筛选</span>
           <div>
-            <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
+            <QueryActionButton :running="queryCtl.running.value" @trigger="onSearch" />
             <el-button @click="onReset">重置</el-button>
             <el-button type="success" :loading="exporting" @click="onExport">导出 CSV</el-button>
           </div>
@@ -94,6 +94,9 @@ import type { OperationLog, PaginatedData } from '@/types/api'
 import { buildCsvContent, formatExportFilename, triggerBlobDownload } from '@/utils/export'
 import { EXPORT_FILENAME_PREFIX, EXPORT_HEADERS } from '@/utils/export-standards'
 import UnifiedDateRange from '@/components/ui/UnifiedDateRange.vue'
+import QueryActionButton from '@/components/ui/QueryActionButton.vue'
+import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
+import { usePageRefresh } from '@/composables/usePageRefresh'
 
 const methods = ['GET','POST','PUT','DELETE','PATCH','OPTIONS','HEAD']
 
@@ -103,6 +106,7 @@ const items = ref<OperationLog[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
+const queryCtl = useCancelableQuery()
 
 // 查询参数
 const query = reactive<{ 
@@ -147,13 +151,14 @@ function buildParams() {
   return params
 }
 
-async function fetchData() {
+async function fetchData(signal?: AbortSignal) {
   loading.value = true
   try {
-    const res = await api.operationLogs.list(buildParams())
+    const res = await api.operationLogs.list(buildParams(), { signal })
     items.value = res.items || []
     total.value = res.total || 0
   } catch (e: any) {
+    if (isAbortError(e)) return
     ElMessage.error(e?.response?.data?.message || e?.message || '加载失败')
   } finally {
     loading.value = false
@@ -162,7 +167,7 @@ async function fetchData() {
 
 function onSearch() {
   page.value = 1
-  fetchData()
+  queryCtl.run((signal) => fetchData(signal), { toggleIfRunning: true })
 }
 
 function onReset() {
@@ -170,15 +175,18 @@ function onReset() {
   queryRange.value = null
   page.value = 1
   pageSize.value = 10
-  fetchData()
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
 }
 
-function onPageChange(p: number) { page.value = p; fetchData() }
-function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; fetchData() }
+function onPageChange(p: number) { page.value = p; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
+function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
 
 watch([page, pageSize], () => { /* 留空，交由回调触发 */ })
 
-onMounted(fetchData)
+onMounted(() => { queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) })
+usePageRefresh(() => {
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
+})
 
 async function onExport() {
   exporting.value = true
@@ -251,5 +259,4 @@ async function onExport() {
 .filter-form { row-gap: var(--form-item-gap); }
 .pagination { display: flex; justify-content: flex-end; margin-top: 12px; }
 </style>
-
 

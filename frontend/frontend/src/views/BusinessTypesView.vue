@@ -6,7 +6,7 @@
         <div class="card-header">
           <span class="card-title">业务类型筛选</span>
           <div>
-            <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
+            <QueryActionButton :running="queryCtl.running.value" @trigger="onSearch" />
             <el-button @click="onReset">重置</el-button>
             <el-button v-if="canWrite" type="success" @click="openCreateDialog">新增</el-button>
           </div>
@@ -94,6 +94,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api'
 import type { BusinessType, PaginatedData, CreateBusinessTypeRequest, UpdateBusinessTypeRequest } from '@/types/api'
 import { useAuthStore } from '@/stores/auth'
+import QueryActionButton from '@/components/ui/QueryActionButton.vue'
+import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
+import { usePageRefresh } from '@/composables/usePageRefresh'
 
 const auth = useAuthStore()
 const canWrite = computed(() => auth.hasPermission('business_types.write'))
@@ -103,6 +106,7 @@ const items = ref<BusinessType[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
+const queryCtl = useCancelableQuery()
 
 const query = reactive<{ code?: string; name?: string; enabled?: boolean | null }>({ enabled: null })
 
@@ -114,23 +118,24 @@ function buildParams() {
   return p
 }
 
-async function fetchData() {
+async function fetchData(signal?: AbortSignal) {
   loading.value = true
   try {
-    const res: PaginatedData<BusinessType> = await api.settlementBusinessTypes.list(buildParams())
+    const res: PaginatedData<BusinessType> = await api.settlementBusinessTypes.list(buildParams(), { signal })
     items.value = res.items || []
     total.value = res.total || 0
   } catch (e: any) {
+    if (isAbortError(e)) return
     ElMessage.error(e?.response?.data?.message || e?.message || '加载失败')
   } finally {
     loading.value = false
   }
 }
 
-function onSearch() { page.value = 1; fetchData() }
-function onReset() { Object.assign(query, { code: undefined, name: undefined, enabled: null }); page.value=1; pageSize.value=10; fetchData() }
-function onPageChange(p: number) { page.value = p; fetchData() }
-function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; fetchData() }
+function onSearch() { page.value = 1; queryCtl.run((signal) => fetchData(signal), { toggleIfRunning: true }) }
+function onReset() { Object.assign(query, { code: undefined, name: undefined, enabled: null }); page.value=1; pageSize.value=10; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
+function onPageChange(p: number) { page.value = p; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
+function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
 
 // Dialog & CRUD
 const dialogVisible = ref(false)
@@ -168,7 +173,7 @@ async function onSave() {
       ElMessage.success('创建成功')
     }
     dialogVisible.value = false
-    fetchData()
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '保存失败')
   } finally {
@@ -181,7 +186,7 @@ async function onRemove(row: BusinessType) {
   try {
     await api.settlementBusinessTypes.remove(row.id)
     ElMessage.success('删除成功')
-    fetchData()
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '删除失败')
   }
@@ -197,7 +202,10 @@ async function onToggleEnabled(row: BusinessType) {
   }
 }
 
-onMounted(fetchData)
+onMounted(() => { queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) })
+usePageRefresh(() => {
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
+})
 </script>
 
 <style scoped>
@@ -206,5 +214,4 @@ onMounted(fetchData)
 .filter-form { row-gap: var(--form-item-gap); }
 .pagination { display: flex; justify-content: flex-end; margin-top: 12px; }
 </style>
-
 

@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"math"
@@ -12,8 +13,8 @@ import (
 )
 
 type SettlementDataRepository interface {
-	ListSettlementCustomer(filter map[string]interface{}, limit, offset int) ([]model.SettlementCustomer, int64, error)
-	ListSettlementCustomerMonthly(filter map[string]interface{}, limit, offset int) ([]model.SettlementCustomerMonthly, int64, error)
+	ListSettlementCustomer(ctx context.Context, filter map[string]interface{}, limit, offset int) ([]model.SettlementCustomer, int64, error)
+	ListSettlementCustomerMonthly(ctx context.Context, filter map[string]interface{}, limit, offset int) ([]model.SettlementCustomerMonthly, int64, error)
 	RebuildSettlementCustomerMonthly(start, end time.Time) (int64, error)
 	UpdateRecalculated(region, cp, school string, start, end time.Time) (int64, error)
 	BackfillFromSchoolSettlement(region, cp, school string, start, end time.Time, markRecalc bool) (int64, error)
@@ -61,8 +62,8 @@ func applySettlementCustomerFilters(qb *gorm.DB, filter map[string]interface{}) 
 	return qb
 }
 
-func (r *settlementDataRepository) ListSettlementCustomer(filter map[string]interface{}, limit, offset int) ([]model.SettlementCustomer, int64, error) {
-	qb := applySettlementCustomerFilters(model.DB.Model(&model.SettlementCustomer{}), filter)
+func (r *settlementDataRepository) ListSettlementCustomer(ctx context.Context, filter map[string]interface{}, limit, offset int) ([]model.SettlementCustomer, int64, error) {
+	qb := applySettlementCustomerFilters(model.DB.WithContext(ctx).Model(&model.SettlementCustomer{}), filter)
 
 	var total int64
 	if err := qb.Count(&total).Error; err != nil {
@@ -82,15 +83,15 @@ func (r *settlementDataRepository) ListSettlementCustomer(filter map[string]inte
 	return rows, total, nil
 }
 
-func (r *settlementDataRepository) listSettlementCustomerMonthlyFromDaily(filter map[string]interface{}, limit, offset int) ([]model.SettlementCustomerMonthly, int64, error) {
-	base := applySettlementCustomerFilters(model.DB.Model(&model.SettlementCustomer{}), filter).Where("service_date IS NOT NULL")
+func (r *settlementDataRepository) listSettlementCustomerMonthlyFromDaily(ctx context.Context, filter map[string]interface{}, limit, offset int) ([]model.SettlementCustomerMonthly, int64, error) {
+	base := applySettlementCustomerFilters(model.DB.WithContext(ctx).Model(&model.SettlementCustomer{}), filter).Where("service_date IS NOT NULL")
 
 	// 统计分组后的总条数
 	countSubQuery := base.
 		Select("region, cp, school_name, DATE_FORMAT(service_date, '%Y-%m') AS service_month").
 		Group("region, cp, school_name, DATE_FORMAT(service_date, '%Y-%m')")
 	var total int64
-	if err := model.DB.Table("(?) AS grouped", countSubQuery).Count(&total).Error; err != nil {
+	if err := model.DB.WithContext(ctx).Table("(?) AS grouped", countSubQuery).Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
@@ -188,10 +189,10 @@ func (r *settlementDataRepository) listSettlementCustomerMonthlyFromDaily(filter
 	return rows, total, nil
 }
 
-func (r *settlementDataRepository) ListSettlementCustomerMonthly(filter map[string]interface{}, limit, offset int) ([]model.SettlementCustomerMonthly, int64, error) {
+func (r *settlementDataRepository) ListSettlementCustomerMonthly(ctx context.Context, filter map[string]interface{}, limit, offset int) ([]model.SettlementCustomerMonthly, int64, error) {
 	// 带用户过滤时，需要按用户掩码金额，必须从日表实时聚合保证精确
 	if shouldUseDailyMonthlyAggregation(filter) {
-		return r.listSettlementCustomerMonthlyFromDaily(filter, limit, offset)
+		return r.listSettlementCustomerMonthlyFromDaily(ctx, filter, limit, offset)
 	}
 
 	if limit <= 0 {
@@ -201,15 +202,15 @@ func (r *settlementDataRepository) ListSettlementCustomerMonthly(filter map[stri
 		offset = 0
 	}
 
-	qb := applyMonthlySnapshotFilters(model.DB.Table("settlement_customer_monthly"), filter)
+	qb := applyMonthlySnapshotFilters(model.DB.WithContext(ctx).Table("settlement_customer_monthly"), filter)
 
 	var total int64
 	if err := qb.Count(&total).Error; err != nil {
 		// 月表不存在时，回退实时聚合，避免功能中断
-		return r.listSettlementCustomerMonthlyFromDaily(filter, limit, offset)
+		return r.listSettlementCustomerMonthlyFromDaily(ctx, filter, limit, offset)
 	}
-	if stale, ferr := isMonthlySnapshotStale(filter); ferr != nil || stale {
-		return r.listSettlementCustomerMonthlyFromDaily(filter, limit, offset)
+	if stale, ferr := isMonthlySnapshotStale(ctx, filter); ferr != nil || stale {
+		return r.listSettlementCustomerMonthlyFromDaily(ctx, filter, limit, offset)
 	}
 
 	var rows []model.SettlementCustomerMonthly
@@ -243,7 +244,7 @@ func (r *settlementDataRepository) ListSettlementCustomerMonthly(filter map[stri
 		Offset(offset).
 		Scan(&rows).Error
 	if err != nil {
-		return r.listSettlementCustomerMonthlyFromDaily(filter, limit, offset)
+		return r.listSettlementCustomerMonthlyFromDaily(ctx, filter, limit, offset)
 	}
 	return rows, total, nil
 }
@@ -284,8 +285,8 @@ func toYearMonth(v interface{}) (string, bool) {
 	return "", false
 }
 
-func isMonthlySnapshotStale(filter map[string]interface{}) (bool, error) {
-	dailyQB := model.DB.Model(&model.SettlementCustomer{}).Where("service_date IS NOT NULL")
+func isMonthlySnapshotStale(ctx context.Context, filter map[string]interface{}) (bool, error) {
+	dailyQB := model.DB.WithContext(ctx).Model(&model.SettlementCustomer{}).Where("service_date IS NOT NULL")
 	if v, ok := filter["region"]; ok && v != "" {
 		dailyQB = dailyQB.Where("region = ?", v)
 	}
@@ -313,7 +314,7 @@ func isMonthlySnapshotStale(filter map[string]interface{}) (bool, error) {
 		return false, nil
 	}
 
-	snapQB := applyMonthlySnapshotFilters(model.DB.Table("settlement_customer_monthly"), filter)
+	snapQB := applyMonthlySnapshotFilters(model.DB.WithContext(ctx).Table("settlement_customer_monthly"), filter)
 	var maxSnapUpdatedAt *time.Time
 	if err := snapQB.Select("MAX(updated_at)").Scan(&maxSnapUpdatedAt).Error; err != nil {
 		return true, err

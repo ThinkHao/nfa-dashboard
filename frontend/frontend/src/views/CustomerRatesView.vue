@@ -57,7 +57,7 @@
             </SearchSelect>
           </el-form-item>
           <div class="filter-actions">
-            <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
+            <QueryActionButton :running="queryCtl.running.value" @trigger="onSearch" />
             <el-button @click="onReset">重置</el-button>
           </div>
         </div>
@@ -440,6 +440,9 @@ import { EXPORT_FILENAME_PREFIX, EXPORT_HEADERS } from '@/utils/export-standards
 import { clampPercent, normalizeRatioPairForEdit, normalizeRatioPayloadForSave } from './customer-rates-ratio'
 import { loadVisibleRateScopeOptions, searchRateSchoolOptions } from './rate-filter-options'
 import SearchSelect from '@/components/ui/SearchSelect.vue'
+import QueryActionButton from '@/components/ui/QueryActionButton.vue'
+import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
+import { usePageRefresh } from '@/composables/usePageRefresh'
 
 const auth = useAuthStore()
 const tasksStore = useTasksStore()
@@ -458,6 +461,7 @@ const items = ref<RateCustomer[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
+const queryCtl = useCancelableQuery()
 
 const query = reactive<{ region?: string; cp?: string; school_name?: string; settlement_ready?: string | '' }>({})
 // 表头分类标签：全部/参与/不参与
@@ -533,10 +537,10 @@ function buildParams() {
   return p
 }
 
-async function fetchData() {
+async function fetchData(signal?: AbortSignal) {
   loading.value = true
   try {
-    const res: PaginatedData<RateCustomer> = await api.settlementRates.customer.list(buildParams())
+    const res: PaginatedData<RateCustomer> = await api.settlementRates.customer.list(buildParams(), { signal })
     items.value = res.items || []
     total.value = res.total || 0
     // 批量加载系统用户映射，用于归属显示
@@ -555,6 +559,7 @@ async function fetchData() {
       }))
     } catch {}
   } catch (e: any) {
+    if (isAbortError(e)) return
     ElMessage.error(e?.response?.data?.message || e?.message || '加载失败')
   } finally {
     loading.value = false
@@ -708,10 +713,10 @@ async function remoteSearchSchoolsDialog(q: string) {
   finally { schoolsLoading.value = false }
 }
 
-function onSearch() { page.value = 1; fetchData() }
-function onReset() { Object.assign(query, { region: undefined, cp: undefined, school_name: undefined, settlement_ready: '' as any }); settlementTab.value='all'; page.value=1; pageSize.value=10; fetchData() }
-function onPageChange(p: number) { page.value = p; fetchData() }
-function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; fetchData() }
+function onSearch() { page.value = 1; queryCtl.run((signal) => fetchData(signal), { toggleIfRunning: true }) }
+function onReset() { Object.assign(query, { region: undefined, cp: undefined, school_name: undefined, settlement_ready: '' as any }); settlementTab.value='all'; page.value=1; pageSize.value=10; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
+function onPageChange(p: number) { page.value = p; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
+function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
 
 function goFilterRules() { router.push({ name: 'settlement-rates-filter-rules' }) }
 function goSyncRules() { router.push({ name: 'settlement-rates-sync-rules' }) }
@@ -847,7 +852,7 @@ async function pollImportTask(taskId: number) {
       lastCreatedUserCount.value = Number(detail.result?.created_count || 0)
       if (detail.status === 'success') {
         ElMessage.success(`导入任务完成：成功 ${Number(detail.result?.affected || 0)} 行，失败 ${lastImportErrorCount.value} 行`)
-        fetchData()
+        queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
       } else {
         ElMessage.error(detail.error_message || '导入任务失败')
       }
@@ -938,7 +943,7 @@ function onSettlementTabChange(val: 'all'|'ready'|'not_ready') {
   else if (val === 'not_ready') query.settlement_ready = 'false' as any
   else query.settlement_ready = '' as any
   page.value = 1
-  fetchData()
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
 }
 
 // Dialog
@@ -1069,7 +1074,7 @@ async function onSave() {
 
     ElMessage.success('保存成功')
     dialogVisible.value = false
-    fetchData()
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '保存失败')
   } finally {
@@ -1088,7 +1093,7 @@ async function onExecuteSync() {
   try {
     const affected = await api.settlementRates.sync.execute()
     ElMessage.success(`同步完成，受影响行数：${affected}`)
-    fetchData()
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '同步失败')
   } finally {
@@ -1318,7 +1323,7 @@ async function remoteSearchSystemUsersAny(q: string) {
 
 onMounted(async () => {
   loadRegionsAndCPs();
-  fetchData();
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false });
   // 预加载允许绑定的角色（销售），供后续用户搜索使用
   try {
     allowedBindRoles.value = await api.system.binding.getAllowedUserRoles('sales')
@@ -1335,6 +1340,9 @@ onMounted(async () => {
   try {
     allowedChannelRoles.value = await api.system.binding.getAllowedUserRoles('channel')
   } catch { allowedChannelRoles.value = [] }
+})
+usePageRefresh(() => {
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
 })
 
 onUnmounted(() => {

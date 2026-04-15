@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"nfa-dashboard/internal/model"
 	"nfa-dashboard/internal/repository"
 	"time"
@@ -21,9 +22,9 @@ type SchoolService interface {
 	// v2：按院校范围过滤的运营商列表
 	GetCPsWithScope(allowedSchoolKeys []model.TrafficScopeSchoolKey) ([]string, error)
 	// 根据过滤条件获取流量数据
-	GetTrafficData(filter model.TrafficFilter) ([]model.TrafficResponse, error)
+	GetTrafficData(ctx context.Context, filter model.TrafficFilter) ([]model.TrafficResponse, error)
 	// 获取流量汇总数据
-	GetTrafficSummary(filter model.TrafficFilter) (model.TrafficResponse, error)
+	GetTrafficSummary(ctx context.Context, filter model.TrafficFilter) (model.TrafficResponse, error)
 }
 
 // schoolService 学校服务实现
@@ -97,7 +98,7 @@ func (s *schoolService) GetCPsWithScope(allowedSchoolKeys []model.TrafficScopeSc
 }
 
 // GetTrafficData 根据过滤条件获取流量数据
-func (s *schoolService) GetTrafficData(filter model.TrafficFilter) ([]model.TrafficResponse, error) {
+func (s *schoolService) GetTrafficData(ctx context.Context, filter model.TrafficFilter) ([]model.TrafficResponse, error) {
 	// 设置默认时间范围（如果未指定）
 	if filter.StartTime.IsZero() {
 		filter.StartTime = time.Now().AddDate(0, 0, -7) // 默认过去7天
@@ -116,11 +117,11 @@ func (s *schoolService) GetTrafficData(filter model.TrafficFilter) ([]model.Traf
 		filter.Limit = 100
 	}
 
-	return s.repo.GetTrafficData(filter)
+	return s.repo.GetTrafficData(ctx, filter)
 }
 
 // GetTrafficSummary 获取流量汇总数据
-func (s *schoolService) GetTrafficSummary(filter model.TrafficFilter) (model.TrafficResponse, error) {
+func (s *schoolService) GetTrafficSummary(ctx context.Context, filter model.TrafficFilter) (model.TrafficResponse, error) {
 	// 设置默认时间范围（如果未指定）
 	if filter.StartTime.IsZero() {
 		filter.StartTime = time.Now().AddDate(0, 0, -7) // 默认过去7天
@@ -129,5 +130,5 @@ func (s *schoolService) GetTrafficSummary(filter model.TrafficFilter) (model.Tra
 		filter.EndTime = time.Now()
 	}
 
-	return s.repo.GetTrafficSummary(filter)
+	return s.repo.GetTrafficSummary(ctx, filter)
 }
