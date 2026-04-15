@@ -132,6 +132,9 @@ assert_db_schema() {
     "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer_monthly' AND COLUMN_NAME='stock_ratio';|settlement_customer_monthly.stock_ratio 列缺失"
     "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer_monthly' AND COLUMN_NAME='increment_ratio';|settlement_customer_monthly.increment_ratio 列缺失"
     "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer_monthly' AND COLUMN_NAME='daily_increment_value';|settlement_customer_monthly.daily_increment_value 列缺失"
+    "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='nfa_settlement_task' AND COLUMN_NAME='task_stage';|nfa_settlement_task.task_stage 列缺失"
+    "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='nfa_settlement_task' AND COLUMN_NAME='total_count';|nfa_settlement_task.total_count 列缺失"
+    "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='nfa_settlement_task' AND COLUMN_NAME='task_meta';|nfa_settlement_task.task_meta 列缺失"
   )
   for item in "${checks[@]}"; do
     local sql="${item%%|*}"

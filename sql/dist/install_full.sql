@@ -34,10 +34,13 @@ CREATE TABLE IF NOT EXISTS `nfa_settlement_task` (
   `task_type` VARCHAR(16) NOT NULL COMMENT 'daily/weekly',
   `task_date` DATE NOT NULL,
   `status` VARCHAR(16) NOT NULL COMMENT 'pending/running/success/failed',
+  `task_stage` VARCHAR(32) NOT NULL DEFAULT '' COMMENT '任务阶段',
   `start_time` DATETIME DEFAULT NULL,
   `end_time` DATETIME DEFAULT NULL,
   `processed_count` INT NOT NULL DEFAULT 0,
+  `total_count` INT NOT NULL DEFAULT 0,
   `error_message` TEXT,
+  `task_meta` LONGTEXT,
   `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -708,4 +711,17 @@ WHERE r.name = 'admin';
 -- 额外守卫：nfa_settlement_config.last_execute_time（与代码模型一致）
 SET @ddl := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='nfa_settlement_config' AND COLUMN_NAME='last_execute_time')=0,
   'ALTER TABLE `nfa_settlement_config` ADD COLUMN `last_execute_time` DATETIME NULL AFTER `enabled`', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 额外守卫：nfa_settlement_task 导入任务字段（与异步导入任务一致）
+SET @ddl := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='nfa_settlement_task' AND COLUMN_NAME='task_stage')=0,
+  'ALTER TABLE `nfa_settlement_task` ADD COLUMN `task_stage` VARCHAR(32) NOT NULL DEFAULT '''' AFTER `status`', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='nfa_settlement_task' AND COLUMN_NAME='total_count')=0,
+  'ALTER TABLE `nfa_settlement_task` ADD COLUMN `total_count` INT NOT NULL DEFAULT 0 AFTER `processed_count`', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='nfa_settlement_task' AND COLUMN_NAME='task_meta')=0,
+  'ALTER TABLE `nfa_settlement_task` ADD COLUMN `task_meta` LONGTEXT NULL AFTER `error_message`', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;

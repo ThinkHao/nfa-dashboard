@@ -41,8 +41,14 @@ const store = useTasksStore()
 const tasks = computed(() => store.tasks)
 const activeCount = computed(() => store.active.length)
 
-const statusType = (s: string) => s==='running'?'warning':(s==='success'?'success':(s==='failed'?'danger':'info'))
-const statusText = (s: string) => ({ pending: '等待中', running: '执行中', success: '完成', failed: '失败' } as any)[s] || s
+const statusType = (s: string) => {
+  if (s === 'running') return 'warning'
+  if (s === 'waiting_user_confirm') return 'info'
+  if (s === 'success') return 'success'
+  if (s === 'failed') return 'danger'
+  return 'info'
+}
+const statusText = (s: string) => ({ pending: '等待中', running: '执行中', waiting_user_confirm: '待确认', success: '完成', failed: '失败' } as any)[s] || s
 
 // 计时器用于触发 ETA 重渲染
 const now = ref(Date.now())

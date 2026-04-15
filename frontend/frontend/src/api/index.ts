@@ -18,6 +18,7 @@ import type {
   CreateUserRequest,
   RateCustomer,
   CustomerRateImportResponse,
+  CustomerRateImportTask,
   UpsertRateCustomerRequest,
   RateNode,
   UpsertRateNodeRequest,
@@ -345,6 +346,45 @@ export default {
       template(): Promise<Blob> {
         return api
           .get('/api/v1/settlement/rates/customer/import-template', { responseType: 'blob' as any })
+          .then((d: any) => d as Blob)
+      },
+      createImportTask(form: FormData, opts?: { validateOnly?: boolean }): Promise<{ task_id: number; status: string; task_stage?: string; validate_only?: boolean }> {
+        const params: any = {}
+        if (opts?.validateOnly) params.validate_only = 1
+        return api
+          .post('/api/v1/settlement/rates/customer/import/tasks', form, { params })
+          .then((d: any) => {
+            const taskId = Number((d as any)?.task_id || 0)
+            return {
+              task_id: taskId,
+              status: String((d as any)?.status || 'pending'),
+              task_stage: (d as any)?.task_stage ? String((d as any).task_stage) : undefined,
+              validate_only: (d as any)?.validate_only != null ? Boolean((d as any).validate_only) : undefined,
+            }
+          })
+      },
+      getImportTask(taskId: number): Promise<CustomerRateImportTask> {
+        return api
+          .get(`/api/v1/settlement/rates/customer/import/tasks/${taskId}`)
+          .then((d: any) => d as CustomerRateImportTask)
+      },
+      continueImportTask(taskId: number): Promise<{ task_id: number; status: string; task_stage?: string }> {
+        return api
+          .post(`/api/v1/settlement/rates/customer/import/tasks/${taskId}/continue`, {})
+          .then((d: any) => ({
+            task_id: Number((d as any)?.task_id || taskId),
+            status: String((d as any)?.status || 'running'),
+            task_stage: (d as any)?.task_stage ? String((d as any).task_stage) : undefined,
+          }))
+      },
+      downloadImportErrorsCsv(taskId: number): Promise<Blob> {
+        return api
+          .get(`/api/v1/settlement/rates/customer/import/tasks/${taskId}/errors.csv`, { responseType: 'blob' as any })
+          .then((d: any) => d as Blob)
+      },
+      downloadImportCreatedUsersCsv(taskId: number): Promise<Blob> {
+        return api
+          .get(`/api/v1/settlement/rates/customer/import/tasks/${taskId}/created-users.csv`, { responseType: 'blob' as any })
           .then((d: any) => d as Blob)
       },
       import(form: FormData, opts?: { validateOnly?: boolean }): Promise<CustomerRateImportResponse> {

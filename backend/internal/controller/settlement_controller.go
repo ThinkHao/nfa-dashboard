@@ -405,17 +405,21 @@ func (c *SettlementController) GetSettlementTasks(ctx *gin.Context) {
 			totalCount = int(totalCombos)
 		case "weekly":
 			totalCount = int(totalCombos) * 7
+		default:
+			totalCount = t.TotalCount
 		}
 		items = append(items, gin.H{
 			"id":              t.ID,
 			"task_type":       t.TaskType,
 			"task_date":       t.TaskDate,
 			"status":          t.Status,
+			"task_stage":      t.TaskStage,
 			"start_time":      t.StartTime,
 			"end_time":        t.EndTime,
 			"processed_count": t.ProcessedCount,
 			"total_count":     totalCount,
 			"error_message":   t.ErrorMessage,
+			"task_meta":       t.TaskMeta,
 			"create_time":     t.CreateTime,
 			"update_time":     t.UpdateTime,
 		})
@@ -463,6 +467,8 @@ func (c *SettlementController) GetSettlementTaskByID(ctx *gin.Context) {
 		totalCount = int(combos)
 	case "weekly":
 		totalCount = int(combos) * 7
+	default:
+		totalCount = task.TotalCount
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
@@ -473,11 +479,13 @@ func (c *SettlementController) GetSettlementTaskByID(ctx *gin.Context) {
 			"task_type":       task.TaskType,
 			"task_date":       task.TaskDate,
 			"status":          task.Status,
+			"task_stage":      task.TaskStage,
 			"start_time":      task.StartTime,
 			"end_time":        task.EndTime,
 			"processed_count": task.ProcessedCount,
 			"total_count":     totalCount,
 			"error_message":   task.ErrorMessage,
+			"task_meta":       task.TaskMeta,
 			"create_time":     task.CreateTime,
 			"update_time":     task.UpdateTime,
 		},

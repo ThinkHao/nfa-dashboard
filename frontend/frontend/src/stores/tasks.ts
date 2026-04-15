@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 
-export type TaskStatus = 'pending' | 'running' | 'success' | 'failed'
-export type TaskType = 'export' | 'settlement' | 'other'
+export type TaskStatus = 'pending' | 'running' | 'waiting_user_confirm' | 'success' | 'failed'
+export type TaskType = 'export' | 'import' | 'settlement' | 'other'
 
 export interface BgTask {
   id: string
@@ -13,6 +13,8 @@ export interface BgTask {
   downloadUrl?: string
   processed?: number | null
   total?: number | null
+  stage?: string
+  detailId?: number
   createdAt: number
   updatedAt: number
 }
@@ -22,7 +24,7 @@ export const useTasksStore = defineStore('bgTasks', {
     tasks: [] as BgTask[],
   }),
   getters: {
-    active: (s) => s.tasks.filter(t => t.status === 'pending' || t.status === 'running'),
+    active: (s) => s.tasks.filter(t => t.status === 'pending' || t.status === 'running' || t.status === 'waiting_user_confirm'),
   },
   actions: {
     start(task: Omit<BgTask, 'createdAt' | 'updatedAt'>) {
