@@ -8,6 +8,7 @@ import SectionCard from '@/components/ui/SectionCard.vue'
 import SearchSelect from '@/components/ui/SearchSelect.vue'
 import UnifiedDateRange from '@/components/ui/UnifiedDateRange.vue'
 import { buildRangeValue, splitRangeValue } from '@/components/ui/unified-date-range-utils'
+import { clearTrafficCustomRange, resolvePresetTrafficRange, type TrafficTimeRangeOption } from './traffic-time-range'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart } from 'echarts/charts'
@@ -193,11 +194,14 @@ const queryForm = reactive({
   cp: '',
   start_time: '',
   end_time: '',
-  timeRange: 'last1h' // 默认选择过去1小时
+  timeRange: 'last1h' as TrafficTimeRangeOption, // 默认选择过去1小时
 })
 
 const customDateRange = computed<[string, string] | null>({
-  get: () => buildRangeValue(queryForm.start_time, queryForm.end_time),
+  get: () => {
+    if (queryForm.timeRange !== 'custom') return null
+    return buildRangeValue(queryForm.start_time, queryForm.end_time)
+  },
   set: (value) => {
     const { start, end } = splitRangeValue(value)
     queryForm.start_time = start
@@ -442,10 +446,9 @@ const chartOption = computed(() => {
 onMounted(async () => {
   try {
     // 设置默认时间范围为最近1小时（与 timeRange 保持一致）
-    const now = new Date()
-    const oneHourAgo = new Date(now.getTime() - 1 * 60 * 60 * 1000)
-    queryForm.start_time = toRFC3339Seconds(oneHourAgo)
-    queryForm.end_time = toRFC3339Seconds(now)
+    const initialRange = resolvePresetTrafficRange('last1h')
+    queryForm.start_time = initialRange?.[0] || ''
+    queryForm.end_time = initialRange?.[1] || ''
     
     // 读取路由查询参数作为默认过滤
     const q: any = route.query || {}
@@ -612,8 +615,6 @@ async function loadTrafficData() {
     
     // 计算时间范围
     const normalizedRange = normalizeTimeRangeForRequest(queryForm.start_time, queryForm.end_time)
-    queryForm.start_time = normalizedRange.startRFC3339
-    queryForm.end_time = normalizedRange.endRFC3339
     const startDate = normalizedRange.startDate
     const endDate = normalizedRange.endDate
     const diffMinutes = (endDate.getTime() - startDate.getTime()) / (1000 * 60)
@@ -858,44 +859,17 @@ async function handleCPChange(cp) {
 }
 
 // 处理预设时间范围变化
-function handleTimeRangeChange(value) {
-  const now = new Date()
-  let startTime
-
-  switch (value) {
-    case 'last1h':
-      startTime = new Date(now.getTime() - 1 * 60 * 60 * 1000)
-      break
-    case 'last3h':
-      startTime = new Date(now.getTime() - 3 * 60 * 60 * 1000)
-      break
-    case 'last6h':
-      startTime = new Date(now.getTime() - 6 * 60 * 60 * 1000)
-      break
-    case 'last12h':
-      startTime = new Date(now.getTime() - 12 * 60 * 60 * 1000)
-      break
-    case 'last24h':
-      startTime = new Date(now.getTime() - 24 * 60 * 60 * 1000)
-      break
-    case 'last2d':
-      startTime = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000)
-      break
-    case 'last7d':
-      startTime = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-      break
-    case 'last30d':
-      startTime = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-      break
-    case 'custom':
-      return
-    default:
-      startTime = new Date(now.getTime() - 1 * 60 * 60 * 1000)
+function handleTimeRangeChange(value: TrafficTimeRangeOption) {
+  if (value === 'custom') {
+    const clearedRange = clearTrafficCustomRange()
+    queryForm.start_time = clearedRange?.[0] || ''
+    queryForm.end_time = clearedRange?.[1] || ''
+    return
   }
-  
-  // 设置时间范围
-  queryForm.start_time = toRFC3339Seconds(startTime)
-  queryForm.end_time = toRFC3339Seconds(now)
+
+  const presetRange = resolvePresetTrafficRange(value)
+  queryForm.start_time = presetRange?.[0] || ''
+  queryForm.end_time = presetRange?.[1] || ''
   
   // 重置分页到第一页
   currentPage.value = 1
@@ -913,10 +887,9 @@ function handleReset() {
   queryForm.timeRange = 'last1h'
   
   // 设置默认时间范围为最近1小时
-  const now = new Date()
-  const oneHourAgo = new Date(now.getTime() - 1 * 60 * 60 * 1000)
-  queryForm.start_time = toRFC3339Seconds(oneHourAgo)
-  queryForm.end_time = toRFC3339Seconds(now)
+  const resetRange = resolvePresetTrafficRange('last1h')
+  queryForm.start_time = resetRange?.[0] || ''
+  queryForm.end_time = resetRange?.[1] || ''
   
   // 清空数据并不自动加载
   currentPage.value = 1
@@ -1050,7 +1023,7 @@ function formatDate(date: Date | string, granularity: string) {
               v-model="customDateRange"
               type="datetimerange"
               format="YYYY-MM-DD HH:mm:ss"
-              value-format="YYYY-MM-DDTHH:mm:ss.SSSZ"
+              value-format="YYYY-MM-DD HH:mm:ss"
             />
           </template>
         </ElFormItem>

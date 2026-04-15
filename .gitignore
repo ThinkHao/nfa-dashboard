@@ -7,3 +7,7 @@ frontend/frontend/node_modules/
 frontend/frontend/dist/
 coverage/
 *.log
+__pycache__/
+.tmp-test/
+.gocache/
+.gomodcache/

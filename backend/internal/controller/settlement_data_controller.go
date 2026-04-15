@@ -93,13 +93,13 @@ func (c *SettlementDataController) ListCustomerData(ctx *gin.Context) {
 		endPtr   *time.Time
 	)
 	if startS != "" {
-		if t, err := time.Parse("2006-01-02", startS); err == nil {
-			startPtr = &t
+		if parsed, err := parseOptionalDateBoundary(startS, false); err == nil {
+			startPtr = parsed
 		}
 	}
 	if endS != "" {
-		if t, err := time.Parse("2006-01-02", endS); err == nil {
-			endPtr = &t
+		if parsed, err := parseOptionalDateBoundary(endS, true); err == nil {
+			endPtr = parsed
 		}
 	}
 	var ownerPtr *uint64
@@ -140,13 +140,13 @@ func (c *SettlementDataController) ListCustomerMonthlyData(ctx *gin.Context) {
 		endPtr   *time.Time
 	)
 	if startS != "" {
-		if t, err := time.Parse("2006-01-02", startS); err == nil {
-			startPtr = &t
+		if parsed, err := parseOptionalDateBoundary(startS, false); err == nil {
+			startPtr = parsed
 		}
 	}
 	if endS != "" {
-		if t, err := time.Parse("2006-01-02", endS); err == nil {
-			endPtr = &t
+		if parsed, err := parseOptionalDateBoundary(endS, true); err == nil {
+			endPtr = parsed
 		}
 	}
 	var ownerPtr *uint64
@@ -208,13 +208,13 @@ func (c *SettlementDataController) ExportCustomerData(ctx *gin.Context) {
 		endPtr   *time.Time
 	)
 	if startS != "" {
-		if t, err := time.Parse("2006-01-02", startS); err == nil {
-			startPtr = &t
+		if parsed, err := parseOptionalDateBoundary(startS, false); err == nil {
+			startPtr = parsed
 		}
 	}
 	if endS != "" {
-		if t, err := time.Parse("2006-01-02", endS); err == nil {
-			endPtr = &t
+		if parsed, err := parseOptionalDateBoundary(endS, true); err == nil {
+			endPtr = parsed
 		}
 	}
 	var ownerPtr *uint64
@@ -284,10 +284,16 @@ func (c *SettlementDataController) RecalculateCustomerData(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "start_service_date 与 end_service_date 必填"})
 		return
 	}
-	var (
-		start, _ = time.Parse("2006-01-02", req.Start)
-		end, _   = time.Parse("2006-01-02", req.End)
-	)
+	start, err := parseDateBoundary(req.Start, false)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "start_service_date 格式错误，应为 YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss", "error": err.Error()})
+		return
+	}
+	end, err := parseDateBoundary(req.End, true)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "end_service_date 格式错误，应为 YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss", "error": err.Error()})
+		return
+	}
 	taskID, err := c.dataSvc.CreateRecalculateTask(start, end)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "创建复算任务失败", "error": err.Error()})
@@ -325,17 +331,17 @@ func (c *SettlementDataController) RebuildMonthlyData(ctx *gin.Context) {
 	var startPtr *time.Time
 	var endPtr *time.Time
 	if strings.TrimSpace(req.Start) != "" {
-		t, err := time.Parse("2006-01-02", req.Start)
+		t, err := parseDateBoundary(req.Start, false)
 		if err != nil {
-			ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "start_service_date 格式错误，应为 YYYY-MM-DD"})
+			ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "start_service_date 格式错误，应为 YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss"})
 			return
 		}
 		startPtr = &t
 	}
 	if strings.TrimSpace(req.End) != "" {
-		t, err := time.Parse("2006-01-02", req.End)
+		t, err := parseDateBoundary(req.End, true)
 		if err != nil {
-			ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "end_service_date 格式错误，应为 YYYY-MM-DD"})
+			ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "end_service_date 格式错误，应为 YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss"})
 			return
 		}
 		endPtr = &t
@@ -355,13 +361,13 @@ func parseSettlementFilter(ctx *gin.Context) service.SettlementCustomerFilter {
 		School: ctx.Query("school_name"),
 	}
 	if startS := ctx.Query("start_service_date"); startS != "" {
-		if t, err := time.Parse("2006-01-02", startS); err == nil {
-			filter.Start = &t
+		if parsed, err := parseOptionalDateBoundary(startS, false); err == nil {
+			filter.Start = parsed
 		}
 	}
 	if endS := ctx.Query("end_service_date"); endS != "" {
-		if t, err := time.Parse("2006-01-02", endS); err == nil {
-			filter.End = &t
+		if parsed, err := parseOptionalDateBoundary(endS, true); err == nil {
+			filter.End = parsed
 		}
 	}
 	return filter
@@ -405,4 +411,3 @@ func writeCSVLine(w http.ResponseWriter, cols ...string) {
 	}
 	w.Write([]byte("\n"))
 }
-

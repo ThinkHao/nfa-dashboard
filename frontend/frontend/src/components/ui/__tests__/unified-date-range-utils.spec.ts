@@ -25,13 +25,20 @@ describe('unified-date-range-utils', () => {
     ])
   })
 
-  it('normalizes timestamp ranges to local start and end of day', () => {
+  it('preserves timestamp ranges for datetimerange values', () => {
     const start = String(new Date(2026, 3, 1, 12, 30, 0, 0).getTime())
     const end = String(new Date(2026, 3, 10, 8, 45, 0, 0).getTime())
     const normalized = normalizeRangeValue([start, end], 'datetimerange', 'x')
     expect(normalized).toEqual([
-      String(new Date(2026, 3, 1, 0, 0, 0, 0).getTime()),
-      String(new Date(2026, 3, 10, 23, 59, 59, 0).getTime()),
+      String(new Date(2026, 3, 1, 12, 30, 0, 0).getTime()),
+      String(new Date(2026, 3, 10, 8, 45, 0, 0).getTime()),
+    ])
+  })
+
+  it('preserves datetimerange clock time when formatting date time strings', () => {
+    expect(normalizeRangeValue(['2026-04-01 12:30:45', '2026-04-10 08:45:15'], 'datetimerange', 'YYYY-MM-DD HH:mm:ss')).toEqual([
+      '2026-04-01 12:30:45',
+      '2026-04-10 08:45:15',
     ])
   })
 

@@ -106,6 +106,7 @@ import { useTasksStore } from '@/stores/tasks'
 import { buildCsvContent, formatExportFilename, triggerBlobDownload } from '@/utils/export'
 import { EXPORT_FILENAME_PREFIX, EXPORT_HEADERS } from '@/utils/export-standards'
 import UnifiedDateRange from '@/components/ui/UnifiedDateRange.vue'
+import { buildSettlementDayRange, splitSettlementDayRange } from './settlement-day-range'
 
 // 定义日95明细数据项接口
 interface DailySettlementDetail {
@@ -269,14 +270,15 @@ const handleSchoolChange = (): void => {
 }
 
 // 处理日期范围变化
+const syncDateRangeFromFilter = () => {
+  dateRange.value = buildSettlementDayRange(filterForm.start_date, filterForm.end_date)
+}
+
 const handleDateRangeChange = (val: [string, string] | null) => {
-  if (val) {
-    filterForm.start_date = val[0]
-    filterForm.end_date = val[1]
-  } else {
-    filterForm.start_date = ''
-    filterForm.end_date = ''
-  }
+  const { start, end } = splitSettlementDayRange(val)
+  filterForm.start_date = start
+  filterForm.end_date = end
+  syncDateRangeFromFilter()
   setTimeout(() => {
     fetchData()
   }, 0)
@@ -326,7 +328,7 @@ const resetFilter = () => {
   filterForm.cp = ''
   filterForm.start_date = ''
   filterForm.end_date = ''
-  dateRange.value = null
+  syncDateRangeFromFilter()
   currentPage.value = 1 // 重置时回到第一页
   // pageSize.value 不重置，保持用户选择
   loadSchools() // 重置后重新加载所有学校
@@ -416,6 +418,7 @@ const exportData = async () => {
 
 // 组件挂载时获取数据
 onMounted(() => {
+  syncDateRangeFromFilter()
   fetchBaseData()
   fetchData()
 })

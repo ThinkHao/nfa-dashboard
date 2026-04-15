@@ -231,6 +231,7 @@ import type { School, PaginationParams } from '../../types/api'
 import { formatExportFilename, triggerBlobDownload } from '@/utils/export'
 import { EXPORT_FILENAME_PREFIX } from '@/utils/export-standards'
 import UnifiedDateRange from '@/components/ui/UnifiedDateRange.vue'
+import { buildSettlementDayRange, splitSettlementDayRange } from './settlement-day-range'
 
 // 学校、地区和运营商数据
 
@@ -754,16 +755,17 @@ const loadOwnerOptions = async () => {
 }
 
 // 处理日期范围变化
+const syncDateRangeFromFilter = () => {
+  dateRange.value = buildSettlementDayRange(filterForm.start_service_date, filterForm.end_service_date)
+}
+
 const handleDateRangeChange = (val: [string, string] | null) => {
-  if (val) {
-    filterForm.start_service_date = val[0]
-    filterForm.end_service_date = val[1]
-    console.log('设置日期范围:', val[0], '至', val[1])
-  } else {
-    filterForm.start_service_date = ''
-    filterForm.end_service_date = ''
-    console.log('清除日期范围')
-  }
+  const { start, end } = splitSettlementDayRange(val)
+  filterForm.start_service_date = start
+  filterForm.end_service_date = end
+  syncDateRangeFromFilter()
+  if (start && end) console.log('设置日期范围:', start, '至', end)
+  else console.log('清除日期范围')
   
   // 日期范围变化时自动触发数据查询
   // 使用setTimeout确保日期范围已经更新
@@ -884,7 +886,7 @@ const resetFilter = () => {
   filterForm.end_service_date = ''
   filterForm.channel_owner_user_id = null
   ownerSelect.value = null
-  dateRange.value = null
+  syncDateRangeFromFilter()
   currentPage.value = 1
   pageSize.value = 10
   fetchData()
@@ -1312,6 +1314,7 @@ const onRecalculate = async () => {
 
 // 组件挂载时获取数据
 onMounted(() => {
+  syncDateRangeFromFilter()
   fetchBaseData()
   fetchData()
 })

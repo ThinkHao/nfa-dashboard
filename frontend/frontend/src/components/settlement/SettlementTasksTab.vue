@@ -225,7 +225,7 @@ import { useTasksStore } from '@/stores/tasks'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { TaskListResponse, SettlementTask, TaskStatus } from '../../types/settlement'
 import UnifiedDateRange from '@/components/ui/UnifiedDateRange.vue'
-import { normalizeRangeValue } from '@/components/ui/unified-date-range-utils'
+import { buildSettlementDayRange, normalizeSettlementDayRange, splitSettlementDayRange } from './settlement-day-range'
 
 // 估算结算任务总工作量：按可见学校的 school_id/region/cp 唯一组合数量
 const combosTotal = ref<number | null>(null)
@@ -302,17 +302,23 @@ const taskForm = reactive({
 })
 
 // 获取任务列表
+const syncDateRangeFromFilter = () => {
+  dateRange.value = buildSettlementDayRange(filterForm.start_date, filterForm.end_date)
+}
+
 const fetchTasks = async () => {
   loading.value = true
   
   // 处理日期范围
   if (dateRange.value) {
-    filterForm.start_date = dateRange.value[0]
-    filterForm.end_date = dateRange.value[1]
+    const { start, end } = splitSettlementDayRange(dateRange.value)
+    filterForm.start_date = start
+    filterForm.end_date = end
   } else {
     filterForm.start_date = ''
     filterForm.end_date = ''
   }
+  syncDateRangeFromFilter()
 
   // 设置分页参数
   filterForm.page = currentPage.value
@@ -371,7 +377,7 @@ const resetFilter = () => {
   filterForm.status = ''
   filterForm.start_date = ''
   filterForm.end_date = ''
-  dateRange.value = null
+  syncDateRangeFromFilter()
   currentPage.value = 1
   pageSize.value = 10
   fetchTasks()
@@ -449,10 +455,10 @@ const createWeeklyTask = () => {
   const sunday = new Date(monday)
   sunday.setDate(monday.getDate() + 6) // 设置为当前周的周日
   
-  taskForm.dateRange = normalizeRangeValue([
+  taskForm.dateRange = normalizeSettlementDayRange([
     formatDateToYYYYMMDD(monday),
     formatDateToYYYYMMDD(sunday)
-  ], 'daterange', 'YYYY-MM-DD HH:mm:ss')
+  ])
   
   createTaskVisible.value = true
 }
@@ -595,6 +601,7 @@ const stopAutoRefresh = () => {
 
 // 组件挂载时获取数据
 onMounted(() => {
+  syncDateRangeFromFilter()
   fetchTasks()
 })
 
