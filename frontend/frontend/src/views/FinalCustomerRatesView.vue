@@ -18,13 +18,47 @@
 
       <el-form :inline="true" :model="query" label-width="90px" class="filter-form">
         <el-form-item label="区域">
-          <el-input v-model="query.region" clearable placeholder="如 华东" class="field-w-160" />
+          <SearchSelect
+            v-model="query.region"
+            :options="regionOptions"
+            clearable
+            placeholder="选择区域"
+            class="field-w-160"
+          />
         </el-form-item>
         <el-form-item label="CP">
-          <el-input v-model="query.cp" clearable placeholder="如 CMCC" class="field-w-160" />
+          <SearchSelect
+            v-model="query.cp"
+            :options="cpOptions"
+            clearable
+            placeholder="选择 CP"
+            class="field-w-160"
+          />
         </el-form-item>
         <el-form-item label="学校">
-          <el-input v-model="query.school_name" clearable placeholder="学校名称" class="field-w-220" />
+          <SearchSelect
+            v-model="query.school_name"
+            clearable
+            remote
+            :remote-method="remoteSearchSchoolsFilter"
+            :loading="schoolsLoading"
+            :options="schoolOptions"
+            label-key="name"
+            value-key="name"
+            placeholder="搜索学校"
+            class="field-w-220"
+            @visible-change="(visible) => visible && remoteSearchSchoolsFilter('')"
+          >
+            <template #option="{ option }">
+              <div class="school-option">
+                <span>{{ (option as any).name }}</span>
+                <span class="school-option-tags">
+                  <el-tag v-if="(option as any).inRate" size="small" type="success">已纳入费率</el-tag>
+                  <el-tag v-else size="small" type="warning">未纳入费率</el-tag>
+                </span>
+              </div>
+            </template>
+          </SearchSelect>
         </el-form-item>
         <el-form-item label="服务日期">
           <el-date-picker
@@ -95,13 +129,45 @@
     <el-dialog v-model="dialogVisible" title="新增/更新 最终客户费率" width="720px">
       <el-form :model="form" label-width="140px">
         <el-form-item label="区域" required>
-          <el-input v-model="form.region" />
+          <SearchSelect
+            v-model="form.region"
+            :options="regionOptions"
+            placeholder="选择区域"
+            class="field-w-240"
+          />
         </el-form-item>
         <el-form-item label="CP" required>
-          <el-input v-model="form.cp" />
+          <SearchSelect
+            v-model="form.cp"
+            :options="cpOptions"
+            placeholder="选择 CP"
+            class="field-w-240"
+          />
         </el-form-item>
         <el-form-item label="学校" required>
-          <el-input v-model="form.school_name" />
+          <SearchSelect
+            v-model="form.school_name"
+            clearable
+            remote
+            :remote-method="remoteSearchSchoolsDialog"
+            :loading="schoolsLoading"
+            :options="schoolOptions"
+            label-key="name"
+            value-key="name"
+            placeholder="搜索学校"
+            class="field-w-300"
+            @visible-change="(visible) => visible && remoteSearchSchoolsDialog('')"
+          >
+            <template #option="{ option }">
+              <div class="school-option">
+                <span>{{ (option as any).name }}</span>
+                <span class="school-option-tags">
+                  <el-tag v-if="(option as any).inRate" size="small" type="success">已纳入费率</el-tag>
+                  <el-tag v-else size="small" type="warning">未纳入费率</el-tag>
+                </span>
+              </div>
+            </template>
+          </SearchSelect>
         </el-form-item>
 
         <el-divider content-position="left">费率</el-divider>
@@ -158,6 +224,8 @@ import type { DiscountedFinalCustomerRate, PaginatedData, UpsertRateFinalCustome
 import { useAuthStore } from '@/stores/auth'
 import { buildCsvContent, formatExportFilename, triggerBlobDownload } from '@/utils/export'
 import { EXPORT_FILENAME_PREFIX, EXPORT_HEADERS } from '@/utils/export-standards'
+import { loadVisibleRateScopeOptions, searchRateSchoolOptions, type RateSchoolOption } from './rate-filter-options'
+import SearchSelect from '@/components/ui/SearchSelect.vue'
 
 const auth = useAuthStore()
 const canWrite = computed(() => auth.hasPermission('rates.final.write'))
@@ -170,6 +238,10 @@ const itemsCombined = ref<Array<RateFinalCustomer & { service_date?: string; cus
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
+const regionOptions = ref<string[]>([])
+const cpOptions = ref<string[]>([])
+const schoolOptions = ref<RateSchoolOption[]>([])
+const schoolsLoading = ref(false)
 
 const query = reactive<{ region?: string; cp?: string; school_name?: string; service_date?: string }>({})
 
@@ -222,6 +294,45 @@ async function fetchData() {
     ElMessage.error(e?.response?.data?.message || e?.message || '加载失败')
   } finally {
     loading.value = false
+  }
+}
+
+async function loadRegionsAndCPs() {
+  try {
+    const { regions, cps } = await loadVisibleRateScopeOptions()
+    regionOptions.value = regions
+    cpOptions.value = cps
+  } catch {
+    regionOptions.value = []
+    cpOptions.value = []
+  }
+}
+
+async function remoteSearchSchoolsFilter(q: string) {
+  schoolsLoading.value = true
+  try {
+    schoolOptions.value = await searchRateSchoolOptions(
+      { region: query.region, cp: query.cp, schoolName: q || undefined },
+      (params) => api.settlementRates.final.list(params),
+    )
+  } catch {
+    schoolOptions.value = []
+  } finally {
+    schoolsLoading.value = false
+  }
+}
+
+async function remoteSearchSchoolsDialog(q: string) {
+  schoolsLoading.value = true
+  try {
+    schoolOptions.value = await searchRateSchoolOptions(
+      { region: form.region, cp: form.cp, schoolName: q || undefined },
+      (params) => api.settlementRates.final.list(params),
+    )
+  } catch {
+    schoolOptions.value = []
+  } finally {
+    schoolsLoading.value = false
   }
 }
 
@@ -327,7 +438,10 @@ async function onCleanupInvalid() {
   }
 }
 
-onMounted(() => { fetchData() })
+onMounted(() => {
+  loadRegionsAndCPs()
+  fetchData()
+})
 
 // 导出当前页为 CSV（根据视图类型导出对应列）
 async function onExport() {
@@ -371,6 +485,8 @@ async function onExport() {
 .card-header { display: flex; justify-content: space-between; align-items: center; }
 .filter-form { row-gap: var(--form-item-gap); }
 .pagination { display: flex; justify-content: flex-end; margin-top: 12px; }
+.school-option { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.school-option-tags { display: inline-flex; gap: 4px; }
 </style>
 
 

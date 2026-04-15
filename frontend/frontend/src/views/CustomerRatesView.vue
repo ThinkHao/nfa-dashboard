@@ -438,6 +438,7 @@ import { buildCsvContent, formatExportFilename, triggerBlobDownload } from '@/ut
 import { EXPORT_FILENAME_PREFIX, EXPORT_HEADERS } from '@/utils/export-standards'
 import { clampPercent, normalizeRatioPairForEdit, normalizeRatioPayloadForSave } from './customer-rates-ratio'
 import { buildCreatedUsersExportRows, buildMissingUsersPreview, shouldPromptAutoCreateUsers } from './customer-rate-import'
+import { loadVisibleRateScopeOptions, searchRateSchoolOptions } from './rate-filter-options'
 import SearchSelect from '@/components/ui/SearchSelect.vue'
 
 const auth = useAuthStore()
@@ -669,46 +670,26 @@ async function preloadSelectedUsersIntoOptions(idsOverride?: number[]) {
 
 async function loadRegionsAndCPs() {
   try {
-    const [regions, cps] = await Promise.all([
-      (api as any).v2.getRegions(),
-      (api as any).v2.getCPs(),
-    ])
-    regionOptions.value = Array.isArray(regions) ? regions.filter((v: any) => v && v !== 'NULL') : []
-    cpOptions.value = Array.isArray(cps) ? cps.filter((v: any) => v && v !== 'NULL') : []
-  } catch {}
+    const { regions, cps } = await loadVisibleRateScopeOptions()
+    regionOptions.value = regions
+    cpOptions.value = cps
+  } catch {
+    regionOptions.value = []
+    cpOptions.value = []
+  }
 }
 
 // 学校远程搜索（筛选区）
 async function remoteSearchSchoolsFilter(q: string) {
   schoolsLoading.value = true
   try {
-    const [baseSchools, rateSchools] = await Promise.all([
-      (api as any).v2.getSchools({ region: query.region, cp: query.cp, school_name: q || undefined, limit: 200, offset: 0 }),
-      api.settlementRates.customer.list({
-        region: query.region || undefined,
-        cp: query.cp || undefined,
-        school_name: q || undefined,
-        page: 1,
-        page_size: q ? 500 : 5000,
-      }),
-    ])
-    const fromBase: any[] = Array.isArray((baseSchools as any)?.items) ? (baseSchools as any).items : (Array.isArray(baseSchools) ? baseSchools : [])
-    const fromRates: any[] = Array.isArray((rateSchools as any)?.items) ? (rateSchools as any).items : []
-    const meta = new Map<string, SchoolOption>()
-    const ensure = (name: string) => {
-      if (!meta.has(name)) meta.set(name, { name, inRate: false })
-      return meta.get(name)!
-    }
-    for (const it of fromBase) {
-      const name = (it?.school_name || it?.name || it || '').toString().trim()
-      if (name) ensure(name)
-    }
-    for (const it of fromRates) {
-      const name = (it?.school_name || '').toString().trim()
-      if (name) ensure(name).inRate = true
-    }
-    schoolOptions.value = Array.from(meta.values()).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
-  } catch {}
+    schoolOptions.value = await searchRateSchoolOptions(
+      { region: query.region, cp: query.cp, schoolName: q || undefined },
+      (params) => api.settlementRates.customer.list(params),
+    )
+  } catch {
+    schoolOptions.value = []
+  }
   finally { schoolsLoading.value = false }
 }
 
@@ -716,33 +697,13 @@ async function remoteSearchSchoolsFilter(q: string) {
 async function remoteSearchSchoolsDialog(q: string) {
   schoolsLoading.value = true
   try {
-    const [baseSchools, rateSchools] = await Promise.all([
-      (api as any).v2.getSchools({ region: form.region, cp: form.cp, school_name: q || undefined, limit: 200, offset: 0 }),
-      api.settlementRates.customer.list({
-        region: form.region || undefined,
-        cp: form.cp || undefined,
-        school_name: q || undefined,
-        page: 1,
-        page_size: q ? 500 : 5000,
-      }),
-    ])
-    const fromBase: any[] = Array.isArray((baseSchools as any)?.items) ? (baseSchools as any).items : (Array.isArray(baseSchools) ? baseSchools : [])
-    const fromRates: any[] = Array.isArray((rateSchools as any)?.items) ? (rateSchools as any).items : []
-    const meta = new Map<string, SchoolOption>()
-    const ensure = (name: string) => {
-      if (!meta.has(name)) meta.set(name, { name, inRate: false })
-      return meta.get(name)!
-    }
-    for (const it of fromBase) {
-      const name = (it?.school_name || it?.name || it || '').toString().trim()
-      if (name) ensure(name)
-    }
-    for (const it of fromRates) {
-      const name = (it?.school_name || '').toString().trim()
-      if (name) ensure(name).inRate = true
-    }
-    schoolOptions.value = Array.from(meta.values()).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
-  } catch {}
+    schoolOptions.value = await searchRateSchoolOptions(
+      { region: form.region, cp: form.cp, schoolName: q || undefined },
+      (params) => api.settlementRates.customer.list(params),
+    )
+  } catch {
+    schoolOptions.value = []
+  }
   finally { schoolsLoading.value = false }
 }
 
