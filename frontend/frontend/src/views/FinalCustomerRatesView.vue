@@ -6,7 +6,7 @@
         <div class="card-header">
           <span class="card-title">最终客户费率筛选</span>
           <div>
-            <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
+            <QueryActionButton :running="queryCtl.running.value" @trigger="onSearch" />
             <el-button @click="onReset">重置</el-button>
             <el-button type="info" :loading="exporting" @click="onExport">导出</el-button>
             <el-button v-if="canWrite" type="success" @click="openDialog()">新增/更新</el-button>
@@ -18,13 +18,47 @@
 
       <el-form :inline="true" :model="query" label-width="90px" class="filter-form">
         <el-form-item label="区域">
-          <el-input v-model="query.region" clearable placeholder="如 华东" class="field-w-160" />
+          <SearchSelect
+            v-model="query.region"
+            :options="regionOptions"
+            clearable
+            placeholder="选择区域"
+            class="field-w-160"
+          />
         </el-form-item>
         <el-form-item label="CP">
-          <el-input v-model="query.cp" clearable placeholder="如 CMCC" class="field-w-160" />
+          <SearchSelect
+            v-model="query.cp"
+            :options="cpOptions"
+            clearable
+            placeholder="选择 CP"
+            class="field-w-160"
+          />
         </el-form-item>
         <el-form-item label="学校">
-          <el-input v-model="query.school_name" clearable placeholder="学校名称" class="field-w-220" />
+          <SearchSelect
+            v-model="query.school_name"
+            clearable
+            remote
+            :remote-method="remoteSearchSchoolsFilter"
+            :loading="schoolsLoading"
+            :options="schoolOptions"
+            label-key="name"
+            value-key="name"
+            placeholder="搜索学校"
+            class="field-w-220"
+            @visible-change="(visible) => visible && remoteSearchSchoolsFilter('')"
+          >
+            <template #option="{ option }">
+              <div class="school-option">
+                <span>{{ (option as any).name }}</span>
+                <span class="school-option-tags">
+                  <el-tag v-if="(option as any).inRate" size="small" type="success">已纳入费率</el-tag>
+                  <el-tag v-else size="small" type="warning">未纳入费率</el-tag>
+                </span>
+              </div>
+            </template>
+          </SearchSelect>
         </el-form-item>
         <el-form-item label="服务日期">
           <el-date-picker
@@ -95,13 +129,45 @@
     <el-dialog v-model="dialogVisible" title="新增/更新 最终客户费率" width="720px">
       <el-form :model="form" label-width="140px">
         <el-form-item label="区域" required>
-          <el-input v-model="form.region" />
+          <SearchSelect
+            v-model="form.region"
+            :options="regionOptions"
+            placeholder="选择区域"
+            class="field-w-240"
+          />
         </el-form-item>
         <el-form-item label="CP" required>
-          <el-input v-model="form.cp" />
+          <SearchSelect
+            v-model="form.cp"
+            :options="cpOptions"
+            placeholder="选择 CP"
+            class="field-w-240"
+          />
         </el-form-item>
         <el-form-item label="学校" required>
-          <el-input v-model="form.school_name" />
+          <SearchSelect
+            v-model="form.school_name"
+            clearable
+            remote
+            :remote-method="remoteSearchSchoolsDialog"
+            :loading="schoolsLoading"
+            :options="schoolOptions"
+            label-key="name"
+            value-key="name"
+            placeholder="搜索学校"
+            class="field-w-300"
+            @visible-change="(visible) => visible && remoteSearchSchoolsDialog('')"
+          >
+            <template #option="{ option }">
+              <div class="school-option">
+                <span>{{ (option as any).name }}</span>
+                <span class="school-option-tags">
+                  <el-tag v-if="(option as any).inRate" size="small" type="success">已纳入费率</el-tag>
+                  <el-tag v-else size="small" type="warning">未纳入费率</el-tag>
+                </span>
+              </div>
+            </template>
+          </SearchSelect>
         </el-form-item>
 
         <el-divider content-position="left">费率</el-divider>
@@ -158,6 +224,11 @@ import type { DiscountedFinalCustomerRate, PaginatedData, UpsertRateFinalCustome
 import { useAuthStore } from '@/stores/auth'
 import { buildCsvContent, formatExportFilename, triggerBlobDownload } from '@/utils/export'
 import { EXPORT_FILENAME_PREFIX, EXPORT_HEADERS } from '@/utils/export-standards'
+import { loadVisibleRateScopeOptions, searchRateSchoolOptions, type RateSchoolOption } from './rate-filter-options'
+import SearchSelect from '@/components/ui/SearchSelect.vue'
+import QueryActionButton from '@/components/ui/QueryActionButton.vue'
+import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
+import { usePageRefresh } from '@/composables/usePageRefresh'
 
 const auth = useAuthStore()
 const canWrite = computed(() => auth.hasPermission('rates.final.write'))
@@ -170,6 +241,11 @@ const itemsCombined = ref<Array<RateFinalCustomer & { service_date?: string; cus
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
+const queryCtl = useCancelableQuery()
+const regionOptions = ref<string[]>([])
+const cpOptions = ref<string[]>([])
+const schoolOptions = ref<RateSchoolOption[]>([])
+const schoolsLoading = ref(false)
 
 const query = reactive<{ region?: string; cp?: string; school_name?: string; service_date?: string }>({})
 
@@ -183,7 +259,7 @@ function buildParams() {
   return p
 }
 
-async function fetchData() {
+async function fetchData(signal?: AbortSignal) {
   loading.value = true
   try {
     // 默认服务日期为今天（用于折损计算）
@@ -194,8 +270,8 @@ async function fetchData() {
       query.service_date = `${d.getFullYear()}-${mm}-${dd}`
     }
     const [origRes, discRes]: [PaginatedData<RateFinalCustomer>, PaginatedData<DiscountedFinalCustomerRate>] = await Promise.all([
-      api.settlementRates.final.list(buildParams()),
-      api.settlementRates.final.listDiscounted(buildParams()),
+      api.settlementRates.final.list(buildParams(), { signal }),
+      api.settlementRates.final.listDiscounted(buildParams(), { signal }),
     ])
     const orig = (origRes?.items || []) as RateFinalCustomer[]
     total.value = Number(origRes?.total || 0)
@@ -217,24 +293,64 @@ async function fetchData() {
       }
     })
     itemsCombined.value = merged
-    await loadUsersForItems()
+    await loadUsersForItems(signal)
   } catch (e: any) {
+    if (isAbortError(e)) return
     ElMessage.error(e?.response?.data?.message || e?.message || '加载失败')
   } finally {
     loading.value = false
   }
 }
 
-function onSearch() { page.value = 1; fetchData() }
-function onReset() { Object.assign(query, { region: undefined, cp: undefined, school_name: undefined, service_date: undefined }); page.value=1; pageSize.value=10; fetchData() }
-function onPageChange(p: number) { page.value = p; fetchData() }
-function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; fetchData() }
+async function loadRegionsAndCPs() {
+  try {
+    const { regions, cps } = await loadVisibleRateScopeOptions()
+    regionOptions.value = regions
+    cpOptions.value = cps
+  } catch {
+    regionOptions.value = []
+    cpOptions.value = []
+  }
+}
+
+async function remoteSearchSchoolsFilter(q: string) {
+  schoolsLoading.value = true
+  try {
+    schoolOptions.value = await searchRateSchoolOptions(
+      { region: query.region, cp: query.cp, schoolName: q || undefined },
+      (params) => api.settlementRates.final.list(params),
+    )
+  } catch {
+    schoolOptions.value = []
+  } finally {
+    schoolsLoading.value = false
+  }
+}
+
+async function remoteSearchSchoolsDialog(q: string) {
+  schoolsLoading.value = true
+  try {
+    schoolOptions.value = await searchRateSchoolOptions(
+      { region: form.region, cp: form.cp, schoolName: q || undefined },
+      (params) => api.settlementRates.final.list(params),
+    )
+  } catch {
+    schoolOptions.value = []
+  } finally {
+    schoolsLoading.value = false
+  }
+}
+
+function onSearch() { page.value = 1; queryCtl.run((signal) => fetchData(signal), { toggleIfRunning: true }) }
+function onReset() { Object.assign(query, { region: undefined, cp: undefined, school_name: undefined, service_date: undefined }); page.value=1; pageSize.value=10; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
+function onPageChange(p: number) { page.value = p; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
+function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
 
 // 系统用户映射（id -> 用户基本信息），用于优先显示“系统用户别名/名称”
 const userMap = ref<Record<number, { id: number; alias?: string; display_name?: string; username: string }>>({})
 
 // 批量按 items 中出现的 owner_id 拉取系统用户，填充 userMap
-async function loadUsersForItems() {
+async function loadUsersForItems(signal?: AbortSignal) {
   const ids = new Set<number>()
   for (const r of itemsCombined.value) {
     if (r?.customer_fee_owner_id != null) { const n = Number(r.customer_fee_owner_id); if (!Number.isNaN(n) && n > 0) ids.add(n) }
@@ -243,7 +359,7 @@ async function loadUsersForItems() {
   }
   if (ids.size === 0) { userMap.value = {}; return }
   try {
-    const res: any = await api.system.users.list({ ids: Array.from(ids).join(',') })
+    const res: any = await api.system.users.list({ ids: Array.from(ids).join(',') }, { signal })
     const list: any[] = Array.isArray(res?.items) ? res.items : []
     const m: Record<number, { id: number; alias?: string; display_name?: string; username: string }> = {}
     for (const u of list) {
@@ -285,7 +401,7 @@ async function onSave() {
     await api.settlementRates.final.upsert(form)
     ElMessage.success('保存成功')
     dialogVisible.value = false
-    fetchData()
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '保存失败')
   } finally {
@@ -299,7 +415,7 @@ async function onRefresh() {
     const initAffected = await api.settlementRates.final.initFromCustomer()
     const refreshAffected = await api.settlementRates.final.refresh({})
     ElMessage.success(`初始化 ${initAffected} 条，刷新 ${refreshAffected} 条`)
-    fetchData()
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   } catch (e: any) {
     const msg = e?.response?.data?.message || e?.message || '初始化/刷新失败'
     ElMessage.error(msg)
@@ -318,7 +434,7 @@ async function onCleanupInvalid() {
   try {
     const affected = await api.settlementRates.final.cleanupInvalid()
     ElMessage.success(`已清理 ${affected} 条无效记录`)
-    fetchData()
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   } catch (e: any) {
     const msg = e?.response?.data?.message || e?.message || '清理失败'
     ElMessage.error(msg)
@@ -327,7 +443,13 @@ async function onCleanupInvalid() {
   }
 }
 
-onMounted(() => { fetchData() })
+onMounted(() => {
+  loadRegionsAndCPs()
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
+})
+usePageRefresh(() => {
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
+})
 
 // 导出当前页为 CSV（根据视图类型导出对应列）
 async function onExport() {
@@ -371,6 +493,7 @@ async function onExport() {
 .card-header { display: flex; justify-content: space-between; align-items: center; }
 .filter-form { row-gap: var(--form-item-gap); }
 .pagination { display: flex; justify-content: flex-end; margin-top: 12px; }
+.school-option { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.school-option-tags { display: inline-flex; gap: 4px; }
 </style>
-
 

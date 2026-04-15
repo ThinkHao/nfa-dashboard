@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -156,8 +158,11 @@ func (c *SchoolController) GetTrafficDataV2(ctx *gin.Context) {
 		filter.StartTime.Format(time.RFC3339), filter.EndTime.Format(time.RFC3339), filter.Region, filter.CP, filter.SchoolName, scope.Source, len(scope.AllowedSchoolKeys))
 
 	// 调用服务
-	trafficData, err := c.schoolService.GetTrafficData(filter)
+	trafficData, err := c.schoolService.GetTrafficData(ctx.Request.Context(), filter)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
 		// 与 v1 行为一致：返回 200 + 空数组
 		ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取流量数据成功，但没有符合条件的数据", "data": []interface{}{}, "warning": err.Error()})
 		return
@@ -200,8 +205,11 @@ func (c *SchoolController) GetTrafficSummaryV2(ctx *gin.Context) {
 	filter.AllowedSchoolKeys = scope.AllowedSchoolKeys
 	filter.ScopeSource = scope.Source
 
-	summary, err := c.schoolService.GetTrafficSummary(filter)
+	summary, err := c.schoolService.GetTrafficSummary(ctx.Request.Context(), filter)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取流量汇总数据失败", "error": err.Error()})
 		return
 	}
@@ -452,8 +460,11 @@ func (c *SchoolController) GetTrafficData(ctx *gin.Context) {
 	}
 
 	// 获取流量数据
-	trafficData, err := c.schoolService.GetTrafficData(filter)
+	trafficData, err := c.schoolService.GetTrafficData(ctx.Request.Context(), filter)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
 		// 记录错误但仍然返回空数组，而不是返回500错误
 		log.Printf("获取流量数据时发生错误: %v", err)
 
@@ -512,8 +523,11 @@ func (c *SchoolController) GetTrafficSummary(ctx *gin.Context) {
 	filter.CP = ctx.Query("cp")
 
 	// 获取流量汇总数据
-	trafficSummary, err := c.schoolService.GetTrafficSummary(filter)
+	trafficSummary, err := c.schoolService.GetTrafficSummary(ctx.Request.Context(), filter)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, gin.H{
 			"code":    500,
 			"message": "获取流量汇总数据失败",

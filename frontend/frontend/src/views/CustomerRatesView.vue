@@ -57,7 +57,7 @@
             </SearchSelect>
           </el-form-item>
           <div class="filter-actions">
-            <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
+            <QueryActionButton :running="queryCtl.running.value" @trigger="onSearch" />
             <el-button @click="onReset">重置</el-button>
           </div>
         </div>
@@ -118,8 +118,8 @@
               <label v-if="canImport" class="inline-check">
                 <el-checkbox v-model="importValidateOnly">仅校验</el-checkbox>
               </label>
-              <el-button v-if="lastImportErrors.length>0" size="small" type="danger" plain @click="onExportImportErrors">导出错误明细</el-button>
-              <el-button v-if="lastCreatedUsers.length>0" size="small" type="success" plain @click="onExportCreatedUsers">导出新建账号</el-button>
+              <el-button v-if="lastImportErrorCount>0" size="small" type="danger" plain @click="onExportImportErrors">导出错误明细</el-button>
+              <el-button v-if="lastCreatedUserCount>0" size="small" type="success" plain @click="onExportCreatedUsers">导出新建账号</el-button>
             </div>
             <input ref="fileInput" type="file" accept=".csv, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden-input" @change="onFileChange" />
           </div>
@@ -428,19 +428,24 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api'
-import type { RateCustomer, PaginatedData, UpsertRateCustomerRequest, CustomerRateImportResponse, CreatedImportUser } from '@/types/api'
+import type { RateCustomer, PaginatedData, UpsertRateCustomerRequest, CustomerRateImportTask } from '@/types/api'
 import { useAuthStore } from '@/stores/auth'
-import { buildCsvContent, formatExportFilename, triggerBlobDownload } from '@/utils/export'
+import { useTasksStore } from '@/stores/tasks'
+import { formatExportFilename, triggerBlobDownload } from '@/utils/export'
 import { EXPORT_FILENAME_PREFIX, EXPORT_HEADERS } from '@/utils/export-standards'
 import { clampPercent, normalizeRatioPairForEdit, normalizeRatioPayloadForSave } from './customer-rates-ratio'
-import { buildCreatedUsersExportRows, buildMissingUsersPreview, shouldPromptAutoCreateUsers } from './customer-rate-import'
+import { loadVisibleRateScopeOptions, searchRateSchoolOptions } from './rate-filter-options'
 import SearchSelect from '@/components/ui/SearchSelect.vue'
+import QueryActionButton from '@/components/ui/QueryActionButton.vue'
+import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
+import { usePageRefresh } from '@/composables/usePageRefresh'
 
 const auth = useAuthStore()
+const tasksStore = useTasksStore()
 const router = useRouter()
 const canWrite = computed(() => auth.hasPermission('rates.customer.write'))
 const canSync = computed(() => auth.hasPermission('rates.sync.execute'))
@@ -456,6 +461,7 @@ const items = ref<RateCustomer[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
+const queryCtl = useCancelableQuery()
 
 const query = reactive<{ region?: string; cp?: string; school_name?: string; settlement_ready?: string | '' }>({})
 // 表头分类标签：全部/参与/不参与
@@ -531,10 +537,10 @@ function buildParams() {
   return p
 }
 
-async function fetchData() {
+async function fetchData(signal?: AbortSignal) {
   loading.value = true
   try {
-    const res: PaginatedData<RateCustomer> = await api.settlementRates.customer.list(buildParams())
+    const res: PaginatedData<RateCustomer> = await api.settlementRates.customer.list(buildParams(), { signal })
     items.value = res.items || []
     total.value = res.total || 0
     // 批量加载系统用户映射，用于归属显示
@@ -553,6 +559,7 @@ async function fetchData() {
       }))
     } catch {}
   } catch (e: any) {
+    if (isAbortError(e)) return
     ElMessage.error(e?.response?.data?.message || e?.message || '加载失败')
   } finally {
     loading.value = false
@@ -669,46 +676,26 @@ async function preloadSelectedUsersIntoOptions(idsOverride?: number[]) {
 
 async function loadRegionsAndCPs() {
   try {
-    const [regions, cps] = await Promise.all([
-      (api as any).v2.getRegions(),
-      (api as any).v2.getCPs(),
-    ])
-    regionOptions.value = Array.isArray(regions) ? regions.filter((v: any) => v && v !== 'NULL') : []
-    cpOptions.value = Array.isArray(cps) ? cps.filter((v: any) => v && v !== 'NULL') : []
-  } catch {}
+    const { regions, cps } = await loadVisibleRateScopeOptions()
+    regionOptions.value = regions
+    cpOptions.value = cps
+  } catch {
+    regionOptions.value = []
+    cpOptions.value = []
+  }
 }
 
 // 学校远程搜索（筛选区）
 async function remoteSearchSchoolsFilter(q: string) {
   schoolsLoading.value = true
   try {
-    const [baseSchools, rateSchools] = await Promise.all([
-      (api as any).v2.getSchools({ region: query.region, cp: query.cp, school_name: q || undefined, limit: 200, offset: 0 }),
-      api.settlementRates.customer.list({
-        region: query.region || undefined,
-        cp: query.cp || undefined,
-        school_name: q || undefined,
-        page: 1,
-        page_size: q ? 500 : 5000,
-      }),
-    ])
-    const fromBase: any[] = Array.isArray((baseSchools as any)?.items) ? (baseSchools as any).items : (Array.isArray(baseSchools) ? baseSchools : [])
-    const fromRates: any[] = Array.isArray((rateSchools as any)?.items) ? (rateSchools as any).items : []
-    const meta = new Map<string, SchoolOption>()
-    const ensure = (name: string) => {
-      if (!meta.has(name)) meta.set(name, { name, inRate: false })
-      return meta.get(name)!
-    }
-    for (const it of fromBase) {
-      const name = (it?.school_name || it?.name || it || '').toString().trim()
-      if (name) ensure(name)
-    }
-    for (const it of fromRates) {
-      const name = (it?.school_name || '').toString().trim()
-      if (name) ensure(name).inRate = true
-    }
-    schoolOptions.value = Array.from(meta.values()).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
-  } catch {}
+    schoolOptions.value = await searchRateSchoolOptions(
+      { region: query.region, cp: query.cp, schoolName: q || undefined },
+      (params) => api.settlementRates.customer.list(params),
+    )
+  } catch {
+    schoolOptions.value = []
+  }
   finally { schoolsLoading.value = false }
 }
 
@@ -716,40 +703,20 @@ async function remoteSearchSchoolsFilter(q: string) {
 async function remoteSearchSchoolsDialog(q: string) {
   schoolsLoading.value = true
   try {
-    const [baseSchools, rateSchools] = await Promise.all([
-      (api as any).v2.getSchools({ region: form.region, cp: form.cp, school_name: q || undefined, limit: 200, offset: 0 }),
-      api.settlementRates.customer.list({
-        region: form.region || undefined,
-        cp: form.cp || undefined,
-        school_name: q || undefined,
-        page: 1,
-        page_size: q ? 500 : 5000,
-      }),
-    ])
-    const fromBase: any[] = Array.isArray((baseSchools as any)?.items) ? (baseSchools as any).items : (Array.isArray(baseSchools) ? baseSchools : [])
-    const fromRates: any[] = Array.isArray((rateSchools as any)?.items) ? (rateSchools as any).items : []
-    const meta = new Map<string, SchoolOption>()
-    const ensure = (name: string) => {
-      if (!meta.has(name)) meta.set(name, { name, inRate: false })
-      return meta.get(name)!
-    }
-    for (const it of fromBase) {
-      const name = (it?.school_name || it?.name || it || '').toString().trim()
-      if (name) ensure(name)
-    }
-    for (const it of fromRates) {
-      const name = (it?.school_name || '').toString().trim()
-      if (name) ensure(name).inRate = true
-    }
-    schoolOptions.value = Array.from(meta.values()).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
-  } catch {}
+    schoolOptions.value = await searchRateSchoolOptions(
+      { region: form.region, cp: form.cp, schoolName: q || undefined },
+      (params) => api.settlementRates.customer.list(params),
+    )
+  } catch {
+    schoolOptions.value = []
+  }
   finally { schoolsLoading.value = false }
 }
 
-function onSearch() { page.value = 1; fetchData() }
-function onReset() { Object.assign(query, { region: undefined, cp: undefined, school_name: undefined, settlement_ready: '' as any }); settlementTab.value='all'; page.value=1; pageSize.value=10; fetchData() }
-function onPageChange(p: number) { page.value = p; fetchData() }
-function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; fetchData() }
+function onSearch() { page.value = 1; queryCtl.run((signal) => fetchData(signal), { toggleIfRunning: true }) }
+function onReset() { Object.assign(query, { region: undefined, cp: undefined, school_name: undefined, settlement_ready: '' as any }); settlementTab.value='all'; page.value=1; pageSize.value=10; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
+function onPageChange(p: number) { page.value = p; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
+function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
 
 function goFilterRules() { router.push({ name: 'settlement-rates-filter-rules' }) }
 function goSyncRules() { router.push({ name: 'settlement-rates-sync-rules' }) }
@@ -758,9 +725,146 @@ function goDiscountRules() { router.push({ name: 'settlement-rates-discount-rule
 // 导出 / 导入
 const importing = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
-const lastImportErrors = ref<{ line: number; message: string }[]>([])
-const lastCreatedUsers = ref<CreatedImportUser[]>([])
+const lastImportTaskId = ref<number | null>(null)
+const lastImportErrorCount = ref(0)
+const lastCreatedUserCount = ref(0)
 const importValidateOnly = ref(false)
+const promptedImportTaskIds = new Set<number>()
+const importPollTimers = new Map<number, number>()
+
+function toImportStoreId(taskId: number) {
+  return `import:${taskId}`
+}
+
+function updateImportTaskStore(detail: CustomerRateImportTask) {
+  const taskId = Number(detail.id || 0)
+  if (!(taskId > 0)) return
+  const storeId = toImportStoreId(taskId)
+  const processed = Number(detail.processed_count ?? 0) || 0
+  const total = Number(detail.total_count ?? 0) || 0
+  const progress = total > 0 ? Math.max(0, Math.min(1, processed / total)) : null
+  const status = (detail.status || 'pending') as any
+  const info = (() => {
+    if (detail.status === 'waiting_user_confirm') {
+      const n = Number((detail.result as any)?.missing_users_preview?.length || 0)
+      return n > 0 ? `检测到未匹配用户（预览 ${n} 项），等待确认继续` : '检测到未匹配用户，等待确认继续'
+    }
+    if (detail.error_message) return String(detail.error_message)
+    const ec = Number(detail.result?.error_count || 0)
+    const cc = Number(detail.result?.created_count || 0)
+    if (detail.status === 'success') {
+      return `成功 ${Number(detail.result?.affected || 0)} 行，失败 ${ec} 行，创建账号 ${cc} 个`
+    }
+    return ''
+  })()
+  const exists = tasksStore.tasks.find(x => x.id === storeId)
+  if (!exists) {
+    tasksStore.start({
+      id: storeId,
+      type: 'import',
+      title: '客户费率导入',
+      status,
+      progress,
+      info,
+      processed,
+      total: total > 0 ? total : null,
+      stage: detail.task_stage,
+      detailId: taskId,
+    })
+  } else {
+    tasksStore.update(storeId, {
+      status,
+      progress,
+      info,
+      processed,
+      total: total > 0 ? total : null,
+      stage: detail.task_stage,
+      detailId: taskId,
+    })
+  }
+}
+
+function stopImportPolling(taskId: number) {
+  const timer = importPollTimers.get(taskId)
+  if (timer != null) clearTimeout(timer)
+  importPollTimers.delete(taskId)
+}
+
+function scheduleImportPolling(taskId: number, delay = 1500) {
+  stopImportPolling(taskId)
+  const timer = window.setTimeout(() => { void pollImportTask(taskId) }, delay)
+  importPollTimers.set(taskId, timer)
+}
+
+async function maybeHandleWaitingConfirm(detail: CustomerRateImportTask) {
+  const taskId = Number(detail.id || 0)
+  if (!(taskId > 0) || detail.status !== 'waiting_user_confirm') return
+  if (promptedImportTaskIds.has(taskId)) return
+  promptedImportTaskIds.add(taskId)
+
+  const previewRows = Array.isArray(detail.result?.missing_users_preview) ? detail.result!.missing_users_preview! : []
+  const previewText = previewRows.slice(0, 10).map((item: any) => {
+    const alias = item?.alias || '-'
+    const suggested = item?.suggested_username || '-'
+    return `${alias} -> ${suggested}`
+  }).join('\n')
+  const totalMissing = previewRows.length
+  const message = [
+    `导入任务 #${taskId} 检测到未匹配用户。确认后将自动创建账号并继续导入。`,
+    previewText ? `\n预览：\n${previewText}` : '',
+    totalMissing > 10 ? `\n... 其余 ${totalMissing - 10} 项未展示` : '',
+  ].join('')
+
+  try {
+    await ElMessageBox.confirm(message.replace(/\n/g, '<br/>'), '发现未匹配用户', {
+      type: 'warning',
+      confirmButtonText: '创建并继续导入',
+      cancelButtonText: '取消',
+      dangerouslyUseHTMLString: true,
+    })
+  } catch {
+    tasksStore.fail(toImportStoreId(taskId), '已取消自动创建账号，可重新上传文件')
+    stopImportPolling(taskId)
+    ElMessage.info('已取消自动创建账号，本次导入任务停止跟踪')
+    return
+  }
+
+  try {
+    await api.settlementRates.customer.continueImportTask(taskId)
+    tasksStore.update(toImportStoreId(taskId), { status: 'running', info: '已确认自动创建账号，继续导入中' })
+  } catch (e: any) {
+    tasksStore.fail(toImportStoreId(taskId), e?.response?.data?.message || e?.message || '继续导入失败')
+    stopImportPolling(taskId)
+    ElMessage.error(e?.response?.data?.message || e?.message || '继续导入失败')
+  }
+}
+
+async function pollImportTask(taskId: number) {
+  try {
+    const detail = await api.settlementRates.customer.getImportTask(taskId)
+    updateImportTaskStore(detail)
+    await maybeHandleWaitingConfirm(detail)
+
+    if (detail.status === 'success' || detail.status === 'failed') {
+      stopImportPolling(taskId)
+      lastImportTaskId.value = taskId
+      lastImportErrorCount.value = Number(detail.result?.error_count || 0)
+      lastCreatedUserCount.value = Number(detail.result?.created_count || 0)
+      if (detail.status === 'success') {
+        ElMessage.success(`导入任务完成：成功 ${Number(detail.result?.affected || 0)} 行，失败 ${lastImportErrorCount.value} 行`)
+        queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
+      } else {
+        ElMessage.error(detail.error_message || '导入任务失败')
+      }
+      return
+    }
+  } catch (e: any) {
+    const msg = e?.response?.data?.message || e?.message || '导入任务状态获取失败'
+    tasksStore.update(toImportStoreId(taskId), { info: msg })
+  }
+  scheduleImportPolling(taskId, 2000)
+}
+
 async function onExport() {
   try {
     const blob = await api.settlementRates.customer.export(buildParams())
@@ -794,13 +898,23 @@ async function onFileChange(e: Event) {
   try {
     const fd = new FormData()
     fd.append('file', f)
-    if (importValidateOnly.value) fd.append('validate_only', '1')
-    const res = await runCustomerRateImport(fd)
-    if (!res) return
-    await showCustomerRateImportResult(res)
-    if (res.stage === 'completed') {
-      fetchData()
-    }
+    const created = await api.settlementRates.customer.createImportTask(fd, { validateOnly: importValidateOnly.value })
+    const taskId = Number(created.task_id || 0)
+    if (!(taskId > 0)) throw new Error('create import task failed')
+    lastImportTaskId.value = taskId
+    lastImportErrorCount.value = 0
+    lastCreatedUserCount.value = 0
+    tasksStore.start({
+      id: toImportStoreId(taskId),
+      type: 'import',
+      title: '客户费率导入',
+      status: (created.status || 'pending') as any,
+      progress: 0,
+      detailId: taskId,
+      stage: created.task_stage,
+    })
+    ElMessage.success(`导入任务已创建（#${taskId}），请在后台任务中查看进度`)
+    scheduleImportPolling(taskId, 800)
   } catch (err: any) {
     ElMessage.error(err?.response?.data?.message || err?.message || '导入失败')
   } finally {
@@ -810,84 +924,17 @@ async function onFileChange(e: Event) {
 }
 
 function onExportImportErrors() {
-  const rows = lastImportErrors.value || []
-  if (rows.length === 0) { ElMessage.info('暂无可导出的错误明细'); return }
-  const header = [...EXPORT_HEADERS.customerRatesImportErrors]
-  const dataRows = rows.map((r) => [r.line, r.message ?? ''])
-  const content = buildCsvContent(header, dataRows)
-  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
-  triggerBlobDownload(blob, formatExportFilename(EXPORT_FILENAME_PREFIX.customerRatesImportErrors, 'csv'))
+  if (!lastImportTaskId.value || lastImportErrorCount.value <= 0) { ElMessage.info('暂无可导出的错误明细'); return }
+  api.settlementRates.customer.downloadImportErrorsCsv(lastImportTaskId.value)
+    .then((blob) => triggerBlobDownload(blob, formatExportFilename(EXPORT_FILENAME_PREFIX.customerRatesImportErrors, 'csv')))
+    .catch((e: any) => ElMessage.error(e?.response?.data?.message || e?.message || '导出错误明细失败'))
 }
 
 function onExportCreatedUsers() {
-  const rows = lastCreatedUsers.value || []
-  if (rows.length === 0) { ElMessage.info('暂无可导出的新建账号'); return }
-  const header = [...EXPORT_HEADERS.customerRatesCreatedUsers]
-  const dataRows = buildCreatedUsersExportRows(rows)
-  const content = buildCsvContent(header, dataRows)
-  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
-  triggerBlobDownload(blob, formatExportFilename(EXPORT_FILENAME_PREFIX.customerRatesCreatedUsers, 'csv'))
-}
-
-async function runCustomerRateImport(fd: FormData): Promise<CustomerRateImportResponse | null> {
-  const res = await api.settlementRates.customer.import(fd, { validateOnly: importValidateOnly.value })
-  if (!shouldPromptAutoCreateUsers(res)) return res
-
-  const missingUsers = Array.isArray(res.missing_users) ? res.missing_users : []
-  const preview = buildMissingUsersPreview(missingUsers, 10)
-  const more = missingUsers.length > 10 ? `<br/>... 其余 ${missingUsers.length - 10} 个未展示` : ''
-  try {
-    await ElMessageBox.confirm(
-      `检测到 ${missingUsers.length} 个未匹配到系统用户的归属名称。确认后将自动创建账号并继续导入。<br/><br/>${preview.replace(/\n/g, '<br/>')}${more}`,
-      '发现未匹配用户',
-      {
-        type: 'warning',
-        confirmButtonText: '创建并继续导入',
-        cancelButtonText: '取消',
-        dangerouslyUseHTMLString: true,
-      },
-    )
-  } catch {
-    lastImportErrors.value = Array.isArray(res.errors) ? res.errors : []
-    lastCreatedUsers.value = []
-    ElMessage.info('已取消自动创建账号，本次未继续导入')
-    return null
-  }
-
-  const resumeFd = new FormData()
-  if (res.resumable_token) resumeFd.append('resumable_token', res.resumable_token)
-  resumeFd.append('auto_create_missing_users', '1')
-  return await api.settlementRates.customer.import(resumeFd, { validateOnly: importValidateOnly.value })
-}
-
-async function showCustomerRateImportResult(res: CustomerRateImportResponse) {
-  const affected = Number(res?.affected || 0)
-  const errors = Array.isArray(res?.errors) ? res.errors : []
-  const validateOnly = !!res?.validate_only
-  const createdUsers = Array.isArray(res?.created_users) ? res.created_users : []
-  lastImportErrors.value = errors
-  lastCreatedUsers.value = createdUsers
-
-  const createdPreview = createdUsers.slice(0, 20).map((item) => `${item.alias}：${item.username} / ${item.password}`).join('\n')
-  const createdMore = createdUsers.length > 20 ? `\n... 其余 ${createdUsers.length - 20} 个未展示` : ''
-
-  if (errors.length > 0 || createdUsers.length > 0) {
-    const errorPreview = errors.slice(0, 20).map((item) => `第${item.line}行：${item.message}`).join('\n')
-    const errorMore = errors.length > 20 ? `\n... 其余 ${errors.length - 20} 条未展示` : ''
-    const title = validateOnly ? '仅校验完成' : '导入完成'
-    const sections = [`成功 ${affected} 行，失败 ${errors.length} 行。`]
-    if (createdUsers.length > 0) {
-      sections.push(`本次自动创建账号 ${createdUsers.length} 个：\n${createdPreview}${createdMore}`)
-    }
-    if (errors.length > 0) {
-      sections.push(`错误明细：\n${errorPreview}${errorMore}`)
-    }
-    await ElMessageBox.alert(sections.join('\n\n').replace(/\n/g, '<br/>'), title, { dangerouslyUseHTMLString: true })
-    return
-  }
-
-  if (validateOnly) ElMessage.success(`仅校验完成，无错误，校验行数：${affected}`)
-  else ElMessage.success(`已导入，受影响行数：${affected}`)
+  if (!lastImportTaskId.value || lastCreatedUserCount.value <= 0) { ElMessage.info('暂无可导出的新建账号'); return }
+  api.settlementRates.customer.downloadImportCreatedUsersCsv(lastImportTaskId.value)
+    .then((blob) => triggerBlobDownload(blob, formatExportFilename(EXPORT_FILENAME_PREFIX.customerRatesCreatedUsers, 'csv')))
+    .catch((e: any) => ElMessage.error(e?.response?.data?.message || e?.message || '导出新建账号失败'))
 }
 
 // 切换“参与结算”分类（表头标签）
@@ -896,7 +943,7 @@ function onSettlementTabChange(val: 'all'|'ready'|'not_ready') {
   else if (val === 'not_ready') query.settlement_ready = 'false' as any
   else query.settlement_ready = '' as any
   page.value = 1
-  fetchData()
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
 }
 
 // Dialog
@@ -1027,7 +1074,7 @@ async function onSave() {
 
     ElMessage.success('保存成功')
     dialogVisible.value = false
-    fetchData()
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '保存失败')
   } finally {
@@ -1046,7 +1093,7 @@ async function onExecuteSync() {
   try {
     const affected = await api.settlementRates.sync.execute()
     ElMessage.success(`同步完成，受影响行数：${affected}`)
-    fetchData()
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '同步失败')
   } finally {
@@ -1276,7 +1323,7 @@ async function remoteSearchSystemUsersAny(q: string) {
 
 onMounted(async () => {
   loadRegionsAndCPs();
-  fetchData();
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false });
   // 预加载允许绑定的角色（销售），供后续用户搜索使用
   try {
     allowedBindRoles.value = await api.system.binding.getAllowedUserRoles('sales')
@@ -1293,6 +1340,16 @@ onMounted(async () => {
   try {
     allowedChannelRoles.value = await api.system.binding.getAllowedUserRoles('channel')
   } catch { allowedChannelRoles.value = [] }
+})
+usePageRefresh(() => {
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
+})
+
+onUnmounted(() => {
+  for (const timer of importPollTimers.values()) {
+    clearTimeout(timer)
+  }
+  importPollTimers.clear()
 })
 
 // 监听两个归属字段：若为数字但对应选项缺失，则预加载该用户到选项，避免显示为纯数字

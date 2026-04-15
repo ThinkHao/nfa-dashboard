@@ -43,7 +43,7 @@
           />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" @click="fetchData">查询</el-button>
+          <QueryActionButton :running="queryCtl.running.value" @trigger="onSearch" />
           <el-button @click="resetFilter">重置</el-button>
         </el-form-item>
       </el-form>
@@ -106,6 +106,10 @@ import { useTasksStore } from '@/stores/tasks'
 import { buildCsvContent, formatExportFilename, triggerBlobDownload } from '@/utils/export'
 import { EXPORT_FILENAME_PREFIX, EXPORT_HEADERS } from '@/utils/export-standards'
 import UnifiedDateRange from '@/components/ui/UnifiedDateRange.vue'
+import { buildSettlementDayRange, splitSettlementDayRange } from './settlement-day-range'
+import QueryActionButton from '@/components/ui/QueryActionButton.vue'
+import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
+import { usePageRefresh } from '@/composables/usePageRefresh'
 
 // 定义日95明细数据项接口
 interface DailySettlementDetail {
@@ -156,6 +160,7 @@ const dateRange = ref<[string, string] | null>(null)
 // 分页相关
 const currentPage = ref(1)
 const pageSize = ref(10)
+const queryCtl = useCancelableQuery()
 
 // 加载状态
 const loading = ref(false)
@@ -254,34 +259,35 @@ const loadSchools = async (region: string = '', cp: string = ''): Promise<void> 
 // 处理地区选择变化
 const handleRegionChange = (region: string): void => {
   loadSchools(region, filterForm.cp).then(() => computeRegionCpOptions())
-  fetchData()
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
 }
 
 // 处理运营商选择变化
 const handleCPChange = (cp: string): void => {
   loadSchools(filterForm.region, cp).then(() => computeRegionCpOptions())
-  fetchData()
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
 }
 
 // 处理学校选择变化
 const handleSchoolChange = (): void => {
-  fetchData()
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
 }
 
 // 处理日期范围变化
+const syncDateRangeFromFilter = () => {
+  dateRange.value = buildSettlementDayRange(filterForm.start_date, filterForm.end_date)
+}
+
 const handleDateRangeChange = (val: [string, string] | null) => {
-  if (val) {
-    filterForm.start_date = val[0]
-    filterForm.end_date = val[1]
-  } else {
-    filterForm.start_date = ''
-    filterForm.end_date = ''
-  }
+  const { start, end } = splitSettlementDayRange(val)
+  filterForm.start_date = start
+  filterForm.end_date = end
+  syncDateRangeFromFilter()
   setTimeout(() => {
-    fetchData()
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   }, 0)
 }
-const fetchData = async () => {
+const fetchData = async (signal?: AbortSignal) => {
   loading.value = true
   try {
     const params = {
@@ -296,7 +302,7 @@ const fetchData = async () => {
 
     console.log('Fetching daily settlement details with params:', params)
 
-    const response = await (api as any).v2.settlement.getDailySettlementDetails(params) as any
+    const response = await (api as any).v2.settlement.getDailySettlementDetails(params, { signal }) as any
     let items: any[] = []
     let total = 0
     if (Array.isArray(response)) {
@@ -311,12 +317,18 @@ const fetchData = async () => {
       ElMessage.warning(`没有找到 ${filterForm.start_date} 至 ${filterForm.end_date} 的日95明细数据`)
     }
   } catch (error) {
+    if (isAbortError(error)) return
     console.error('获取日95明细数据失败:', error)
     ElMessage.error('获取日95明细数据失败')
     dailyDetailData.value = { items: [], total: 0 } // 清空数据
   } finally {
     loading.value = false
   }
+}
+
+const onSearch = () => {
+  currentPage.value = 1
+  queryCtl.run((signal) => fetchData(signal), { toggleIfRunning: true })
 }
 
 // 重置筛选条件
@@ -326,24 +338,24 @@ const resetFilter = () => {
   filterForm.cp = ''
   filterForm.start_date = ''
   filterForm.end_date = ''
-  dateRange.value = null
+  syncDateRangeFromFilter()
   currentPage.value = 1 // 重置时回到第一页
   // pageSize.value 不重置，保持用户选择
   loadSchools() // 重置后重新加载所有学校
-  fetchData()
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
 }
 
 // 处理页码变化
 const handleCurrentChange = (page: number) => {
   currentPage.value = page
-  fetchData()
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
 }
 
 // 处理每页条数变化
 const handleSizeChange = (size: number) => {
   pageSize.value = size
   currentPage.value = 1 // 修改每页条数时回到第一页
-  fetchData()
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
 }
 
 async function fetchAllDailyDetailsForExport(onProgress?: (p: number | null, meta?: { processed: number; total?: number | null }) => void): Promise<any[]> {
@@ -416,8 +428,12 @@ const exportData = async () => {
 
 // 组件挂载时获取数据
 onMounted(() => {
+  syncDateRangeFromFilter()
   fetchBaseData()
-  fetchData()
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
+})
+usePageRefresh(() => {
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
 })
 
 </script>
@@ -448,5 +464,4 @@ onMounted(() => {
   justify-content: flex-end;
 }
 </style>
-
 

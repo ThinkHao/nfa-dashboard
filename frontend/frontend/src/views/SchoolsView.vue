@@ -5,6 +5,9 @@ import api from '../api'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import FilterPanel from '@/components/ui/FilterPanel.vue'
 import SectionCard from '@/components/ui/SectionCard.vue'
+import QueryActionButton from '@/components/ui/QueryActionButton.vue'
+import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
+import { usePageRefresh } from '@/composables/usePageRefresh'
 import { 
   ElTable, 
   ElTableColumn, 
@@ -26,6 +29,7 @@ const cps = ref([])
 const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(10)
+const queryCtl = useCancelableQuery()
 
 // 查询表单
 const queryForm = reactive({
@@ -41,7 +45,7 @@ onMounted(async () => {
   try {
     await loadRegionCpOptions()
     // 先加载学校数据（基于 v2，按用户过滤）
-    await loadSchools()
+    await queryCtl.run((signal) => loadSchools(signal), { showCancelMessage: false })
     // 基于学校数据动态派生地区与运营商选项
     if ((!regions.value || regions.value.length === 0) || (!cps.value || cps.value.length === 0)) {
       computeRegionCpOptions()
@@ -71,7 +75,7 @@ function computeRegionCpOptions() {
 }
 
 // 加载学校数据
-async function loadSchools() {
+async function loadSchools(signal?: AbortSignal) {
   try {
     loading.value = true
     
@@ -81,7 +85,7 @@ async function loadSchools() {
       offset: (currentPage.value - 1) * pageSize.value
     }
     
-    const res = await (api as any).v2.getSchools(params) as any
+    const res = await (api as any).v2.getSchools(params, { signal }) as any
     console.log('学校数据原始响应:', res)
     
     // 已解包：只支持数组或 { items, total }
@@ -103,6 +107,7 @@ async function loadSchools() {
       ElMessage.warning('未能加载学校数据，请检查网络连接')
     }
   } catch (error) {
+    if (isAbortError(error)) return
     console.error('加载学校数据失败:', error)
     ElMessage.error('加载学校数据失败')
     schools.value = []
@@ -115,21 +120,21 @@ async function loadSchools() {
 // 查询按钮点击事件
 function handleQuery() {
   currentPage.value = 1
-  loadSchools()
+  queryCtl.run((signal) => loadSchools(signal), { toggleIfRunning: true })
 }
 
 // 当选择省份变化时重置学校名称
 function handleRegionChange() {
   queryForm.school_name = ''
   // 基于地区/运营商重新加载学校并刷新选项
-  loadSchools().then(() => computeRegionCpOptions())
+  queryCtl.run((signal) => loadSchools(signal), { showCancelMessage: false }).then(() => computeRegionCpOptions())
 }
 
 // 当选择运营商变化时重置学校名称
 function handleCPChange() {
   queryForm.school_name = ''
   // 基于地区/运营商重新加载学校并刷新选项
-  loadSchools().then(() => computeRegionCpOptions())
+  queryCtl.run((signal) => loadSchools(signal), { showCancelMessage: false }).then(() => computeRegionCpOptions())
 }
 
 // 重置按钮点击事件
@@ -138,13 +143,13 @@ function handleReset() {
   queryForm.region = ''
   queryForm.cp = ''
   currentPage.value = 1
-  loadSchools()
+  queryCtl.run((signal) => loadSchools(signal), { showCancelMessage: false })
 }
 
 // 分页变化事件
 function handlePageChange(page) {
   currentPage.value = page
-  loadSchools()
+  queryCtl.run((signal) => loadSchools(signal), { showCancelMessage: false })
 }
 
 // 格式化日期
@@ -177,6 +182,10 @@ function goTraffic(row: any) {
   if (row?.cp && row.cp !== 'NULL') query.cp = String(row.cp)
   router.push({ path: '/traffic', query })
 }
+
+usePageRefresh(() => {
+  queryCtl.run((signal) => loadSchools(signal), { showCancelMessage: false })
+})
 </script>
 
 <template>
@@ -213,7 +222,7 @@ function goTraffic(row: any) {
         </ElFormItem>
         
         <ElFormItem>
-          <ElButton type="primary" @click="handleQuery" :loading="loading">查询</ElButton>
+          <QueryActionButton :running="queryCtl.running.value" @trigger="handleQuery" />
           <ElButton @click="handleReset">重置</ElButton>
         </ElFormItem>
       </ElForm>
@@ -272,5 +281,4 @@ function goTraffic(row: any) {
   width: 180px !important;
 }
 </style>
-
 

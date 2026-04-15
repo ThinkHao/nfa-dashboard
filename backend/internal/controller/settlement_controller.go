@@ -33,12 +33,12 @@ func (c *SettlementController) GetChannelSettlementResults(ctx *gin.Context) {
 		return
 	}
 	var err error
-	if filter.StartDate, err = time.Parse("2006-01-02", startDateStr); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "开始日期格式错误，应为YYYY-MM-DD", "error": err.Error()})
+	if filter.StartDate, err = parseDateBoundary(startDateStr, false); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "开始日期格式错误，应为YYYY-MM-DD或YYYY-MM-DD HH:mm:ss", "error": err.Error()})
 		return
 	}
-	if filter.EndDate, err = time.Parse("2006-01-02", endDateStr); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "结束日期格式错误，应为YYYY-MM-DD", "error": err.Error()})
+	if filter.EndDate, err = parseDateBoundary(endDateStr, true); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "结束日期格式错误，应为YYYY-MM-DD或YYYY-MM-DD HH:mm:ss", "error": err.Error()})
 		return
 	}
 
@@ -115,12 +115,12 @@ func (c *SettlementController) GetDailySettlementDetailsV2(ctx *gin.Context) {
 	offsetStr := ctx.DefaultQuery("offset", "0")
 
 	if startDateStr != "" {
-		if t, err := time.Parse("2006-01-02", startDateStr); err == nil {
+		if t, err := parseDateBoundary(startDateStr, false); err == nil {
 			filter.StartDate = t
 		}
 	}
 	if endDateStr != "" {
-		if t, err := time.Parse("2006-01-02", endDateStr); err == nil {
+		if t, err := parseDateBoundary(endDateStr, true); err == nil {
 			filter.EndDate = t
 		}
 	}
@@ -171,12 +171,12 @@ func (c *SettlementController) GetSettlementsV2(ctx *gin.Context) {
 	offsetStr := ctx.DefaultQuery("offset", "0")
 
 	if startDateStr != "" {
-		if t, err := time.Parse("2006-01-02", startDateStr); err == nil {
+		if t, err := parseDateBoundary(startDateStr, false); err == nil {
 			filter.StartDate = t
 		}
 	}
 	if endDateStr != "" {
-		if t, err := time.Parse("2006-01-02", endDateStr); err == nil {
+		if t, err := parseDateBoundary(endDateStr, true); err == nil {
 			filter.EndDate = t
 		}
 	}
@@ -227,12 +227,12 @@ func (c *SettlementController) GetSettlementResults(ctx *gin.Context) {
 		return
 	}
 	var err error
-	if filter.StartDate, err = time.Parse("2006-01-02", startDateStr); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "开始日期格式错误，应为YYYY-MM-DD", "error": err.Error()})
+	if filter.StartDate, err = parseDateBoundary(startDateStr, false); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "开始日期格式错误，应为YYYY-MM-DD或YYYY-MM-DD HH:mm:ss", "error": err.Error()})
 		return
 	}
-	if filter.EndDate, err = time.Parse("2006-01-02", endDateStr); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "结束日期格式错误，应为YYYY-MM-DD", "error": err.Error()})
+	if filter.EndDate, err = parseDateBoundary(endDateStr, true); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "结束日期格式错误，应为YYYY-MM-DD或YYYY-MM-DD HH:mm:ss", "error": err.Error()})
 		return
 	}
 	// 解析公式ID
@@ -349,11 +349,11 @@ func (c *SettlementController) GetSettlementTasks(ctx *gin.Context) {
 	var startDate, endDate time.Time
 	var err error
 	if startDateStr != "" {
-		startDate, err = time.Parse("2006-01-02", startDateStr)
+		startDate, err = parseDateBoundary(startDateStr, false)
 		if err != nil {
 			ctx.JSON(http.StatusBadRequest, gin.H{
 				"code":    400,
-				"message": "开始日期格式错误，应为YYYY-MM-DD",
+				"message": "开始日期格式错误，应为YYYY-MM-DD或YYYY-MM-DD HH:mm:ss",
 				"error":   err.Error(),
 			})
 			return
@@ -361,11 +361,11 @@ func (c *SettlementController) GetSettlementTasks(ctx *gin.Context) {
 	}
 
 	if endDateStr != "" {
-		endDate, err = time.Parse("2006-01-02", endDateStr)
+		endDate, err = parseDateBoundary(endDateStr, true)
 		if err != nil {
 			ctx.JSON(http.StatusBadRequest, gin.H{
 				"code":    400,
-				"message": "结束日期格式错误，应为YYYY-MM-DD",
+				"message": "结束日期格式错误，应为YYYY-MM-DD或YYYY-MM-DD HH:mm:ss",
 				"error":   err.Error(),
 			})
 			return
@@ -405,17 +405,21 @@ func (c *SettlementController) GetSettlementTasks(ctx *gin.Context) {
 			totalCount = int(totalCombos)
 		case "weekly":
 			totalCount = int(totalCombos) * 7
+		default:
+			totalCount = t.TotalCount
 		}
 		items = append(items, gin.H{
 			"id":              t.ID,
 			"task_type":       t.TaskType,
 			"task_date":       t.TaskDate,
 			"status":          t.Status,
+			"task_stage":      t.TaskStage,
 			"start_time":      t.StartTime,
 			"end_time":        t.EndTime,
 			"processed_count": t.ProcessedCount,
 			"total_count":     totalCount,
 			"error_message":   t.ErrorMessage,
+			"task_meta":       t.TaskMeta,
 			"create_time":     t.CreateTime,
 			"update_time":     t.UpdateTime,
 		})
@@ -463,6 +467,8 @@ func (c *SettlementController) GetSettlementTaskByID(ctx *gin.Context) {
 		totalCount = int(combos)
 	case "weekly":
 		totalCount = int(combos) * 7
+	default:
+		totalCount = task.TotalCount
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
@@ -473,11 +479,13 @@ func (c *SettlementController) GetSettlementTaskByID(ctx *gin.Context) {
 			"task_type":       task.TaskType,
 			"task_date":       task.TaskDate,
 			"status":          task.Status,
+			"task_stage":      task.TaskStage,
 			"start_time":      task.StartTime,
 			"end_time":        task.EndTime,
 			"processed_count": task.ProcessedCount,
 			"total_count":     totalCount,
 			"error_message":   task.ErrorMessage,
+			"task_meta":       task.TaskMeta,
 			"create_time":     task.CreateTime,
 			"update_time":     task.UpdateTime,
 		},
@@ -533,11 +541,11 @@ func (c *SettlementController) GetSettlements(ctx *gin.Context) {
 	// 解析日期
 	var err error
 	if startDateStr != "" {
-		filter.StartDate, err = time.Parse("2006-01-02", startDateStr)
+		filter.StartDate, err = parseDateBoundary(startDateStr, false)
 		if err != nil {
 			ctx.JSON(http.StatusBadRequest, gin.H{
 				"code":    400,
-				"message": "开始日期格式错误，应为YYYY-MM-DD",
+				"message": "开始日期格式错误，应为YYYY-MM-DD或YYYY-MM-DD HH:mm:ss",
 				"error":   err.Error(),
 			})
 			return
@@ -545,11 +553,11 @@ func (c *SettlementController) GetSettlements(ctx *gin.Context) {
 	}
 
 	if endDateStr != "" {
-		filter.EndDate, err = time.Parse("2006-01-02", endDateStr)
+		filter.EndDate, err = parseDateBoundary(endDateStr, true)
 		if err != nil {
 			ctx.JSON(http.StatusBadRequest, gin.H{
 				"code":    400,
-				"message": "结束日期格式错误，应为YYYY-MM-DD",
+				"message": "结束日期格式错误，应为YYYY-MM-DD或YYYY-MM-DD HH:mm:ss",
 				"error":   err.Error(),
 			})
 			return
@@ -605,16 +613,16 @@ func (c *SettlementController) GetDailySettlementDetails(ctx *gin.Context) {
 	// 解析日期
 	var err error
 	if startDateStr != "" {
-		filter.StartDate, err = time.Parse("2006-01-02", startDateStr)
+		filter.StartDate, err = parseDateBoundary(startDateStr, false)
 		if err != nil {
-			ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "开始日期格式错误，应为YYYY-MM-DD", "error": err.Error()})
+			ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "开始日期格式错误，应为YYYY-MM-DD或YYYY-MM-DD HH:mm:ss", "error": err.Error()})
 			return
 		}
 	}
 	if endDateStr != "" {
-		filter.EndDate, err = time.Parse("2006-01-02", endDateStr)
+		filter.EndDate, err = parseDateBoundary(endDateStr, true)
 		if err != nil {
-			ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "结束日期格式错误，应为YYYY-MM-DD", "error": err.Error()})
+			ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "结束日期格式错误，应为YYYY-MM-DD或YYYY-MM-DD HH:mm:ss", "error": err.Error()})
 			return
 		}
 	}
@@ -724,11 +732,11 @@ func (c *SettlementController) CreateWeeklySettlementTask(ctx *gin.Context) {
 		}
 		startDate = now.AddDate(0, 0, -daysToLastMonday-7)
 	} else {
-		startDate, err = time.Parse("2006-01-02", params.StartDate)
+		startDate, err = parseDateBoundary(params.StartDate, false)
 		if err != nil {
 			ctx.JSON(http.StatusBadRequest, gin.H{
 				"code":    400,
-				"message": "开始日期格式错误，应为YYYY-MM-DD",
+				"message": "开始日期格式错误，应为YYYY-MM-DD或YYYY-MM-DD HH:mm:ss",
 				"error":   err.Error(),
 			})
 			return
@@ -740,11 +748,11 @@ func (c *SettlementController) CreateWeeklySettlementTask(ctx *gin.Context) {
 		// 默认为开始日期后的6天（周日）
 		endDate = startDate.AddDate(0, 0, 6)
 	} else {
-		endDate, err = time.Parse("2006-01-02", params.EndDate)
+		endDate, err = parseDateBoundary(params.EndDate, true)
 		if err != nil {
 			ctx.JSON(http.StatusBadRequest, gin.H{
 				"code":    400,
-				"message": "结束日期格式错误，应为YYYY-MM-DD",
+				"message": "结束日期格式错误，应为YYYY-MM-DD或YYYY-MM-DD HH:mm:ss",
 				"error":   err.Error(),
 			})
 			return

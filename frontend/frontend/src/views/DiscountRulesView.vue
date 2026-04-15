@@ -40,7 +40,7 @@
             </el-select>
           </el-form-item>
           <div class="filter-actions">
-            <el-button type="primary" :loading="loading" @click="onSearch">查询</el-button>
+            <QueryActionButton :running="queryCtl.running.value" @trigger="onSearch" />
             <el-button @click="onReset">重置</el-button>
           </div>
         </div>
@@ -229,6 +229,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import SearchSelect from '@/components/ui/SearchSelect.vue'
+import QueryActionButton from '@/components/ui/QueryActionButton.vue'
+import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
+import { usePageRefresh } from '@/composables/usePageRefresh'
 
 const auth = useAuthStore()
 const canManage = computed(() => auth.hasPermission('rates.discount_rule.manage'))
@@ -238,6 +241,7 @@ const items = ref<any[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
+const queryCtl = useCancelableQuery()
 
 const query = reactive<{ name?: string; scope_type?: string; enabled?: string | '' }>({})
 
@@ -249,21 +253,22 @@ function buildParams() {
   return p
 }
 
-async function fetchData() {
+async function fetchData(signal?: AbortSignal) {
   loading.value = true
   try {
-    const res: any = await api.settlementRates.discountRules.list(buildParams())
+    const res: any = await api.settlementRates.discountRules.list(buildParams(), { signal })
     items.value = Array.isArray(res?.items) ? res.items : []
     total.value = Number(res?.total || 0)
   } catch (e: any) {
+    if (isAbortError(e)) return
     ElMessage.error(e?.response?.data?.message || e?.message || '加载失败')
   } finally { loading.value = false }
 }
 
-function onSearch() { page.value = 1; fetchData() }
-function onReset() { Object.assign(query, { name: undefined, scope_type: undefined, enabled: '' as any }); page.value=1; pageSize.value=10; fetchData() }
-function onPageChange(p: number) { page.value = p; fetchData() }
-function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; fetchData() }
+function onSearch() { page.value = 1; queryCtl.run((signal) => fetchData(signal), { toggleIfRunning: true }) }
+function onReset() { Object.assign(query, { name: undefined, scope_type: undefined, enabled: '' as any }); page.value=1; pageSize.value=10; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
+function onPageChange(p: number) { page.value = p; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
+function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
 
 // 编辑弹窗
 const editVisible = ref(false)
@@ -351,7 +356,7 @@ async function onSave() {
     }
     ElMessage.success('保存成功')
     editVisible.value = false
-    fetchData()
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '保存失败')
   } finally { saving.value = false }
@@ -418,7 +423,7 @@ async function onSaveItems() {
     await api.settlementRates.discountRules.replaceItems(itemsForm.id!, arr)
     ElMessage.success('已保存条目')
     itemsVisible.value = false
-    fetchData()
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '保存失败')
   } finally { savingItems.value = false }
@@ -446,7 +451,7 @@ function onQuickFillStandard() {
 async function toggleEnabled(row: any) {
   try {
     await api.settlementRates.discountRules.update(Number(row.id), { enabled: !row.enabled })
-    fetchData()
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '操作失败')
   }
@@ -514,10 +519,18 @@ async function handleRouteOpen() {
 }
 
 onMounted(async () => {
-  try { await Promise.all([fetchData(), loadRegionsAndCPs()]) } finally { handleRouteOpen() }
+  try {
+    await Promise.all([
+      queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }),
+      loadRegionsAndCPs(),
+    ])
+  } finally { handleRouteOpen() }
 })
 
 watch(() => route.query, () => { handleRouteOpen() })
+usePageRefresh(() => {
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
+})
 </script>
 
 <style scoped>
@@ -663,5 +676,4 @@ watch(() => route.query, () => { handleRouteOpen() })
   }
 }
 </style>
-
 

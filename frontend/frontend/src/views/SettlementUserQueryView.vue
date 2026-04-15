@@ -7,7 +7,7 @@
       <el-tag v-if="currentDataSourceLabel" size="small" type="info" class="ml-8">来源：{{ currentDataSourceLabel }}</el-tag>
         </div>
         <div class="actions">
-          <el-button type="primary" :loading="loading" @click="handleQuery">查询</el-button>
+          <QueryActionButton :running="queryCtl.running.value" @trigger="handleQuery" />
           <el-button @click="handleReset">重置</el-button>
           <el-button type="success" :loading="exporting" @click="handleExport">导出</el-button>
         </div>
@@ -126,7 +126,10 @@ import { buildCsvContent, formatExportFilename, triggerBlobDownload } from '@/ut
 import { EXPORT_FILENAME_PREFIX, EXPORT_HEADERS } from '@/utils/export-standards'
 import SearchSelect from '@/components/ui/SearchSelect.vue'
 import UnifiedDateRange from '@/components/ui/UnifiedDateRange.vue'
+import QueryActionButton from '@/components/ui/QueryActionButton.vue'
 import { expandMonthRangeToDateTime } from '@/components/ui/unified-date-range-utils'
+import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
+import { usePageRefresh } from '@/composables/usePageRefresh'
 
 type Granularity = 'daily' | 'monthly'
 type UserOption = { id: number; label: string }
@@ -139,6 +142,7 @@ const columnViewLoading = ref(false)
 const viewMode = ref<ViewMode>('detail')
 const monthlyColumnMonths = ref<string[]>([])
 const monthlyColumnRows = ref<MonthlyMetricRow[]>([])
+const queryCtl = useCancelableQuery()
 
 const userOptions = ref<UserOption[]>([])
 const regions = ref<string[]>([])
@@ -254,7 +258,7 @@ function pickEffectiveRate(rates: any[], serviceDateText: string): any | null {
   })[0]
 }
 
-async function enrichRowsWithStartDates(inputRows: any[]): Promise<any[]> {
+async function enrichRowsWithStartDates(inputRows: any[], signal?: AbortSignal): Promise<any[]> {
   if (!Array.isArray(inputRows) || inputRows.length === 0) return []
   const keySet = new Set<string>()
   for (const row of inputRows) {
@@ -267,6 +271,7 @@ async function enrichRowsWithStartDates(inputRows: any[]): Promise<any[]> {
 
   const rateMap = new Map<string, any[]>()
   await Promise.all(Array.from(keySet).map(async (key) => {
+    if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
     const [region, cp, schoolName] = key.split('__')
     try {
       const res: any = await (api as any).settlementRates.customer.list({
@@ -275,7 +280,7 @@ async function enrichRowsWithStartDates(inputRows: any[]): Promise<any[]> {
         school_name: schoolName,
         page: 1,
         page_size: 300,
-      })
+      }, { signal })
       const items: any[] = Array.isArray(res?.items) ? res.items : (Array.isArray(res) ? res : [])
       rateMap.set(key, items)
     } catch {
@@ -295,15 +300,16 @@ async function enrichRowsWithStartDates(inputRows: any[]): Promise<any[]> {
   })
 }
 
-async function fetchAllRowsForCurrentFilter(): Promise<any[]> {
+async function fetchAllRowsForCurrentFilter(signal?: AbortSignal): Promise<any[]> {
   const all: any[] = []
   let page = 1
   const pageSize = 1000
   while (true) {
+    if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
     const params = buildParams(page, pageSize)
     const res = filter.granularity === 'monthly'
-      ? await (api as any).settlementData.monthlyList(params)
-      : await (api as any).settlementData.list(params)
+      ? await (api as any).settlementData.monthlyList(params, { signal })
+      : await (api as any).settlementData.list(params, { signal })
     const items = Array.isArray(res) ? res : (Array.isArray(res?.items) ? res.items : [])
     const total = Array.isArray(res) ? items.length : Number(res?.total || 0)
     all.push(...items)
@@ -383,35 +389,36 @@ function validateBeforeQuery(): boolean {
   return true
 }
 
-async function fetchRows() {
+async function fetchRows(signal?: AbortSignal) {
   if (!validateBeforeQuery()) return
   loading.value = true
   try {
     const params = buildParams()
     const res = filter.granularity === 'monthly'
-      ? await (api as any).settlementData.monthlyList(params)
-      : await (api as any).settlementData.list(params)
+      ? await (api as any).settlementData.monthlyList(params, { signal })
+      : await (api as any).settlementData.list(params, { signal })
     if (Array.isArray(res)) {
-      rows.value = await enrichRowsWithStartDates(res)
+      rows.value = await enrichRowsWithStartDates(res, signal)
       pagination.total = res.length
     } else {
       const list = Array.isArray(res?.items) ? res.items : []
-      rows.value = await enrichRowsWithStartDates(list)
+      rows.value = await enrichRowsWithStartDates(list, signal)
       pagination.total = Number(res?.total || list.length)
     }
-    await refreshMonthlyColumnView()
+    await refreshMonthlyColumnView(signal)
   } catch (e: any) {
+    if (isAbortError(e)) return
     ElMessage.error(e?.response?.data?.message || e?.message || '查询失败')
   } finally {
     loading.value = false
   }
 }
 
-async function fetchAllForExport(): Promise<any[]> {
-  return fetchAllRowsForCurrentFilter()
+async function fetchAllForExport(signal?: AbortSignal): Promise<any[]> {
+  return fetchAllRowsForCurrentFilter(signal)
 }
 
-async function refreshMonthlyColumnView() {
+async function refreshMonthlyColumnView(signal?: AbortSignal) {
   if (!isMonthlyColumnView.value) {
     monthlyColumnMonths.value = []
     monthlyColumnRows.value = []
@@ -419,12 +426,13 @@ async function refreshMonthlyColumnView() {
   }
   columnViewLoading.value = true
   try {
-    const all = await fetchAllRowsForCurrentFilter()
-    const enrichedAll = await enrichRowsWithStartDates(all)
+    const all = await fetchAllRowsForCurrentFilter(signal)
+    const enrichedAll = await enrichRowsWithStartDates(all, signal)
     const { months, rows: pivotRows } = buildMonthlyAmountColumnView(enrichedAll)
     monthlyColumnMonths.value = months
     monthlyColumnRows.value = pivotRows
   } catch (e: any) {
+    if (isAbortError(e)) return
     monthlyColumnMonths.value = []
     monthlyColumnRows.value = []
     ElMessage.error(e?.response?.data?.message || e?.message || '按月列视图加载失败')
@@ -450,7 +458,7 @@ function handleMonthRangeChange(v: [string, string] | null) {
 
 function handleQuery() {
   pagination.page = 1
-  fetchRows()
+  queryCtl.run((signal) => fetchRows(signal), { toggleIfRunning: true })
 }
 
 function handleReset() {
@@ -519,13 +527,13 @@ async function handleExport() {
 
 function onPageChange(page: number) {
   pagination.page = page
-  fetchRows()
+  queryCtl.run((signal) => fetchRows(signal), { showCancelMessage: false })
 }
 
 function onSizeChange(size: number) {
   pagination.pageSize = size
   pagination.page = 1
-  fetchRows()
+  queryCtl.run((signal) => fetchRows(signal), { showCancelMessage: false })
 }
 
 function onRegionChange() {
@@ -552,7 +560,7 @@ watch(() => filter.granularity, (val) => {
 
 watch(viewMode, () => {
   if (isMonthlyColumnView.value && rows.value.length) {
-    refreshMonthlyColumnView()
+    queryCtl.run((signal) => refreshMonthlyColumnView(signal), { showCancelMessage: false })
   }
 })
 
@@ -560,6 +568,12 @@ onMounted(async () => {
   setDefaultMonthRange()
   await loadRegionCpSchool()
   await loadOwnerUsers()
+})
+
+usePageRefresh(() => {
+  if (!validateBeforeQuery()) return
+  pagination.page = 1
+  queryCtl.run((signal) => fetchRows(signal), { showCancelMessage: false })
 })
 </script>
 
@@ -603,5 +617,3 @@ onMounted(async () => {
   background: #faf3dd;
 }
 </style>
-
-

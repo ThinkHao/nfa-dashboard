@@ -62,7 +62,11 @@ func isBlankImportRecord(cols []string) bool {
 }
 
 // SettlementRatesController hosts endpoints under /api/v1/settlement/rates
-type SettlementRatesController struct{ svc service.RatesService }
+type SettlementRatesController struct {
+	svc               service.RatesService
+	settlementRepo    repository.SettlementRepository
+	importTaskManager *customerRateImportTaskManager
+}
 
 // ExportCustomerRatesXLSX 导出客户业务费率为原生 Excel (.xlsx)
 func (ctl *SettlementRatesController) ExportCustomerRatesXLSX(c *gin.Context) {
@@ -563,8 +567,16 @@ func (ctl *SettlementRatesController) CustomerRatesImportTemplate(c *gin.Context
 	w.Flush()
 }
 
-func NewSettlementRatesController(svc service.RatesService) *SettlementRatesController {
-	return &SettlementRatesController{svc: svc}
+func NewSettlementRatesController(svc service.RatesService, settlementRepo ...repository.SettlementRepository) *SettlementRatesController {
+	repo := repository.NewSettlementRepository()
+	if len(settlementRepo) > 0 && settlementRepo[0] != nil {
+		repo = settlementRepo[0]
+	}
+	return &SettlementRatesController{
+		svc:               svc,
+		settlementRepo:    repo,
+		importTaskManager: newCustomerRateImportTaskManager(),
+	}
 }
 
 // Customer business rates

@@ -346,6 +346,36 @@ export interface CustomerRateImportResponse {
   resumable_token?: string;
 }
 
+export interface CustomerRateImportTaskResult {
+  validate_only?: boolean;
+  affected?: number;
+  error_count?: number;
+  created_count?: number;
+  errors_preview?: CustomerRateImportError[];
+  missing_users_preview?: MissingImportUser[];
+  created_users_preview?: CreatedImportUser[];
+  can_auto_create_users?: boolean;
+  can_continue?: boolean;
+  errors_csv_url?: string;
+  created_users_csv_url?: string;
+}
+
+export interface CustomerRateImportTask {
+  id: number;
+  task_type: string;
+  task_date: string;
+  status: 'pending' | 'running' | 'waiting_user_confirm' | 'success' | 'failed';
+  task_stage?: string;
+  start_time?: string | null;
+  end_time?: string | null;
+  processed_count?: number;
+  total_count?: number;
+  error_message?: string;
+  create_time?: string;
+  update_time?: string;
+  result?: CustomerRateImportTaskResult;
+}
+
 // 节点业务费率（rate_node）
 export interface RateNode {
   id: number;

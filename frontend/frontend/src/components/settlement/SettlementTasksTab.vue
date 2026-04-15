@@ -28,7 +28,7 @@
           />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" @click="fetchTasks">查询</el-button>
+          <QueryActionButton :running="queryCtl.running.value" @trigger="onSearch" />
           <el-button @click="resetFilter">重置</el-button>
         </el-form-item>
       </el-form>
@@ -225,7 +225,10 @@ import { useTasksStore } from '@/stores/tasks'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { TaskListResponse, SettlementTask, TaskStatus } from '../../types/settlement'
 import UnifiedDateRange from '@/components/ui/UnifiedDateRange.vue'
-import { normalizeRangeValue } from '@/components/ui/unified-date-range-utils'
+import { buildSettlementDayRange, normalizeSettlementDayRange, splitSettlementDayRange } from './settlement-day-range'
+import QueryActionButton from '@/components/ui/QueryActionButton.vue'
+import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
+import { usePageRefresh } from '@/composables/usePageRefresh'
 
 // 估算结算任务总工作量：按可见学校的 school_id/region/cp 唯一组合数量
 const combosTotal = ref<number | null>(null)
@@ -284,6 +287,7 @@ const taskData = ref<TaskListResponse>({
   items: [],
   total: 0
 })
+const queryCtl = useCancelableQuery()
 const tasksStore = useTasksStore()
 
 // 当前选中的任务
@@ -302,17 +306,23 @@ const taskForm = reactive({
 })
 
 // 获取任务列表
-const fetchTasks = async () => {
+const syncDateRangeFromFilter = () => {
+  dateRange.value = buildSettlementDayRange(filterForm.start_date, filterForm.end_date)
+}
+
+const fetchTasks = async (signal?: AbortSignal) => {
   loading.value = true
   
   // 处理日期范围
   if (dateRange.value) {
-    filterForm.start_date = dateRange.value[0]
-    filterForm.end_date = dateRange.value[1]
+    const { start, end } = splitSettlementDayRange(dateRange.value)
+    filterForm.start_date = start
+    filterForm.end_date = end
   } else {
     filterForm.start_date = ''
     filterForm.end_date = ''
   }
+  syncDateRangeFromFilter()
 
   // 设置分页参数
   filterForm.page = currentPage.value
@@ -327,7 +337,7 @@ const fetchTasks = async () => {
       ...filterForm,
       limit,
       offset,
-    }) as any
+    }, { signal }) as any
     // 统一仅处理数组或 { items, total }
     if (Array.isArray(response)) {
       taskData.value = { items: response, total: response.length }
@@ -358,6 +368,7 @@ const fetchTasks = async () => {
       startAutoRefresh()
     }
   } catch (error) {
+    if (isAbortError(error)) return
     console.error('获取结算任务失败', error)
     ElMessage.error('获取结算任务失败')
   } finally {
@@ -371,23 +382,28 @@ const resetFilter = () => {
   filterForm.status = ''
   filterForm.start_date = ''
   filterForm.end_date = ''
-  dateRange.value = null
+  syncDateRangeFromFilter()
   currentPage.value = 1
   pageSize.value = 10
-  fetchTasks()
+  queryCtl.run((signal) => fetchTasks(signal), { showCancelMessage: false })
+}
+
+const onSearch = () => {
+  currentPage.value = 1
+  queryCtl.run((signal) => fetchTasks(signal), { toggleIfRunning: true })
 }
 
 // 处理页码变化
 const handleCurrentChange = (page: number) => {
   currentPage.value = page
-  fetchTasks()
+  queryCtl.run((signal) => fetchTasks(signal), { showCancelMessage: false })
 }
 
 // 处理每页条数变化
 const handleSizeChange = (size: number) => {
   pageSize.value = size
   currentPage.value = 1
-  fetchTasks()
+  queryCtl.run((signal) => fetchTasks(signal), { showCancelMessage: false })
 }
 
 // 查看任务详情
@@ -416,7 +432,7 @@ const deleteTask = (task: SettlementTask) => {
     try {
       await api.settlement.deleteTask(task.id)
       ElMessage.success('删除任务成功')
-      fetchTasks() // 刷新任务列表
+      queryCtl.run((signal) => fetchTasks(signal), { showCancelMessage: false }) // 刷新任务列表
     } catch (error: any) {
       console.error('删除任务失败', error)
       ElMessage.error(error.response?.data?.error || '删除任务失败')
@@ -449,10 +465,10 @@ const createWeeklyTask = () => {
   const sunday = new Date(monday)
   sunday.setDate(monday.getDate() + 6) // 设置为当前周的周日
   
-  taskForm.dateRange = normalizeRangeValue([
+  taskForm.dateRange = normalizeSettlementDayRange([
     formatDateToYYYYMMDD(monday),
     formatDateToYYYYMMDD(sunday)
-  ], 'daterange', 'YYYY-MM-DD HH:mm:ss')
+  ])
   
   createTaskVisible.value = true
 }
@@ -488,7 +504,7 @@ const submitTaskCreate = async () => {
     
     ElMessage.success(`创建${taskForm.type === 'daily' ? '日' : '周'}结算任务成功`)
     createTaskVisible.value = false
-    fetchTasks() // 刷新任务列表
+    queryCtl.run((signal) => fetchTasks(signal), { showCancelMessage: false }) // 刷新任务列表
     
     // 创建任务后立即启动自动刷新
     startAutoRefresh()
@@ -577,7 +593,7 @@ const startAutoRefresh = () => {
   refreshTimer.value = window.setInterval(() => {
     if (hasRunningTasks.value) {
       console.log('有进行中的任务，自动刷新状态')
-      fetchTasks()
+      queryCtl.run((signal) => fetchTasks(signal), { showCancelMessage: false })
     } else {
       console.log('没有进行中的任务，停止自动刷新')
       stopAutoRefresh()
@@ -595,7 +611,11 @@ const stopAutoRefresh = () => {
 
 // 组件挂载时获取数据
 onMounted(() => {
-  fetchTasks()
+  syncDateRangeFromFilter()
+  queryCtl.run((signal) => fetchTasks(signal), { showCancelMessage: false })
+})
+usePageRefresh(() => {
+  queryCtl.run((signal) => fetchTasks(signal), { showCancelMessage: false })
 })
 
 // 组件卸载时清除定时器
@@ -654,5 +674,4 @@ onUnmounted(() => {
   word-break: break-all;
 }
 </style>
-
 

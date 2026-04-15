@@ -59,7 +59,7 @@
           />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" @click="fetchData">查询</el-button>
+          <QueryActionButton :running="queryCtl.running.value" @trigger="onSearch" />
           <el-button @click="resetFilter">重置</el-button>
         </el-form-item>
       </el-form>
@@ -231,12 +231,17 @@ import type { School, PaginationParams } from '../../types/api'
 import { formatExportFilename, triggerBlobDownload } from '@/utils/export'
 import { EXPORT_FILENAME_PREFIX } from '@/utils/export-standards'
 import UnifiedDateRange from '@/components/ui/UnifiedDateRange.vue'
+import { buildSettlementDayRange, splitSettlementDayRange } from './settlement-day-range'
+import QueryActionButton from '@/components/ui/QueryActionButton.vue'
+import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
+import { usePageRefresh } from '@/composables/usePageRefresh'
 
 // 学校、地区和运营商数据
 
 const schools = ref<School[]>([])
 const regions = ref<string[]>([])
 const cps = ref<string[]>([])
+const queryCtl = useCancelableQuery()
 // 费用归属（统一：仅用户）下拉
 type OwnerOption = { id: number; name: string; label: string }
 const ownerOptions = ref<OwnerOption[]>([])
@@ -690,7 +695,7 @@ const handleRegionChange = (region: string): void => {
     loadSchools('', filterForm.cp).then(() => computeRegionCpOptions())
   }
   // 当地区变化时自动刷新数据
-  fetchData()
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   loadOwnerOptions()
 }
 
@@ -704,7 +709,7 @@ const handleCPChange = (cp: string): void => {
     loadSchools(filterForm.region, '').then(() => computeRegionCpOptions())
   }
   // 当运营商变化时自动刷新数据
-  fetchData()
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   loadOwnerOptions()
 }
 
@@ -714,7 +719,7 @@ const handleSchoolChange = (schoolId: string): void => {
   // 当学校变化时，可以在这里添加额外的逻辑
   // 例如，根据学校ID获取更多详细信息等
   // 当学校变化时自动刷新数据
-  fetchData()
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   loadOwnerOptions()
 }
 
@@ -729,7 +734,7 @@ const handleOwnerChange = (val: string | null): void => {
       filterForm.channel_owner_user_id = id
     }
   }
-  fetchData()
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
 }
 
 // 加载费用归属（用户）：统一从后端 /owner-subjects 获取，并只保留 type==='user'
@@ -754,33 +759,39 @@ const loadOwnerOptions = async () => {
 }
 
 // 处理日期范围变化
+const syncDateRangeFromFilter = () => {
+  dateRange.value = buildSettlementDayRange(filterForm.start_service_date, filterForm.end_service_date)
+}
+
 const handleDateRangeChange = (val: [string, string] | null) => {
-  if (val) {
-    filterForm.start_service_date = val[0]
-    filterForm.end_service_date = val[1]
-    console.log('设置日期范围:', val[0], '至', val[1])
-  } else {
-    filterForm.start_service_date = ''
-    filterForm.end_service_date = ''
-    console.log('清除日期范围')
-  }
+  const { start, end } = splitSettlementDayRange(val)
+  filterForm.start_service_date = start
+  filterForm.end_service_date = end
+  syncDateRangeFromFilter()
+  if (start && end) console.log('设置日期范围:', start, '至', end)
+  else console.log('清除日期范围')
   
   // 日期范围变化时自动触发数据查询
   // 使用setTimeout确保日期范围已经更新
   setTimeout(() => {
     console.log('日期范围变化，自动触发数据查询')
-    fetchData()
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
     loadOwnerOptions()
   }, 0)
 }
 
 const handleGranularityChange = () => {
   currentPage.value = 1
-  fetchData()
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
 }
 
 // 获取结算数据
-const fetchData = async () => {
+const onSearch = () => {
+  currentPage.value = 1
+  queryCtl.run((signal) => fetchData(signal), { toggleIfRunning: true })
+}
+
+const fetchData = async (signal?: AbortSignal) => {
   loading.value = true
   
   try {
@@ -823,8 +834,8 @@ const fetchData = async () => {
     
     // 发送请求并解析已解包的数据
     const response = (granularity.value === 'monthly'
-      ? await (api as any).settlementData.monthlyList(params)
-      : await (api as any).settlementData.list(params)) as any
+      ? await (api as any).settlementData.monthlyList(params, { signal })
+      : await (api as any).settlementData.list(params, { signal })) as any
     console.log('结算数据响应:', response)
     if (Array.isArray(response)) {
       settlementData.value = { items: response, total: response.length }
@@ -838,7 +849,7 @@ const fetchData = async () => {
       settlementData.value = { items: [], total: 0 }
     }
     // 加载用户映射用于归属显示
-    await loadUsersForItems()
+    await loadUsersForItems(signal)
     try {
       const ids = new Set<number>()
       for (const r of settlementData.value.items || []) {
@@ -868,6 +879,7 @@ const fetchData = async () => {
       }
     }
   } catch (error) {
+    if (isAbortError(error)) return
     console.error('获取结算数据失败', error)
     ElMessage.error('获取结算数据失败')
   } finally {
@@ -884,24 +896,24 @@ const resetFilter = () => {
   filterForm.end_service_date = ''
   filterForm.channel_owner_user_id = null
   ownerSelect.value = null
-  dateRange.value = null
+  syncDateRangeFromFilter()
   currentPage.value = 1
   pageSize.value = 10
-  fetchData()
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   loadOwnerOptions()
 }
 
 // 处理页码变化
 const handleCurrentChange = (page: number) => {
   currentPage.value = page
-  fetchData()
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
 }
 
 // 处理每页条数变化
 const handleSizeChange = (size: number) => {
   pageSize.value = size
   currentPage.value = 1
-  fetchData()
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
 }
 
 function csvEscape(v: any): string {
@@ -1236,7 +1248,7 @@ const onRebuildMonthlySnapshot = async () => {
   try {
     const affected = await (api as any).settlementData.rebuildMonthly(body)
     ElMessage.success(`月度快照重建完成，影响 ${affected} 条`)
-    if (isMonthlyGranularity.value) fetchData()
+    if (isMonthlyGranularity.value) queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '月度快照重建失败')
   }
@@ -1297,7 +1309,7 @@ const onRecalculate = async () => {
           if ((t as any).status === 'success' || (t as any).status === 'failed') {
             stop()
             // 完成后刷新当前列表
-            fetchData()
+            queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
             return
           }
         }
@@ -1312,14 +1324,18 @@ const onRecalculate = async () => {
 
 // 组件挂载时获取数据
 onMounted(() => {
+  syncDateRangeFromFilter()
   fetchBaseData()
-  fetchData()
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
+})
+usePageRefresh(() => {
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
 })
 
 // 系统用户映射，用于归属显示
 const userMap = ref<Record<number, { id:number; alias?:string; display_name?:string; username:string }>>({})
 
-const loadUsersForItems = async () => {
+const loadUsersForItems = async (signal?: AbortSignal) => {
   const ids = new Set<number>()
   for (const r of settlementData.value.items as any[]) {
     const push = (v:any) => { const n = Number(v); if (!Number.isNaN(n) && n>0) ids.add(n) }
@@ -1330,7 +1346,7 @@ const loadUsersForItems = async () => {
   }
   if (ids.size === 0) { userMap.value = {}; return }
   try {
-    const res: any = await (api as any).system.users.list({ ids: Array.from(ids).join(',') })
+    const res: any = await (api as any).system.users.list({ ids: Array.from(ids).join(',') }, { signal })
     const list: any[] = Array.isArray(res?.items) ? res.items : []
     const m: Record<number, { id:number; alias?:string; display_name?:string; username:string }> = {}
     for (const u of list) { if (u && typeof u.id === 'number') m[u.id] = { id:u.id, alias:u.alias, display_name:u.display_name, username:u.username } }
@@ -1385,5 +1401,3 @@ function displayUser(id?: number | null): string {
   line-height: 1.3;
 }
 </style>
-
-

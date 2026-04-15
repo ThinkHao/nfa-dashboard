@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"nfa-dashboard/internal/model"
 	"nfa-dashboard/internal/repository"
@@ -9,14 +10,14 @@ import (
 )
 
 type SettlementDataService interface {
-	List(filter SettlementCustomerFilter, page, pageSize int) ([]model.SettlementCustomer, int64, error)
-	ListMonthly(filter SettlementCustomerFilter, page, pageSize int) ([]model.SettlementCustomerMonthly, int64, error)
-	ListAll(filter SettlementCustomerFilter) ([]model.SettlementCustomer, error)
+	List(ctx context.Context, filter SettlementCustomerFilter, page, pageSize int) ([]model.SettlementCustomer, int64, error)
+	ListMonthly(ctx context.Context, filter SettlementCustomerFilter, page, pageSize int) ([]model.SettlementCustomerMonthly, int64, error)
+	ListAll(ctx context.Context, filter SettlementCustomerFilter) ([]model.SettlementCustomer, error)
 	Recalculate(filter SettlementCustomerFilter) (int64, error)
 	RebuildMonthlySnapshot(start, end *time.Time) (int64, error)
-	ListUsedChannelOwners(filter SettlementCustomerFilter) ([]UsedChannelOwner, error)
-	ListUsedOwnerEntities(filter SettlementCustomerFilter) ([]UsedOwnerEntity, error)
-	ListUsedOwnerSubjects(filter SettlementCustomerFilter) ([]UsedOwnerSubject, error)
+	ListUsedChannelOwners(ctx context.Context, filter SettlementCustomerFilter) ([]UsedChannelOwner, error)
+	ListUsedOwnerEntities(ctx context.Context, filter SettlementCustomerFilter) ([]UsedOwnerEntity, error)
+	ListUsedOwnerSubjects(ctx context.Context, filter SettlementCustomerFilter) ([]UsedOwnerSubject, error)
 	BuildOwnerNameMaps(rows []model.SettlementCustomer) (map[uint64]string, map[uint64]string, error)
 	CreateRecalculateTask(start, end time.Time) (int64, error)
 	MarkTaskRunning(taskID int64) error
@@ -73,7 +74,7 @@ func NewSettlementDataService(
 	}
 }
 
-func (s *settlementDataService) List(filter SettlementCustomerFilter, page, pageSize int) ([]model.SettlementCustomer, int64, error) {
+func (s *settlementDataService) List(ctx context.Context, filter SettlementCustomerFilter, page, pageSize int) ([]model.SettlementCustomer, int64, error) {
 	m := map[string]interface{}{}
 	if filter.Region != "" {
 		m["region"] = filter.Region
@@ -104,10 +105,10 @@ func (s *settlementDataService) List(filter SettlementCustomerFilter, page, page
 	}
 	limit := pageSize
 	offset := (page - 1) * pageSize
-	return s.repo.ListSettlementCustomer(m, limit, offset)
+	return s.repo.ListSettlementCustomer(ctx, m, limit, offset)
 }
 
-func (s *settlementDataService) ListMonthly(filter SettlementCustomerFilter, page, pageSize int) ([]model.SettlementCustomerMonthly, int64, error) {
+func (s *settlementDataService) ListMonthly(ctx context.Context, filter SettlementCustomerFilter, page, pageSize int) ([]model.SettlementCustomerMonthly, int64, error) {
 	m := map[string]interface{}{}
 	if filter.Region != "" {
 		m["region"] = filter.Region
@@ -138,10 +139,10 @@ func (s *settlementDataService) ListMonthly(filter SettlementCustomerFilter, pag
 	}
 	limit := pageSize
 	offset := (page - 1) * pageSize
-	return s.repo.ListSettlementCustomerMonthly(m, limit, offset)
+	return s.repo.ListSettlementCustomerMonthly(ctx, m, limit, offset)
 }
 
-func (s *settlementDataService) ListAll(filter SettlementCustomerFilter) ([]model.SettlementCustomer, error) {
+func (s *settlementDataService) ListAll(ctx context.Context, filter SettlementCustomerFilter) ([]model.SettlementCustomer, error) {
 	m := map[string]interface{}{}
 	if filter.Region != "" {
 		m["region"] = filter.Region
@@ -164,7 +165,7 @@ func (s *settlementDataService) ListAll(filter SettlementCustomerFilter) ([]mode
 	if filter.ChannelOwnerUserID != nil && *filter.ChannelOwnerUserID > 0 {
 		m["channel_owner_user_id"] = *filter.ChannelOwnerUserID
 	}
-	rows, _, err := s.repo.ListSettlementCustomer(m, 100000, 0)
+	rows, _, err := s.repo.ListSettlementCustomer(ctx, m, 100000, 0)
 	return rows, err
 }
 
@@ -191,8 +192,8 @@ func (s *settlementDataService) RebuildMonthlySnapshot(start, end *time.Time) (i
 	return s.repo.RebuildSettlementCustomerMonthly(sTime, eTime)
 }
 
-func (s *settlementDataService) ListUsedChannelOwners(filter SettlementCustomerFilter) ([]UsedChannelOwner, error) {
-	rows, err := s.ListAll(filter)
+func (s *settlementDataService) ListUsedChannelOwners(ctx context.Context, filter SettlementCustomerFilter) ([]UsedChannelOwner, error) {
+	rows, err := s.ListAll(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -217,8 +218,8 @@ func (s *settlementDataService) ListUsedChannelOwners(filter SettlementCustomerF
 	return items, nil
 }
 
-func (s *settlementDataService) ListUsedOwnerEntities(filter SettlementCustomerFilter) ([]UsedOwnerEntity, error) {
-	rows, err := s.ListAll(filter)
+func (s *settlementDataService) ListUsedOwnerEntities(ctx context.Context, filter SettlementCustomerFilter) ([]UsedOwnerEntity, error) {
+	rows, err := s.ListAll(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -248,8 +249,8 @@ func (s *settlementDataService) ListUsedOwnerEntities(filter SettlementCustomerF
 	return items, nil
 }
 
-func (s *settlementDataService) ListUsedOwnerSubjects(filter SettlementCustomerFilter) ([]UsedOwnerSubject, error) {
-	rows, err := s.ListAll(filter)
+func (s *settlementDataService) ListUsedOwnerSubjects(ctx context.Context, filter SettlementCustomerFilter) ([]UsedOwnerSubject, error) {
+	rows, err := s.ListAll(ctx, filter)
 	if err != nil {
 		return nil, err
 	}

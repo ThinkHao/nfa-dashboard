@@ -18,6 +18,7 @@ import type {
   CreateUserRequest,
   RateCustomer,
   CustomerRateImportResponse,
+  CustomerRateImportTask,
   UpsertRateCustomerRequest,
   RateNode,
   UpsertRateNodeRequest,
@@ -46,6 +47,7 @@ import type {
   TrafficScopeUserLite,
   SettlementRuleScopeOptions,
 } from '@/types/api'
+import type { AxiosRequestConfig } from 'axios'
 import { api, raw } from './httpClient'
 
 // API接口
@@ -64,28 +66,28 @@ export default {
     }
   },
   // 获取学校列表
-  getSchools(params?: any) {
-    return api.get('/api/v1/schools', { params }).then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+  getSchools(params?: any, config?: AxiosRequestConfig) {
+    return api.get('/api/v1/schools', { params, ...(config || {}) }).then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
   },
   
   // 获取地区列表
-  getRegions() {
-    return api.get('/api/v1/regions').then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+  getRegions(config?: AxiosRequestConfig) {
+    return api.get('/api/v1/regions', { ...(config || {}) }).then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
   },
   
   // 获取运营商列表
-  getCPs() {
-    return api.get('/api/v1/cps').then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+  getCPs(config?: AxiosRequestConfig) {
+    return api.get('/api/v1/cps', { ...(config || {}) }).then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
   },
   
   // 获取流量数据
-  getTrafficData(params?: any) {
-    return api.get('/api/v1/traffic', { params }).then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+  getTrafficData(params?: any, config?: AxiosRequestConfig) {
+    return api.get('/api/v1/traffic', { params, ...(config || {}) }).then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
   },
   
   // 获取流量汇总数据
-  getTrafficSummary(params?: any) {
-    return api.get('/api/v1/traffic/summary', { params }).then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+  getTrafficSummary(params?: any, config?: AxiosRequestConfig) {
+    return api.get('/api/v1/traffic/summary', { params, ...(config || {}) }).then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
   },
 
   // 结算系统相关API
@@ -116,10 +118,10 @@ export default {
     },
 
     // 获取结算任务列表
-    getTasks(params?: any) {
+    getTasks(params?: any, config?: AxiosRequestConfig) {
       // 统一解包 { data: { items, total } } 或直接返回数组/对象
       return api
-        .get('/api/v1/settlement/tasks', { params })
+        .get('/api/v1/settlement/tasks', { params, ...(config || {}) })
         .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
 
@@ -147,30 +149,30 @@ export default {
     },
 
     // 获取结算数据列表
-    getSettlements(params?: any) {
+    getSettlements(params?: any, config?: AxiosRequestConfig) {
       return api
-        .get('/api/v1/settlement/data', { params })
+        .get('/api/v1/settlement/data', { params, ...(config || {}) })
         .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
 
     // 获取结算结果列表
-    getResults(params?: any) {
+    getResults(params?: any, config?: AxiosRequestConfig) {
       return api
-        .get('/api/v1/settlement/results', { params })
+        .get('/api/v1/settlement/results', { params, ...(config || {}) })
         .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
 
     // 获取渠道维度结算结果列表
-    getChannelResults(params?: any) {
+    getChannelResults(params?: any, config?: AxiosRequestConfig) {
       return api
-        .get('/api/v1/settlement/results/channels', { params })
+        .get('/api/v1/settlement/results/channels', { params, ...(config || {}) })
         .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
 
     // 获取日95明细数据列表
-    getDailySettlementDetails(params?: any) {
+    getDailySettlementDetails(params?: any, config?: AxiosRequestConfig) {
       return api
-        .get('/api/v1/settlement/daily-details', { params })
+        .get('/api/v1/settlement/daily-details', { params, ...(config || {}) })
         .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
 
@@ -218,10 +220,10 @@ export default {
   ,
   // 操作日志 API
   operationLogs: {
-    list(params?: any): Promise<PaginatedData<OperationLog>> {
+    list(params?: any, config?: AxiosRequestConfig): Promise<PaginatedData<OperationLog>> {
       // 由于 axios 类型推断与拦截器返回 data 存在差异，这里进行显式断言
       return api
-        .get('/api/v1/system/operation-logs', { params })
+        .get('/api/v1/system/operation-logs', { params, ...(config || {}) })
         .then((d: any) => d as PaginatedData<OperationLog>)
     },
     export(params?: any): Promise<Blob> {
@@ -233,8 +235,8 @@ export default {
   // 系统管理 API
   system: {
     users: {
-      list(params?: any): Promise<PaginatedData<SystemUser>> {
-        return api.get('/api/v1/system/users', { params }).then((d: any) => d as PaginatedData<SystemUser>)
+      list(params?: any, config?: AxiosRequestConfig): Promise<PaginatedData<SystemUser>> {
+        return api.get('/api/v1/system/users', { params, ...(config || {}) }).then((d: any) => d as PaginatedData<SystemUser>)
       },
       create(data: CreateUserRequest): Promise<SystemUser> {
         return api.post('/api/v1/system/users', data).then((d: any) => d as SystemUser)
@@ -306,8 +308,8 @@ export default {
       },
     },
     permissions: {
-      list(params?: any): Promise<PaginatedData<PermissionLite>> {
-        return api.get('/api/v1/system/permissions', { params }).then((d: any) => d as PaginatedData<PermissionLite>)
+      list(params?: any, config?: AxiosRequestConfig): Promise<PaginatedData<PermissionLite>> {
+        return api.get('/api/v1/system/permissions', { params, ...(config || {}) }).then((d: any) => d as PaginatedData<PermissionLite>)
       },
       create(data: { code: string; name: string; description?: string | null }): Promise<PermissionLite> {
         return api.post('/api/v1/system/permissions', data).then((d: any) => d as PermissionLite)
@@ -330,8 +332,8 @@ export default {
   // 结算 - 费率 API
   settlementRates: {
     customer: {
-      list(params?: any): Promise<PaginatedData<RateCustomer>> {
-        return api.get('/api/v1/settlement/rates/customer', { params }).then((d: any) => d as PaginatedData<RateCustomer>)
+      list(params?: any, config?: AxiosRequestConfig): Promise<PaginatedData<RateCustomer>> {
+        return api.get('/api/v1/settlement/rates/customer', { params, ...(config || {}) }).then((d: any) => d as PaginatedData<RateCustomer>)
       },
       upsert(data: UpsertRateCustomerRequest): Promise<void> {
         return api.post('/api/v1/settlement/rates/customer', data).then(() => undefined)
@@ -345,6 +347,45 @@ export default {
       template(): Promise<Blob> {
         return api
           .get('/api/v1/settlement/rates/customer/import-template', { responseType: 'blob' as any })
+          .then((d: any) => d as Blob)
+      },
+      createImportTask(form: FormData, opts?: { validateOnly?: boolean }): Promise<{ task_id: number; status: string; task_stage?: string; validate_only?: boolean }> {
+        const params: any = {}
+        if (opts?.validateOnly) params.validate_only = 1
+        return api
+          .post('/api/v1/settlement/rates/customer/import/tasks', form, { params })
+          .then((d: any) => {
+            const taskId = Number((d as any)?.task_id || 0)
+            return {
+              task_id: taskId,
+              status: String((d as any)?.status || 'pending'),
+              task_stage: (d as any)?.task_stage ? String((d as any).task_stage) : undefined,
+              validate_only: (d as any)?.validate_only != null ? Boolean((d as any).validate_only) : undefined,
+            }
+          })
+      },
+      getImportTask(taskId: number): Promise<CustomerRateImportTask> {
+        return api
+          .get(`/api/v1/settlement/rates/customer/import/tasks/${taskId}`)
+          .then((d: any) => d as CustomerRateImportTask)
+      },
+      continueImportTask(taskId: number): Promise<{ task_id: number; status: string; task_stage?: string }> {
+        return api
+          .post(`/api/v1/settlement/rates/customer/import/tasks/${taskId}/continue`, {})
+          .then((d: any) => ({
+            task_id: Number((d as any)?.task_id || taskId),
+            status: String((d as any)?.status || 'running'),
+            task_stage: (d as any)?.task_stage ? String((d as any).task_stage) : undefined,
+          }))
+      },
+      downloadImportErrorsCsv(taskId: number): Promise<Blob> {
+        return api
+          .get(`/api/v1/settlement/rates/customer/import/tasks/${taskId}/errors.csv`, { responseType: 'blob' as any })
+          .then((d: any) => d as Blob)
+      },
+      downloadImportCreatedUsersCsv(taskId: number): Promise<Blob> {
+        return api
+          .get(`/api/v1/settlement/rates/customer/import/tasks/${taskId}/created-users.csv`, { responseType: 'blob' as any })
           .then((d: any) => d as Blob)
       },
       import(form: FormData, opts?: { validateOnly?: boolean }): Promise<CustomerRateImportResponse> {
@@ -366,21 +407,21 @@ export default {
       },
     },
     node: {
-      list(params?: any): Promise<PaginatedData<RateNode>> {
-        return api.get('/api/v1/settlement/rates/node', { params }).then((d: any) => d as PaginatedData<RateNode>)
+      list(params?: any, config?: AxiosRequestConfig): Promise<PaginatedData<RateNode>> {
+        return api.get('/api/v1/settlement/rates/node', { params, ...(config || {}) }).then((d: any) => d as PaginatedData<RateNode>)
       },
       upsert(data: UpsertRateNodeRequest): Promise<void> {
         return api.post('/api/v1/settlement/rates/node', data).then(() => undefined)
       },
     },
     final: {
-      list(params?: any): Promise<PaginatedData<RateFinalCustomer>> {
-        return api.get('/api/v1/settlement/rates/final', { params }).then((d: any) => d as PaginatedData<RateFinalCustomer>)
+      list(params?: any, config?: AxiosRequestConfig): Promise<PaginatedData<RateFinalCustomer>> {
+        return api.get('/api/v1/settlement/rates/final', { params, ...(config || {}) }).then((d: any) => d as PaginatedData<RateFinalCustomer>)
       },
       // 按服务日期获取折损后的最终客户费率视图
-      listDiscounted(params?: any): Promise<PaginatedData<DiscountedFinalCustomerRate>> {
+      listDiscounted(params?: any, config?: AxiosRequestConfig): Promise<PaginatedData<DiscountedFinalCustomerRate>> {
         return api
-          .get('/api/v1/settlement/rates/final-discounted', { params })
+          .get('/api/v1/settlement/rates/final-discounted', { params, ...(config || {}) })
           .then((d: any) => d as PaginatedData<DiscountedFinalCustomerRate>)
       },
       upsert(data: UpsertRateFinalCustomerRequest): Promise<void> {
@@ -410,8 +451,8 @@ export default {
       options(): Promise<SettlementRuleScopeOptions> {
         return api.get('/api/v1/settlement/rates/sync-rules/options').then((d: any) => d as SettlementRuleScopeOptions)
       },
-      list(params?: any): Promise<PaginatedData<SyncRule>> {
-        return api.get('/api/v1/settlement/rates/sync-rules', { params }).then((d: any) => d as PaginatedData<SyncRule>)
+      list(params?: any, config?: AxiosRequestConfig): Promise<PaginatedData<SyncRule>> {
+        return api.get('/api/v1/settlement/rates/sync-rules', { params, ...(config || {}) }).then((d: any) => d as PaginatedData<SyncRule>)
       },
       create(data: CreateSyncRuleRequest): Promise<SyncRule> {
         return api.post('/api/v1/settlement/rates/sync-rules', data).then((d: any) => d as SyncRule)
@@ -433,8 +474,8 @@ export default {
       options(): Promise<SettlementRuleScopeOptions> {
         return api.get('/api/v1/settlement/rates/filter-rules/options').then((d: any) => d as SettlementRuleScopeOptions)
       },
-      list(params?: any): Promise<PaginatedData<FilterRule>> {
-        return api.get('/api/v1/settlement/rates/filter-rules', { params }).then((d: any) => d as PaginatedData<FilterRule>)
+      list(params?: any, config?: AxiosRequestConfig): Promise<PaginatedData<FilterRule>> {
+        return api.get('/api/v1/settlement/rates/filter-rules', { params, ...(config || {}) }).then((d: any) => d as PaginatedData<FilterRule>)
       },
       create(data: CreateFilterRuleRequest): Promise<FilterRule> {
         return api.post('/api/v1/settlement/rates/filter-rules', data).then((d: any) => d as FilterRule)
@@ -454,8 +495,8 @@ export default {
     },
     // 折损规则管理
     discountRules: {
-      list(params?: any): Promise<PaginatedData<any>> {
-        return api.get('/api/v1/settlement/rates/discount-rules', { params }).then((d: any) => d as PaginatedData<any>)
+      list(params?: any, config?: AxiosRequestConfig): Promise<PaginatedData<any>> {
+        return api.get('/api/v1/settlement/rates/discount-rules', { params, ...(config || {}) }).then((d: any) => d as PaginatedData<any>)
       },
       get(id: number): Promise<{ rule: any; items: any[] }> {
         return api.get(`/api/v1/settlement/rates/discount-rules/${id}`).then((d: any) => d as { rule: any; items: any[] })
@@ -493,8 +534,8 @@ export default {
 
   // 结算 - 业务类型 API
   settlementBusinessTypes: {
-    list(params?: any): Promise<PaginatedData<BusinessType>> {
-      return api.get('/api/v1/settlement/business-types', { params }).then((d: any) => d as PaginatedData<BusinessType>)
+    list(params?: any, config?: AxiosRequestConfig): Promise<PaginatedData<BusinessType>> {
+      return api.get('/api/v1/settlement/business-types', { params, ...(config || {}) }).then((d: any) => d as PaginatedData<BusinessType>)
     },
     create(data: CreateBusinessTypeRequest): Promise<BusinessType> {
       return api.post('/api/v1/settlement/business-types', data).then((d: any) => d as BusinessType)
@@ -516,15 +557,15 @@ export default {
   // 结算数据明细 API（settlement_customer）
   settlementData: {
     // 列表
-    list(params?: any) {
+    list(params?: any, config?: AxiosRequestConfig) {
       return api
-        .get('/api/v1/settlement/data/customer', { params })
+        .get('/api/v1/settlement/data/customer', { params, ...(config || {}) })
         .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
     // 月度聚合列表
-    monthlyList(params?: any) {
+    monthlyList(params?: any, config?: AxiosRequestConfig) {
       return api
-        .get('/api/v1/settlement/data/customer/monthly', { params })
+        .get('/api/v1/settlement/data/customer/monthly', { params, ...(config || {}) })
         .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
     // 重建月度快照
@@ -538,9 +579,9 @@ export default {
         })
     },
     // 统一的费用归属主体（system user）下拉
-    ownerSubjects(params?: any): Promise<Array<{ type: string; id: number; label: string }>> {
+    ownerSubjects(params?: any, config?: AxiosRequestConfig): Promise<Array<{ type: string; id: number; label: string }>> {
       return api
-        .get('/api/v1/settlement/data/customer/owner-subjects', { params })
+        .get('/api/v1/settlement/data/customer/owner-subjects', { params, ...(config || {}) })
         .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (((d as any).data?.items) ?? []) : (Array.isArray(d) ? d : [])))
     },
     // 导出 CSV
@@ -577,40 +618,40 @@ export default {
   // v2 接口：启用按用户过滤（后端会在无权限时强制使用当前用户）
   v2: {
     // 学校列表（v2）
-    getSchools(params?: any) {
-      return api.get('/api/v2/schools', { params })
+    getSchools(params?: any, config?: AxiosRequestConfig) {
+      return api.get('/api/v2/schools', { params, ...(config || {}) })
         .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
     // 地区列表（v2，按用户可见范围）
-    getRegions(params?: any) {
-      return api.get('/api/v2/regions', { params })
+    getRegions(params?: any, config?: AxiosRequestConfig) {
+      return api.get('/api/v2/regions', { params, ...(config || {}) })
         .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
     // 运营商列表（v2，按用户可见范围）
-    getCPs(params?: any) {
-      return api.get('/api/v2/cps', { params })
+    getCPs(params?: any, config?: AxiosRequestConfig) {
+      return api.get('/api/v2/cps', { params, ...(config || {}) })
         .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
     // 流量数据（v2）
-    getTrafficData(params?: any) {
-      return api.get('/api/v2/traffic', { params })
+    getTrafficData(params?: any, config?: AxiosRequestConfig) {
+      return api.get('/api/v2/traffic', { params, ...(config || {}) })
         .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
     // 流量汇总（v2）
-    getTrafficSummary(params?: any) {
-      return api.get('/api/v2/traffic/summary', { params })
+    getTrafficSummary(params?: any, config?: AxiosRequestConfig) {
+      return api.get('/api/v2/traffic/summary', { params, ...(config || {}) })
         .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
     // 结算相关（v2）
     settlement: {
       // 获取结算数据列表（v2）
-      getSettlements(params?: any) {
-        return api.get('/api/v2/settlement/data', { params })
+      getSettlements(params?: any, config?: AxiosRequestConfig) {
+        return api.get('/api/v2/settlement/data', { params, ...(config || {}) })
           .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
       },
       // 获取日95明细数据列表（v2）
-      getDailySettlementDetails(params?: any) {
-        return api.get('/api/v2/settlement/daily-details', { params })
+      getDailySettlementDetails(params?: any, config?: AxiosRequestConfig) {
+        return api.get('/api/v2/settlement/daily-details', { params, ...(config || {}) })
           .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
       },
     },

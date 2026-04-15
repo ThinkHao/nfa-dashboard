@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -20,8 +22,11 @@ type SettlementDataController struct {
 // 返回在结算明细中实际被使用过的“渠道归属用户”（系统用户）去重列表
 func (c *SettlementDataController) ListUsedChannelOwners(ctx *gin.Context) {
 	filter := parseSettlementFilter(ctx)
-	items, err := c.dataSvc.ListUsedChannelOwners(filter)
+	items, err := c.dataSvc.ListUsedChannelOwners(ctx.Request.Context(), filter)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询渠道归属用户失败", "error": err.Error()})
 		return
 	}
@@ -32,8 +37,11 @@ func (c *SettlementDataController) ListUsedChannelOwners(ctx *gin.Context) {
 // 统一返回费用归属主体的去重列表（仅 system user）
 func (c *SettlementDataController) ListUsedOwnerSubjects(ctx *gin.Context) {
 	filter := parseSettlementFilter(ctx)
-	items, err := c.dataSvc.ListUsedOwnerSubjects(filter)
+	items, err := c.dataSvc.ListUsedOwnerSubjects(ctx.Request.Context(), filter)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询费用归属主体失败", "error": err.Error()})
 		return
 	}
@@ -44,8 +52,11 @@ func (c *SettlementDataController) ListUsedOwnerSubjects(ctx *gin.Context) {
 // 返回在结算明细中实际被使用过的业务对象（费用归属：客户费/线路费/节点通用费）去重列表
 func (c *SettlementDataController) ListUsedOwnerEntities(ctx *gin.Context) {
 	filter := parseSettlementFilter(ctx)
-	items, err := c.dataSvc.ListUsedOwnerEntities(filter)
+	items, err := c.dataSvc.ListUsedOwnerEntities(ctx.Request.Context(), filter)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询费用归属对象失败", "error": err.Error()})
 		return
 	}
@@ -93,13 +104,13 @@ func (c *SettlementDataController) ListCustomerData(ctx *gin.Context) {
 		endPtr   *time.Time
 	)
 	if startS != "" {
-		if t, err := time.Parse("2006-01-02", startS); err == nil {
-			startPtr = &t
+		if parsed, err := parseOptionalDateBoundary(startS, false); err == nil {
+			startPtr = parsed
 		}
 	}
 	if endS != "" {
-		if t, err := time.Parse("2006-01-02", endS); err == nil {
-			endPtr = &t
+		if parsed, err := parseOptionalDateBoundary(endS, true); err == nil {
+			endPtr = parsed
 		}
 	}
 	var ownerPtr *uint64
@@ -114,8 +125,11 @@ func (c *SettlementDataController) ListCustomerData(ctx *gin.Context) {
 			channelPtr = &cuv
 		}
 	}
-	items, total, err := c.dataSvc.List(service.SettlementCustomerFilter{Region: region, CP: cp, School: school, Start: startPtr, End: endPtr, OwnerEntityID: ownerPtr, ChannelOwnerUserID: channelPtr}, page, size)
+	items, total, err := c.dataSvc.List(ctx.Request.Context(), service.SettlementCustomerFilter{Region: region, CP: cp, School: school, Start: startPtr, End: endPtr, OwnerEntityID: ownerPtr, ChannelOwnerUserID: channelPtr}, page, size)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询结算数据失败", "error": err.Error()})
 		return
 	}
@@ -140,13 +154,13 @@ func (c *SettlementDataController) ListCustomerMonthlyData(ctx *gin.Context) {
 		endPtr   *time.Time
 	)
 	if startS != "" {
-		if t, err := time.Parse("2006-01-02", startS); err == nil {
-			startPtr = &t
+		if parsed, err := parseOptionalDateBoundary(startS, false); err == nil {
+			startPtr = parsed
 		}
 	}
 	if endS != "" {
-		if t, err := time.Parse("2006-01-02", endS); err == nil {
-			endPtr = &t
+		if parsed, err := parseOptionalDateBoundary(endS, true); err == nil {
+			endPtr = parsed
 		}
 	}
 	var ownerPtr *uint64
@@ -161,7 +175,7 @@ func (c *SettlementDataController) ListCustomerMonthlyData(ctx *gin.Context) {
 			channelPtr = &cuv
 		}
 	}
-	items, total, err := c.dataSvc.ListMonthly(service.SettlementCustomerFilter{
+	items, total, err := c.dataSvc.ListMonthly(ctx.Request.Context(), service.SettlementCustomerFilter{
 		Region:             region,
 		CP:                 cp,
 		School:             school,
@@ -171,6 +185,9 @@ func (c *SettlementDataController) ListCustomerMonthlyData(ctx *gin.Context) {
 		ChannelOwnerUserID: channelPtr,
 	}, page, size)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询月度结算数据失败", "error": err.Error()})
 		return
 	}
@@ -208,13 +225,13 @@ func (c *SettlementDataController) ExportCustomerData(ctx *gin.Context) {
 		endPtr   *time.Time
 	)
 	if startS != "" {
-		if t, err := time.Parse("2006-01-02", startS); err == nil {
-			startPtr = &t
+		if parsed, err := parseOptionalDateBoundary(startS, false); err == nil {
+			startPtr = parsed
 		}
 	}
 	if endS != "" {
-		if t, err := time.Parse("2006-01-02", endS); err == nil {
-			endPtr = &t
+		if parsed, err := parseOptionalDateBoundary(endS, true); err == nil {
+			endPtr = parsed
 		}
 	}
 	var ownerPtr *uint64
@@ -229,8 +246,11 @@ func (c *SettlementDataController) ExportCustomerData(ctx *gin.Context) {
 			channelPtr = &cuv
 		}
 	}
-	rows, err := c.dataSvc.ListAll(service.SettlementCustomerFilter{Region: region, CP: cp, School: school, Start: startPtr, End: endPtr, OwnerEntityID: ownerPtr, ChannelOwnerUserID: channelPtr})
+	rows, err := c.dataSvc.ListAll(ctx.Request.Context(), service.SettlementCustomerFilter{Region: region, CP: cp, School: school, Start: startPtr, End: endPtr, OwnerEntityID: ownerPtr, ChannelOwnerUserID: channelPtr})
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "导出失败", "error": err.Error()})
 		return
 	}
@@ -284,10 +304,16 @@ func (c *SettlementDataController) RecalculateCustomerData(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "start_service_date 与 end_service_date 必填"})
 		return
 	}
-	var (
-		start, _ = time.Parse("2006-01-02", req.Start)
-		end, _   = time.Parse("2006-01-02", req.End)
-	)
+	start, err := parseDateBoundary(req.Start, false)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "start_service_date 格式错误，应为 YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss", "error": err.Error()})
+		return
+	}
+	end, err := parseDateBoundary(req.End, true)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "end_service_date 格式错误，应为 YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss", "error": err.Error()})
+		return
+	}
 	taskID, err := c.dataSvc.CreateRecalculateTask(start, end)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "创建复算任务失败", "error": err.Error()})
@@ -325,17 +351,17 @@ func (c *SettlementDataController) RebuildMonthlyData(ctx *gin.Context) {
 	var startPtr *time.Time
 	var endPtr *time.Time
 	if strings.TrimSpace(req.Start) != "" {
-		t, err := time.Parse("2006-01-02", req.Start)
+		t, err := parseDateBoundary(req.Start, false)
 		if err != nil {
-			ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "start_service_date 格式错误，应为 YYYY-MM-DD"})
+			ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "start_service_date 格式错误，应为 YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss"})
 			return
 		}
 		startPtr = &t
 	}
 	if strings.TrimSpace(req.End) != "" {
-		t, err := time.Parse("2006-01-02", req.End)
+		t, err := parseDateBoundary(req.End, true)
 		if err != nil {
-			ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "end_service_date 格式错误，应为 YYYY-MM-DD"})
+			ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "end_service_date 格式错误，应为 YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss"})
 			return
 		}
 		endPtr = &t
@@ -355,13 +381,13 @@ func parseSettlementFilter(ctx *gin.Context) service.SettlementCustomerFilter {
 		School: ctx.Query("school_name"),
 	}
 	if startS := ctx.Query("start_service_date"); startS != "" {
-		if t, err := time.Parse("2006-01-02", startS); err == nil {
-			filter.Start = &t
+		if parsed, err := parseOptionalDateBoundary(startS, false); err == nil {
+			filter.Start = parsed
 		}
 	}
 	if endS := ctx.Query("end_service_date"); endS != "" {
-		if t, err := time.Parse("2006-01-02", endS); err == nil {
-			filter.End = &t
+		if parsed, err := parseOptionalDateBoundary(endS, true); err == nil {
+			filter.End = parsed
 		}
 	}
 	return filter
@@ -405,4 +431,3 @@ func writeCSVLine(w http.ResponseWriter, cols ...string) {
 	}
 	w.Write([]byte("\n"))
 }
-

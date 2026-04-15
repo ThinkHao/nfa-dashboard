@@ -42,16 +42,26 @@ const defaultTime = computed(() => {
   return [new Date(2000, 0, 1, 0, 0, 0), new Date(2000, 0, 1, 23, 59, 59)]
 })
 
-function onChange(value: [string, string] | null) {
-  const normalized = normalizeRangeValue(value as RangeValue, props.type, props.valueFormat)
+const pickerValue = computed(() => normalizeRangeValue(props.modelValue as RangeValue, props.type, props.valueFormat))
+
+function normalizePickerValue(value: [string, string] | null) {
+  return normalizeRangeValue(value as RangeValue, props.type, props.valueFormat)
+}
+
+function onPickerModelUpdate(value: [string, string] | null) {
+  const normalized = normalizePickerValue(value)
   emit('update:modelValue', normalized)
+}
+
+function onPickerChange(value: [string, string] | null) {
+  const normalized = normalizePickerValue(value)
   emit('change', normalized)
 }
 </script>
 
 <template>
   <el-date-picker
-    :model-value="modelValue"
+    :model-value="pickerValue"
     :type="type"
     range-separator="至"
     :start-placeholder="resolvedStartPlaceholder"
@@ -60,7 +70,7 @@ function onChange(value: [string, string] | null) {
     :value-format="valueFormat"
     :default-time="defaultTime"
     class="field-w-300 unified-date-range"
-    @update:model-value="onChange"
-    @change="onChange"
+    @update:model-value="onPickerModelUpdate"
+    @change="onPickerChange"
   />
 </template>

@@ -62,6 +62,10 @@ function endOfMonth(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 0)
 }
 
+function cloneDate(date: Date): Date {
+  return new Date(date.getTime())
+}
+
 function formatDateTime(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 }
@@ -98,6 +102,13 @@ export function normalizeRangeValue(
     const start = startOfMonth(startDate)
     const end = endOfMonth(endDate)
     return [formatRangeBoundary(start, valueFormat), formatRangeBoundary(end, valueFormat)]
+  }
+
+  if (type === 'datetimerange') {
+    return [
+      formatRangeBoundary(cloneDate(startDate), valueFormat),
+      formatRangeBoundary(cloneDate(endDate), valueFormat),
+    ]
   }
 
   const start = startOfDay(startDate)

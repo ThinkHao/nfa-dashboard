@@ -7,7 +7,11 @@ import FilterPanel from '@/components/ui/FilterPanel.vue'
 import SectionCard from '@/components/ui/SectionCard.vue'
 import SearchSelect from '@/components/ui/SearchSelect.vue'
 import UnifiedDateRange from '@/components/ui/UnifiedDateRange.vue'
+import QueryActionButton from '@/components/ui/QueryActionButton.vue'
 import { buildRangeValue, splitRangeValue } from '@/components/ui/unified-date-range-utils'
+import { clearTrafficCustomRange, resolvePresetTrafficRange, type TrafficTimeRangeOption } from './traffic-time-range'
+import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
+import { usePageRefresh } from '@/composables/usePageRefresh'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart } from 'echarts/charts'
@@ -176,6 +180,7 @@ const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(10)
 const currentGranularity = ref('5m') // 当前使用的时间粒度
+const queryCtl = useCancelableQuery()
 
 const pagedTrafficData = computed(() => {
   const list = trafficData.value as any[]
@@ -193,11 +198,14 @@ const queryForm = reactive({
   cp: '',
   start_time: '',
   end_time: '',
-  timeRange: 'last1h' // 默认选择过去1小时
+  timeRange: 'last1h' as TrafficTimeRangeOption, // 默认选择过去1小时
 })
 
 const customDateRange = computed<[string, string] | null>({
-  get: () => buildRangeValue(queryForm.start_time, queryForm.end_time),
+  get: () => {
+    if (queryForm.timeRange !== 'custom') return null
+    return buildRangeValue(queryForm.start_time, queryForm.end_time)
+  },
   set: (value) => {
     const { start, end } = splitRangeValue(value)
     queryForm.start_time = start
@@ -442,10 +450,9 @@ const chartOption = computed(() => {
 onMounted(async () => {
   try {
     // 设置默认时间范围为最近1小时（与 timeRange 保持一致）
-    const now = new Date()
-    const oneHourAgo = new Date(now.getTime() - 1 * 60 * 60 * 1000)
-    queryForm.start_time = toRFC3339Seconds(oneHourAgo)
-    queryForm.end_time = toRFC3339Seconds(now)
+    const initialRange = resolvePresetTrafficRange('last1h')
+    queryForm.start_time = initialRange?.[0] || ''
+    queryForm.end_time = initialRange?.[1] || ''
     
     // 读取路由查询参数作为默认过滤
     const q: any = route.query || {}
@@ -477,7 +484,7 @@ onMounted(async () => {
 
 // 监听分页变化
 watch(currentPage, () => {
-  loadTrafficData()
+  queryCtl.run((signal) => loadTrafficData(signal), { showCancelMessage: false })
 })
 
 // 监听路由查询变化（在已处于 /traffic 页面时再次从外部带参跳转也能生效）
@@ -489,7 +496,7 @@ watch(
         queryForm.school_name = typeof q.school_name === 'string' ? q.school_name : ''
         queryForm.region = typeof q.region === 'string' ? q.region : ''
         queryForm.cp = typeof q.cp === 'string' ? q.cp : ''
-        loadTrafficData()
+        queryCtl.run((signal) => loadTrafficData(signal), { showCancelMessage: false })
       }
     } catch {}
   }
@@ -605,15 +612,13 @@ async function loadSchools(region = '', cp = '') {
 
 
 // 加载流量数据
-async function loadTrafficData() {
+async function loadTrafficData(signal?: AbortSignal) {
   try {
     chartLoading.value = true
     loading.value = true
     
     // 计算时间范围
     const normalizedRange = normalizeTimeRangeForRequest(queryForm.start_time, queryForm.end_time)
-    queryForm.start_time = normalizedRange.startRFC3339
-    queryForm.end_time = normalizedRange.endRFC3339
     const startDate = normalizedRange.startDate
     const endDate = normalizedRange.endDate
     const diffMinutes = (endDate.getTime() - startDate.getTime()) / (1000 * 60)
@@ -692,7 +697,8 @@ async function loadTrafficData() {
           fields: 't,recv_bps,send_bps' // 最小列集请求（后端未实现时会被忽略）
         }
         console.log(`分片请求[${++idx}]`, chunkParams)
-        const res = await (api as any).v2.getTrafficData(chunkParams) as any
+        if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
+        const res = await (api as any).v2.getTrafficData(chunkParams, { signal }) as any
         let list: any[] = []
         if (Array.isArray(res)) { list = res }
         else if (res && Array.isArray(res.items)) { list = res.items }
@@ -703,7 +709,8 @@ async function loadTrafficData() {
       console.log(`分片完成，合并总数: ${rawList.length}`)
     } else {
       // 小范围直接一次性请求
-      const res = await (api as any).v2.getTrafficData(params) as any
+      if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
+      const res = await (api as any).v2.getTrafficData(params, { signal }) as any
       if (Array.isArray(res)) { rawList = res }
       else if (res && Array.isArray(res.items)) { rawList = res.items }
       else { rawList = [] }
@@ -798,6 +805,11 @@ async function loadTrafficData() {
         ElMessage.warning(`所选时间范围内没有数据，请尝试其他时间范围`)
       }
   } catch (error) {
+    if (isAbortError(error)) {
+      trafficData.value = []
+      total.value = 0
+      return
+    }
     console.error('加载流量数据失败:', error)
     const status = (error as any)?.response?.status
     const backendMsg = (error as any)?.response?.data?.message || (error as any)?.response?.data?.error
@@ -829,7 +841,7 @@ function handleQuery() {
     return
   }
   currentPage.value = 1
-  loadTrafficData()
+  queryCtl.run((signal) => loadTrafficData(signal), { toggleIfRunning: true })
 }
 
 // 当选择省份变化时重新加载学校列表
@@ -858,50 +870,23 @@ async function handleCPChange(cp) {
 }
 
 // 处理预设时间范围变化
-function handleTimeRangeChange(value) {
-  const now = new Date()
-  let startTime
-
-  switch (value) {
-    case 'last1h':
-      startTime = new Date(now.getTime() - 1 * 60 * 60 * 1000)
-      break
-    case 'last3h':
-      startTime = new Date(now.getTime() - 3 * 60 * 60 * 1000)
-      break
-    case 'last6h':
-      startTime = new Date(now.getTime() - 6 * 60 * 60 * 1000)
-      break
-    case 'last12h':
-      startTime = new Date(now.getTime() - 12 * 60 * 60 * 1000)
-      break
-    case 'last24h':
-      startTime = new Date(now.getTime() - 24 * 60 * 60 * 1000)
-      break
-    case 'last2d':
-      startTime = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000)
-      break
-    case 'last7d':
-      startTime = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-      break
-    case 'last30d':
-      startTime = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-      break
-    case 'custom':
-      return
-    default:
-      startTime = new Date(now.getTime() - 1 * 60 * 60 * 1000)
+function handleTimeRangeChange(value: TrafficTimeRangeOption) {
+  if (value === 'custom') {
+    const clearedRange = clearTrafficCustomRange()
+    queryForm.start_time = clearedRange?.[0] || ''
+    queryForm.end_time = clearedRange?.[1] || ''
+    return
   }
-  
-  // 设置时间范围
-  queryForm.start_time = toRFC3339Seconds(startTime)
-  queryForm.end_time = toRFC3339Seconds(now)
+
+  const presetRange = resolvePresetTrafficRange(value)
+  queryForm.start_time = presetRange?.[0] || ''
+  queryForm.end_time = presetRange?.[1] || ''
   
   // 重置分页到第一页
   currentPage.value = 1
   
   // 只有在存在筛选条件时才查询
-  if (hasFilter.value) loadTrafficData()
+  if (hasFilter.value) queryCtl.run((signal) => loadTrafficData(signal), { showCancelMessage: false })
 }
 
 // 重置按钮点击事件
@@ -913,10 +898,9 @@ function handleReset() {
   queryForm.timeRange = 'last1h'
   
   // 设置默认时间范围为最近1小时
-  const now = new Date()
-  const oneHourAgo = new Date(now.getTime() - 1 * 60 * 60 * 1000)
-  queryForm.start_time = toRFC3339Seconds(oneHourAgo)
-  queryForm.end_time = toRFC3339Seconds(now)
+  const resetRange = resolvePresetTrafficRange('last1h')
+  queryForm.start_time = resetRange?.[0] || ''
+  queryForm.end_time = resetRange?.[1] || ''
   
   // 清空数据并不自动加载
   currentPage.value = 1
@@ -1013,6 +997,12 @@ function formatDate(date: Date | string, granularity: string) {
     return String(date)
   }
 }
+
+usePageRefresh(() => {
+  if (!hasFilter.value) return
+  currentPage.value = 1
+  queryCtl.run((signal) => loadTrafficData(signal), { showCancelMessage: false })
+})
 </script>
 
 <template>
@@ -1050,7 +1040,7 @@ function formatDate(date: Date | string, granularity: string) {
               v-model="customDateRange"
               type="datetimerange"
               format="YYYY-MM-DD HH:mm:ss"
-              value-format="YYYY-MM-DDTHH:mm:ss.SSSZ"
+              value-format="YYYY-MM-DD HH:mm:ss"
             />
           </template>
         </ElFormItem>
@@ -1058,7 +1048,7 @@ function formatDate(date: Date | string, granularity: string) {
 
         
         <ElFormItem>
-          <ElButton type="primary" @click="handleQuery" :loading="loading">查询</ElButton>
+          <QueryActionButton :running="queryCtl.running.value" @trigger="handleQuery" />
           <ElButton @click="handleReset">重置</ElButton>
         </ElFormItem>
       </ElForm>
@@ -1141,6 +1131,3 @@ function formatDate(date: Date | string, granularity: string) {
   width: 150px !important;
 }
 </style>
-
-
-
