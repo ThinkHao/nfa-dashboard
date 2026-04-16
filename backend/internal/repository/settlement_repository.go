@@ -23,6 +23,10 @@ type SettlementRepository interface {
 	CreateSettlementTask(task *model.SettlementTask) error
 	// 更新结算任务
 	UpdateSettlementTask(task *model.SettlementTask) error
+	// 按当前状态原子更新任务状态（CAS）
+	UpdateSettlementTaskStatusIfMatches(id int64, fromStatus, toStatus, taskStage string, updateTime time.Time) (bool, error)
+	// 兜底：按任务ID直接落失败终态
+	MarkSettlementTaskFailedByID(id int64, message string, updateTime time.Time, taskMeta string) error
 	// 删除结算任务
 	DeleteSettlementTask(id int64) error
 	// 获取结算任务列表
@@ -168,6 +172,36 @@ func (r *settlementRepository) CreateSettlementTask(task *model.SettlementTask) 
 // UpdateSettlementTask 更新结算任务
 func (r *settlementRepository) UpdateSettlementTask(task *model.SettlementTask) error {
 	result := model.DB.Save(task)
+	return result.Error
+}
+
+// UpdateSettlementTaskStatusIfMatches 按当前状态原子更新任务状态（CAS）
+func (r *settlementRepository) UpdateSettlementTaskStatusIfMatches(id int64, fromStatus, toStatus, taskStage string, updateTime time.Time) (bool, error) {
+	result := model.DB.Model(&model.SettlementTask{}).
+		Where("id = ? AND status = ?", id, fromStatus).
+		Updates(map[string]interface{}{
+			"status":      toStatus,
+			"task_stage":  taskStage,
+			"update_time": updateTime,
+		})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
+}
+
+// MarkSettlementTaskFailedByID 兜底：按任务ID直接落失败终态
+func (r *settlementRepository) MarkSettlementTaskFailedByID(id int64, message string, updateTime time.Time, taskMeta string) error {
+	result := model.DB.Model(&model.SettlementTask{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"status":        "failed",
+			"task_stage":    "failed",
+			"end_time":      updateTime,
+			"error_message": message,
+			"task_meta":     taskMeta,
+			"update_time":   updateTime,
+		})
 	return result.Error
 }
 

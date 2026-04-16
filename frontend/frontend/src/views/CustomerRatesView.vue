@@ -439,6 +439,12 @@ import { formatExportFilename, triggerBlobDownload } from '@/utils/export'
 import { EXPORT_FILENAME_PREFIX, EXPORT_HEADERS } from '@/utils/export-standards'
 import { clampPercent, normalizeRatioPairForEdit, normalizeRatioPayloadForSave } from './customer-rates-ratio'
 import { loadVisibleRateScopeOptions, searchRateSchoolOptions } from './rate-filter-options'
+import {
+  CUSTOMER_RATE_IMPORT_PENDING_KEY,
+  normalizePendingImportTasks,
+  removePendingImportTask,
+  upsertPendingImportTask,
+} from './customer-rate-import'
 import SearchSelect from '@/components/ui/SearchSelect.vue'
 import QueryActionButton from '@/components/ui/QueryActionButton.vue'
 import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
@@ -731,9 +737,38 @@ const lastCreatedUserCount = ref(0)
 const importValidateOnly = ref(false)
 const promptedImportTaskIds = new Set<number>()
 const importPollTimers = new Map<number, number>()
+const restoredImportTaskIds = new Set<number>()
 
 function toImportStoreId(taskId: number) {
   return `import:${taskId}`
+}
+
+function loadPendingImportTasksFromStorage() {
+  try {
+    const raw = localStorage.getItem(CUSTOMER_RATE_IMPORT_PENDING_KEY)
+    const parsed = raw ? JSON.parse(raw) : []
+    const normalized = normalizePendingImportTasks(parsed)
+    persistPendingImportTasksToStorage(normalized)
+    return normalized
+  } catch {
+    return []
+  }
+}
+
+function persistPendingImportTasksToStorage(items: Array<{ taskId: number; createdAt: number }>) {
+  try {
+    localStorage.setItem(CUSTOMER_RATE_IMPORT_PENDING_KEY, JSON.stringify(normalizePendingImportTasks(items)))
+  } catch {}
+}
+
+function addPendingImportTask(taskId: number) {
+  const next = upsertPendingImportTask(loadPendingImportTasksFromStorage(), taskId)
+  persistPendingImportTasksToStorage(next)
+}
+
+function deletePendingImportTask(taskId: number) {
+  const next = removePendingImportTask(loadPendingImportTasksFromStorage(), taskId)
+  persistPendingImportTasksToStorage(next)
 }
 
 function updateImportTaskStore(detail: CustomerRateImportTask) {
@@ -840,6 +875,7 @@ async function maybeHandleWaitingConfirm(detail: CustomerRateImportTask) {
 }
 
 async function pollImportTask(taskId: number) {
+  const restoredOnce = restoredImportTaskIds.has(taskId)
   try {
     const detail = await api.settlementRates.customer.getImportTask(taskId)
     updateImportTaskStore(detail)
@@ -847,19 +883,33 @@ async function pollImportTask(taskId: number) {
 
     if (detail.status === 'success' || detail.status === 'failed') {
       stopImportPolling(taskId)
+      deletePendingImportTask(taskId)
       lastImportTaskId.value = taskId
       lastImportErrorCount.value = Number(detail.result?.error_count || 0)
       lastCreatedUserCount.value = Number(detail.result?.created_count || 0)
       if (detail.status === 'success') {
-        ElMessage.success(`导入任务完成：成功 ${Number(detail.result?.affected || 0)} 行，失败 ${lastImportErrorCount.value} 行`)
+        if (!restoredOnce) {
+          ElMessage.success(`导入任务完成：成功 ${Number(detail.result?.affected || 0)} 行，失败 ${lastImportErrorCount.value} 行`)
+        }
         queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
       } else {
-        ElMessage.error(detail.error_message || '导入任务失败')
+        if (!restoredOnce) {
+          ElMessage.error(detail.error_message || '导入任务失败')
+        }
       }
+      restoredImportTaskIds.delete(taskId)
       return
     }
   } catch (e: any) {
+    const statusCode = Number(e?.response?.status || 0)
     const msg = e?.response?.data?.message || e?.message || '导入任务状态获取失败'
+    if (statusCode === 404 || /invalid task id|task not found/i.test(String(msg))) {
+      stopImportPolling(taskId)
+      deletePendingImportTask(taskId)
+      tasksStore.remove(toImportStoreId(taskId))
+      restoredImportTaskIds.delete(taskId)
+      return
+    }
     tasksStore.update(toImportStoreId(taskId), { info: msg })
   }
   scheduleImportPolling(taskId, 2000)
@@ -904,6 +954,7 @@ async function onFileChange(e: Event) {
     lastImportTaskId.value = taskId
     lastImportErrorCount.value = 0
     lastCreatedUserCount.value = 0
+    addPendingImportTask(taskId)
     tasksStore.start({
       id: toImportStoreId(taskId),
       type: 'import',
@@ -1340,6 +1391,23 @@ onMounted(async () => {
   try {
     allowedChannelRoles.value = await api.system.binding.getAllowedUserRoles('channel')
   } catch { allowedChannelRoles.value = [] }
+
+  const pendingTasks = loadPendingImportTasksFromStorage()
+  for (const item of pendingTasks) {
+    const taskId = Number(item.taskId || 0)
+    if (!(taskId > 0)) continue
+    restoredImportTaskIds.add(taskId)
+    tasksStore.start({
+      id: toImportStoreId(taskId),
+      type: 'import',
+      title: '客户费率导入',
+      status: 'running',
+      progress: null,
+      info: '恢复跟踪中...',
+      detailId: taskId,
+    })
+    scheduleImportPolling(taskId, 100)
+  }
 })
 usePageRefresh(() => {
   queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
