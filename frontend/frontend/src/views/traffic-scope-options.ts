@@ -1,4 +1,4 @@
-import type { TrafficScopeCondition, TrafficScopeOptionItem, TrafficScopeOptionParams } from '@/types/api'
+import type { TrafficScopeOptionItem, TrafficScopeOptionParams } from '@/types/api'
 
 type TrafficScopeSchoolLikeOption = Partial<TrafficScopeOptionItem> & {
   school_id?: string
@@ -7,23 +7,18 @@ type TrafficScopeSchoolLikeOption = Partial<TrafficScopeOptionItem> & {
   cp?: string
 }
 
-export function shouldUseRemoteSchoolSearch(dimension: TrafficScopeCondition['dimension_type']) {
+export function shouldUseRemoteSchoolSearch(dimension: 'region' | 'cp' | 'school') {
   return dimension === 'school'
 }
 
 export function buildTrafficScopeOptionRequest(
-  dimension: TrafficScopeCondition['dimension_type'],
-  conditions: TrafficScopeCondition[],
+  dimension: 'region' | 'cp' | 'school',
   q = '',
 ): TrafficScopeOptionParams {
   const payload: TrafficScopeOptionParams = { dimension }
-  const regionValue = conditions.find((condition) => condition.dimension_type === 'region')?.dimension_value?.trim()
-  const cpValue = conditions.find((condition) => condition.dimension_type === 'cp')?.dimension_value?.trim()
   const keyword = q.trim()
 
   if (dimension === 'school') {
-    if (regionValue) payload.region = regionValue
-    if (cpValue) payload.cp = cpValue
     if (keyword) payload.q = keyword
     payload.limit = 50
     return payload

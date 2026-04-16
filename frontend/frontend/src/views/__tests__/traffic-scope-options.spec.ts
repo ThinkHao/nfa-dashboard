@@ -7,17 +7,11 @@ import {
 } from '../traffic-scope-options'
 
 describe('traffic-scope-options', () => {
-  it('builds school option request from group context', () => {
+  it('builds school option request without region/cp linkage', () => {
     expect(
-      buildTrafficScopeOptionRequest('school', [
-        { dimension_type: 'region', dimension_value: '山东省' },
-        { dimension_type: 'cp', dimension_value: 'bilibili' },
-        { dimension_type: 'school', dimension_value: '' },
-      ], '中国海洋'),
+      buildTrafficScopeOptionRequest('school', '中国海洋'),
     ).toEqual({
       dimension: 'school',
-      region: '山东省',
-      cp: 'bilibili',
       q: '中国海洋',
       limit: 50,
     })

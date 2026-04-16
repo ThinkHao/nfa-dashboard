@@ -69,8 +69,9 @@
                 <template #default="{ row, $index }">
                   <el-select
                     v-if="row.dimension_type !== 'school'"
-                    v-model="row.dimension_value"
+                    v-model="row.dimension_values"
                     class="cell-field"
+                    multiple
                     filterable
                     clearable
                     :placeholder="row.dimension_type === 'region' ? '请选择区域' : '请选择 CP'"
@@ -84,8 +85,9 @@
                   </el-select>
                   <el-select
                     v-else
-                    v-model="row.dimension_value"
+                    v-model="row.dimension_values"
                     class="cell-field"
+                    multiple
                     filterable
                     remote
                     reserve-keyword
@@ -166,19 +168,20 @@ import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api'
 import type {
-  TrafficScopeCondition,
   TrafficScopeOptionItem,
   TrafficScopePreview,
-  TrafficScopeRuleGroup,
   TrafficScopeUserLite,
 } from '@/types/api'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import FilterPanel from '@/components/ui/FilterPanel.vue'
 import SectionCard from '@/components/ui/SectionCard.vue'
 import {
+  type TrafficScopeConditionForm,
+  type TrafficScopeRuleGroupForm,
   createEmptyTrafficScopeCondition,
   createEmptyTrafficScopeRuleGroup,
-  normalizeTrafficScopeRuleGroups,
+  fromApiToUiRuleGroups,
+  fromUiToApiRuleGroups,
 } from './traffic-scope-rule-groups'
 import {
   buildTrafficScopeOptionRequest,
@@ -191,7 +194,7 @@ const rulesLoading = ref(false)
 const previewLoading = ref(false)
 const saving = ref(false)
 const selectedUserId = ref<number | undefined>()
-const ruleGroups = ref<TrafficScopeRuleGroup[]>([])
+const ruleGroups = ref<TrafficScopeRuleGroupForm[]>([])
 const regionOptions = ref<TrafficScopeOptionItem[]>([])
 const cpOptions = ref<TrafficScopeOptionItem[]>([])
 const schoolOptionsMap = ref<Record<string, TrafficScopeOptionItem[]>>({})
@@ -233,8 +236,8 @@ async function loadStaticOptions() {
   }
 }
 
-function handleDimensionChange(row: TrafficScopeCondition) {
-  row.dimension_value = ''
+function handleDimensionChange(row: TrafficScopeConditionForm) {
+  row.dimension_values = []
 }
 
 async function searchSchoolOptions(groupIndex: number, conditionIndex: number, keyword = '') {
@@ -243,7 +246,7 @@ async function searchSchoolOptions(groupIndex: number, conditionIndex: number, k
   if (!group) return
   schoolOptionsLoading[key] = true
   try {
-    const params = buildTrafficScopeOptionRequest('school', group.conditions, keyword)
+    const params = buildTrafficScopeOptionRequest('school', keyword)
     const res = await api.system.trafficScopes.options(params)
     schoolOptionsMap.value[key] = res.items || []
   } catch (e: any) {
@@ -282,19 +285,7 @@ async function loadRules(userId: number) {
   rulesLoading.value = true
   try {
     const res = await api.system.trafficScopes.list(userId)
-    ruleGroups.value = (res.items || []).map((item) => ({
-      id: item.id,
-      user_id: item.user_id,
-      rule_type: item.rule_type,
-      created_at: item.created_at,
-      updated_at: item.updated_at,
-      conditions: (item.conditions || []).map((condition) => ({
-        id: condition.id,
-        dimension_type: condition.dimension_type,
-        dimension_value: condition.dimension_value,
-        created_at: condition.created_at,
-      })),
-    }))
+    ruleGroups.value = fromApiToUiRuleGroups(res.items || [])
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '加载规则失败')
     ruleGroups.value = []
@@ -339,7 +330,7 @@ async function saveRules() {
     ElMessage.warning('请先选择用户')
     return
   }
-  const payload = normalizeTrafficScopeRuleGroups(ruleGroups.value)
+  const payload = fromUiToApiRuleGroups(ruleGroups.value)
   saving.value = true
   try {
     await api.system.trafficScopes.replace(selectedUserId.value, payload)
