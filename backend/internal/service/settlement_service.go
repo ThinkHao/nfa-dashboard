@@ -341,7 +341,7 @@ func (s *settlementService) ExecuteDailySettlement(taskID int64, date time.Time)
 			return
 		}
 		dataRepo := repository.NewSettlementDataRepository()
-		affected, recErr := dataRepo.BackfillFromSchoolSettlement("", "", "", runDate, runDate, false)
+		affected, recErr := dataRepo.BackfillFromSchoolSettlement("", "", "", runDate, runDate, false, nil)
 		end := time.Now()
 		if recErr != nil {
 			init.Status = "failed"
@@ -415,7 +415,7 @@ func (s *settlementService) ExecuteWeeklySettlementWithDateRange(taskID int64, s
 			return
 		}
 		dataRepo := repository.NewSettlementDataRepository()
-		affected, recErr := dataRepo.BackfillFromSchoolSettlement("", "", "", sdate, edate, false)
+		affected, recErr := dataRepo.BackfillFromSchoolSettlement("", "", "", sdate, edate, false, nil)
 		end := time.Now()
 		if recErr != nil {
 			init.Status = "failed"

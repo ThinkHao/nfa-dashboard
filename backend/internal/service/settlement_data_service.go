@@ -14,13 +14,16 @@ type SettlementDataService interface {
 	ListMonthly(ctx context.Context, filter SettlementCustomerFilter, page, pageSize int) ([]model.SettlementCustomerMonthly, int64, error)
 	ListAll(ctx context.Context, filter SettlementCustomerFilter) ([]model.SettlementCustomer, error)
 	Recalculate(filter SettlementCustomerFilter) (int64, error)
+	RecalculateWithProgress(filter SettlementCustomerFilter, progress func(processed int64)) (int64, error)
+	EstimateRecalculateTotal(filter SettlementCustomerFilter) (int64, error)
 	RebuildMonthlySnapshot(start, end *time.Time) (int64, error)
 	ListUsedChannelOwners(ctx context.Context, filter SettlementCustomerFilter) ([]UsedChannelOwner, error)
 	ListUsedOwnerEntities(ctx context.Context, filter SettlementCustomerFilter) ([]UsedOwnerEntity, error)
 	ListUsedOwnerSubjects(ctx context.Context, filter SettlementCustomerFilter) ([]UsedOwnerSubject, error)
 	BuildOwnerNameMaps(rows []model.SettlementCustomer) (map[uint64]string, map[uint64]string, error)
 	CreateRecalculateTask(start, end time.Time) (int64, error)
-	MarkTaskRunning(taskID int64) error
+	MarkTaskRunning(taskID int64, total int64) error
+	MarkTaskProgress(taskID int64, processed int64) error
 	MarkTaskFailed(taskID int64, errMsg string) error
 	MarkTaskSuccess(taskID int64, processed int64) error
 }
@@ -171,6 +174,10 @@ func (s *settlementDataService) ListAll(ctx context.Context, filter SettlementCu
 
 // Recalculate 轻量实现：按筛选范围从 nfa_school_settlement 回填/覆盖 settlement_customer 基础字段
 func (s *settlementDataService) Recalculate(filter SettlementCustomerFilter) (int64, error) {
+	return s.RecalculateWithProgress(filter, nil)
+}
+
+func (s *settlementDataService) RecalculateWithProgress(filter SettlementCustomerFilter, progress func(processed int64)) (int64, error) {
 	var start, end time.Time
 	if filter.Start != nil {
 		start = *filter.Start
@@ -178,7 +185,18 @@ func (s *settlementDataService) Recalculate(filter SettlementCustomerFilter) (in
 	if filter.End != nil {
 		end = *filter.End
 	}
-	return s.repo.BackfillFromSchoolSettlement(filter.Region, filter.CP, filter.School, start, end, true)
+	return s.repo.BackfillFromSchoolSettlement(filter.Region, filter.CP, filter.School, start, end, true, progress)
+}
+
+func (s *settlementDataService) EstimateRecalculateTotal(filter SettlementCustomerFilter) (int64, error) {
+	var start, end time.Time
+	if filter.Start != nil {
+		start = *filter.Start
+	}
+	if filter.End != nil {
+		end = *filter.End
+	}
+	return s.repo.CountSchoolSettlementRows(filter.Region, filter.CP, filter.School, start, end)
 }
 
 func (s *settlementDataService) RebuildMonthlySnapshot(start, end *time.Time) (int64, error) {
@@ -340,7 +358,7 @@ func (s *settlementDataService) CreateRecalculateTask(start, end time.Time) (int
 	return task.ID, nil
 }
 
-func (s *settlementDataService) MarkTaskRunning(taskID int64) error {
+func (s *settlementDataService) MarkTaskRunning(taskID int64, total int64) error {
 	task, err := s.settlementRepo.GetSettlementTaskByID(taskID)
 	if err != nil {
 		return err
@@ -348,6 +366,22 @@ func (s *settlementDataService) MarkTaskRunning(taskID int64) error {
 	now := time.Now()
 	task.Status = "running"
 	task.StartTime = &now
+	if total > 0 {
+		task.TotalCount = int(total)
+	}
+	task.ProcessedCount = 0
+	task.UpdateTime = now
+	return s.settlementRepo.UpdateSettlementTask(task)
+}
+
+func (s *settlementDataService) MarkTaskProgress(taskID int64, processed int64) error {
+	task, err := s.settlementRepo.GetSettlementTaskByID(taskID)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	task.ProcessedCount = int(processed)
+	task.UpdateTime = now
 	return s.settlementRepo.UpdateSettlementTask(task)
 }
 
@@ -372,6 +406,10 @@ func (s *settlementDataService) MarkTaskSuccess(taskID int64, processed int64) e
 	task.Status = "success"
 	task.EndTime = &now
 	task.ProcessedCount = int(processed)
+	if task.TotalCount <= 0 {
+		task.TotalCount = int(processed)
+	}
+	task.UpdateTime = now
 	return s.settlementRepo.UpdateSettlementTask(task)
 }
 

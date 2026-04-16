@@ -321,8 +321,12 @@ func (c *SettlementDataController) RecalculateCustomerData(ctx *gin.Context) {
 	}
 	// 异步执行
 	go func(tid int64, region, cp, school string, s, e time.Time) {
-		_ = c.dataSvc.MarkTaskRunning(tid)
-		affected, recErr := c.dataSvc.Recalculate(service.SettlementCustomerFilter{Region: region, CP: cp, School: school, Start: &s, End: &e})
+		filter := service.SettlementCustomerFilter{Region: region, CP: cp, School: school, Start: &s, End: &e}
+		total, _ := c.dataSvc.EstimateRecalculateTotal(filter)
+		_ = c.dataSvc.MarkTaskRunning(tid, total)
+		affected, recErr := c.dataSvc.RecalculateWithProgress(filter, func(processed int64) {
+			_ = c.dataSvc.MarkTaskProgress(tid, processed)
+		})
 		if recErr != nil {
 			_ = c.dataSvc.MarkTaskFailed(tid, recErr.Error())
 			return

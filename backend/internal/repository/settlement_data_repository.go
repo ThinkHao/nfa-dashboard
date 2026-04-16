@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"nfa-dashboard/internal/model"
 	"strings"
@@ -17,12 +18,61 @@ type SettlementDataRepository interface {
 	ListSettlementCustomerMonthly(ctx context.Context, filter map[string]interface{}, limit, offset int) ([]model.SettlementCustomerMonthly, int64, error)
 	RebuildSettlementCustomerMonthly(start, end time.Time) (int64, error)
 	UpdateRecalculated(region, cp, school string, start, end time.Time) (int64, error)
-	BackfillFromSchoolSettlement(region, cp, school string, start, end time.Time, markRecalc bool) (int64, error)
+	CountSchoolSettlementRows(region, cp, school string, start, end time.Time) (int64, error)
+	BackfillFromSchoolSettlement(region, cp, school string, start, end time.Time, markRecalc bool, progress func(processed int64)) (int64, error)
 }
 
 type settlementDataRepository struct{}
 
 func NewSettlementDataRepository() SettlementDataRepository { return &settlementDataRepository{} }
+
+func normalizeDayBounds(start, end time.Time) (*time.Time, *time.Time) {
+	var startBound *time.Time
+	var endExclusive *time.Time
+	if !start.IsZero() {
+		s := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, start.Location())
+		startBound = &s
+	}
+	if !end.IsZero() {
+		e := time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, end.Location()).AddDate(0, 0, 1)
+		endExclusive = &e
+	}
+	return startBound, endExclusive
+}
+
+func buildChunkRanges(total, chunkSize int) [][2]int {
+	if total <= 0 {
+		return [][2]int{}
+	}
+	if chunkSize <= 0 {
+		chunkSize = total
+	}
+	ranges := make([][2]int, 0, (total+chunkSize-1)/chunkSize)
+	for start := 0; start < total; start += chunkSize {
+		end := start + chunkSize
+		if end > total {
+			end = total
+		}
+		ranges = append(ranges, [2]int{start, end})
+	}
+	return ranges
+}
+
+func settlementCustomerKey(region, cp, school string, serviceDate time.Time) string {
+	return fmt.Sprintf("%s|%s|%s|%s", region, cp, school, serviceDate.Format("2006-01-02"))
+}
+
+func buildExistingSettlementMap(rows []model.SettlementCustomer) map[string]uint64 {
+	m := make(map[string]uint64, len(rows))
+	for i := range rows {
+		if rows[i].ServiceDate == nil {
+			continue
+		}
+		k := settlementCustomerKey(rows[i].Region, rows[i].CP, rows[i].SchoolName, *rows[i].ServiceDate)
+		m[k] = rows[i].ID
+	}
+	return m
+}
 
 func applySettlementCustomerFilters(qb *gorm.DB, filter map[string]interface{}) *gorm.DB {
 	if v, ok := filter["region"]; ok && v != "" {
@@ -35,19 +85,19 @@ func applySettlementCustomerFilters(qb *gorm.DB, filter map[string]interface{}) 
 		qb = qb.Where("school_name LIKE ?", "%"+v.(string)+"%")
 	}
 	if v, ok := filter["start_service_date"]; ok && v != nil {
-		// 使用 DATE(service_date) 与 YYYY-MM-DD 比较，确保包含起始日期整天并避免时区影响
 		if t, ok2 := v.(time.Time); ok2 {
-			qb = qb.Where("DATE(service_date) >= ?", t.Format("2006-01-02"))
+			dayStart := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+			qb = qb.Where("service_date >= ?", dayStart)
 		} else {
-			qb = qb.Where("DATE(service_date) >= ?", v)
+			qb = qb.Where("service_date >= ?", v)
 		}
 	}
 	if v, ok := filter["end_service_date"]; ok && v != nil {
-		// 使用 DATE(service_date) 与 YYYY-MM-DD 比较，确保包含结束日期整天
 		if t, ok2 := v.(time.Time); ok2 {
-			qb = qb.Where("DATE(service_date) <= ?", t.Format("2006-01-02"))
+			dayEndExclusive := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location()).AddDate(0, 0, 1)
+			qb = qb.Where("service_date < ?", dayEndExclusive)
 		} else {
-			qb = qb.Where("DATE(service_date) <= ?", v)
+			qb = qb.Where("service_date <= ?", v)
 		}
 	}
 
@@ -544,21 +594,45 @@ func discountRuleFieldSet(rule *model.RateDiscountRule) map[string]bool {
 	return set
 }
 
+func (r *settlementDataRepository) CountSchoolSettlementRows(region, cp, school string, start, end time.Time) (int64, error) {
+	src := model.DB.Model(&model.SchoolSettlement{})
+	startBound, endExclusive := normalizeDayBounds(start, end)
+	if startBound != nil {
+		src = src.Where("settlement_date >= ?", *startBound)
+	}
+	if endExclusive != nil {
+		src = src.Where("settlement_date < ?", *endExclusive)
+	}
+	if region != "" {
+		src = src.Where("region = ?", region)
+	}
+	if cp != "" {
+		src = src.Where("cp = ?", cp)
+	}
+	if school != "" {
+		src = src.Where("school_name = ?", school)
+	}
+	var cnt int64
+	if err := src.Count(&cnt).Error; err != nil {
+		return 0, err
+	}
+	return cnt, nil
+}
+
 // BackfillFromSchoolSettlement 按条件从 nfa_school_settlement 回填/覆盖 settlement_customer 的基础字段
 // 说明：
 // - 不做费用计算，仅复制 95 值与服务日期/时间等基础信息
 // - 以 (region, cp, school_name, service_date) 作为匹配键，存在则更新，不存在则插入
 // - markRecalc: 为 true 时表示“复算”，会设置 recalculated 与 last_recalc_time；为 false 表示“初算”，不设置上述标记
-func (r *settlementDataRepository) BackfillFromSchoolSettlement(region, cp, school string, start, end time.Time, markRecalc bool) (int64, error) {
+func (r *settlementDataRepository) BackfillFromSchoolSettlement(region, cp, school string, start, end time.Time, markRecalc bool, progress func(processed int64)) (int64, error) {
 	// 查询来源数据
 	src := model.DB.Model(&model.SchoolSettlement{})
-	if !start.IsZero() {
-		// 使用 DATE(settlement_date) 与 YYYY-MM-DD 比较，确保包含起始日期整天
-		src = src.Where("DATE(settlement_date) >= ?", start.Format("2006-01-02"))
+	startBound, endExclusive := normalizeDayBounds(start, end)
+	if startBound != nil {
+		src = src.Where("settlement_date >= ?", *startBound)
 	}
-	if !end.IsZero() {
-		// 使用 DATE(settlement_date) 与 YYYY-MM-DD 比较，确保包含结束日期整天
-		src = src.Where("DATE(settlement_date) <= ?", end.Format("2006-01-02"))
+	if endExclusive != nil {
+		src = src.Where("settlement_date < ?", *endExclusive)
 	}
 	if region != "" {
 		src = src.Where("region = ?", region)
@@ -580,257 +654,341 @@ func (r *settlementDataRepository) BackfillFromSchoolSettlement(region, cp, scho
 		return 0, nil
 	}
 
-	tx := model.DB.Begin()
-	if tx.Error != nil {
-		return 0, tx.Error
-	}
-
-	now := time.Now()
 	var affected int64 = 0
+	const chunkSize = 500
+	type rateLookup struct {
+		rc    model.RateCustomer
+		found bool
+	}
+	rateCache := map[string]rateLookup{}
+	ruleCache := map[string]*model.RateDiscountRule{}
+	ruleItemCache := map[uint64][]model.RateDiscountRuleItem{}
 
-	for _, it := range rows {
-		sd := it.SettlementDate
-		rec := model.SettlementCustomer{
-			Region:          it.Region,
-			CP:              it.CP,
-			SchoolName:      it.SchoolName,
-			SettlementValue: float64(it.SettlementValue),
-			SettlementTime:  it.SettlementTime,
-			ServiceDate:     &sd,
-			// 初算不标记复算；复算才设置标记
-			Recalculated: markRecalc,
-			LastRecalcTime: func() *time.Time {
-				if markRecalc {
-					return &now
+	for _, rng := range buildChunkRanges(len(rows), chunkSize) {
+		tx := model.DB.Begin()
+		if tx.Error != nil {
+			return affected, tx.Error
+		}
+		now := time.Now()
+		chunkRows := rows[rng[0]:rng[1]]
+
+		// 预加载本批已存在记录，避免每条执行一次 SELECT
+		var existingRows []model.SettlementCustomer
+		if len(chunkRows) > 0 {
+			existingQ := tx.Model(&model.SettlementCustomer{})
+			for idx, it := range chunkRows {
+				day := time.Date(it.SettlementDate.Year(), it.SettlementDate.Month(), it.SettlementDate.Day(), 0, 0, 0, 0, it.SettlementDate.Location())
+				if idx == 0 {
+					existingQ = existingQ.Where("(region = ? AND cp = ? AND school_name = ? AND service_date = ?)", it.Region, it.CP, it.SchoolName, day)
+				} else {
+					existingQ = existingQ.Or("(region = ? AND cp = ? AND school_name = ? AND service_date = ?)", it.Region, it.CP, it.SchoolName, day)
 				}
-				return nil
-			}(),
+			}
+			if err := existingQ.Find(&existingRows).Error; err != nil {
+				tx.Rollback()
+				return affected, err
+			}
 		}
+		existingMap := buildExistingSettlementMap(existingRows)
+		pendingRateIncrement := map[uint64]float64{}
 
-		// 尝试填充费率与归属（取 service_date 生效的最新一条）
-		var rc model.RateCustomer
-		rcq := tx.Model(&model.RateCustomer{}).
-			Where("region = ? AND cp = ? AND school_name = ?", it.Region, it.CP, it.SchoolName)
-		if !sd.IsZero() {
-			rcq = rcq.Where("(start_at IS NULL OR start_at <= ?)", sd)
-		}
-		if err := rcq.Order("start_at DESC, id DESC").First(&rc).Error; err == nil {
-			// 费率
-			if rc.CustomerFee != nil {
-				rec.CustomerFee = rc.CustomerFee
-			}
-			if rc.NetworkLineFee != nil {
-				rec.NetworkLineFee = rc.NetworkLineFee
-			}
-			// 一般费率映射到节点通用费
-			if rc.GeneralFee != nil {
-				rec.NodeDeductionFee = rc.GeneralFee
-			}
-			if rc.ChannelRate != nil {
-				rec.ChannelRate = rc.ChannelRate
-			}
-			// 归属
-			if rc.CustomerFeeOwnerID != nil {
-				rec.CustomerFeeOwnerID = rc.CustomerFeeOwnerID
-			}
-			if rc.NetworkLineFeeOwnerID != nil {
-				rec.NetworkLineFeeOwnerID = rc.NetworkLineFeeOwnerID
-			}
-			if rc.GeneralFeeOwnerID != nil {
-				rec.NodeDeductionFeeOwnerID = rc.GeneralFeeOwnerID
-			}
-			if rc.ChannelOwnerUserID != nil {
-				rec.ChannelOwnerUserID = rc.ChannelOwnerUserID
-			}
-
-			stockRatio := 1.0
-			incrementRatio := 0.0
-			if rc.StockRatio != nil {
-				stockRatio = *rc.StockRatio
-			}
-			if rc.IncrementRatio != nil {
-				incrementRatio = *rc.IncrementRatio
-			}
-			// 增量分段仅在“服务日期 >= 增量起算日期”时生效；
-			// 在增量起算日前，按纯存量处理（100%/0%）。
-			incrementNotStarted := false
-			if rc.IncrementStartAt != nil {
-				startInc := time.Date(rc.IncrementStartAt.Year(), rc.IncrementStartAt.Month(), rc.IncrementStartAt.Day(), 0, 0, 0, 0, rc.IncrementStartAt.Location())
-				curDay := time.Date(sd.Year(), sd.Month(), sd.Day(), 0, 0, 0, 0, sd.Location())
-				incrementNotStarted = curDay.Before(startInc)
-			}
-			if rc.IncrementStartAt == nil || incrementNotStarted {
-				stockRatio = 1
-				incrementRatio = 0
-			}
-			rec.StockRatio = &stockRatio
-			rec.IncrementRatio = &incrementRatio
-
-			incrementValue := rec.SettlementValue * incrementRatio
-			incrementValueRounded := math.Round(incrementValue*1_000_000) / 1_000_000
-			rec.DailyIncrementValue = &incrementValueRounded
-
-			stockYearIdx := calcServiceYearIndex(rc.StartAt, sd)
-			incrementYearIdx := calcServiceYearIndex(rc.IncrementStartAt, sd)
-			matchedRule, _ := findMatchedDiscountRule(tx, &rc)
-			stockDiscountRatio := 1.0
-			incrementDiscountRatio := 1.0
-			if matchedRule != nil {
-				stockDiscountRatio = findDiscountRatioByYear(tx, matchedRule.ID, stockYearIdx)
-				incrementDiscountRatio = findDiscountRatioByYear(tx, matchedRule.ID, incrementYearIdx)
-				did := matchedRule.ID
-				rec.DiscountRuleID = &did
-			}
-			if stockYearIdx > 0 {
-				yi := stockYearIdx
-				rec.ServiceYearIndex = &yi
-			}
-			affectedFields := discountRuleFieldSet(matchedRule)
-			blendByField := func(base *float64, field string) *float64 {
-				if base == nil {
+		for _, it := range chunkRows {
+			sd := it.SettlementDate
+			rec := model.SettlementCustomer{
+				Region:          it.Region,
+				CP:              it.CP,
+				SchoolName:      it.SchoolName,
+				SettlementValue: float64(it.SettlementValue),
+				SettlementTime:  it.SettlementTime,
+				ServiceDate:     &sd,
+				// 初算不标记复算；复算才设置标记
+				Recalculated: markRecalc,
+				LastRecalcTime: func() *time.Time {
+					if markRecalc {
+						return &now
+					}
 					return nil
+				}(),
+			}
+
+			// 尝试填充费率与归属（取 service_date 生效的最新一条）
+			day := time.Date(sd.Year(), sd.Month(), sd.Day(), 0, 0, 0, 0, sd.Location())
+			rateKey := settlementCustomerKey(it.Region, it.CP, it.SchoolName, day)
+			rateHit, ok := rateCache[rateKey]
+			if !ok {
+				var rc model.RateCustomer
+				rcq := tx.Model(&model.RateCustomer{}).
+					Where("region = ? AND cp = ? AND school_name = ?", it.Region, it.CP, it.SchoolName)
+				if !sd.IsZero() {
+					rcq = rcq.Where("(start_at IS NULL OR start_at <= ?)", sd)
 				}
-				if !affectedFields[field] {
-					return base
+				err := rcq.Order("start_at DESC, id DESC").First(&rc).Error
+				if err != nil {
+					if errors.Is(err, gorm.ErrRecordNotFound) {
+						rateCache[rateKey] = rateLookup{found: false}
+					} else {
+						tx.Rollback()
+						return affected, err
+					}
+				} else {
+					rateCache[rateKey] = rateLookup{rc: rc, found: true}
 				}
-				v := (*base)*stockRatio*stockDiscountRatio + (*base)*incrementRatio*incrementDiscountRatio
-				return &v
-			}
-			if v := blendByField(rec.CustomerFee, "customer_fee"); v != nil {
-				rec.CustomerFee = v
-			}
-			if v := blendByField(rec.NetworkLineFee, "network_line_fee"); v != nil {
-				rec.NetworkLineFee = v
-			}
-			if v := blendByField(rec.NodeDeductionFee, "general_fee"); v != nil {
-				rec.NodeDeductionFee = v
-			}
-			if v := blendByField(rec.ChannelRate, "channel_rate"); v != nil {
-				rec.ChannelRate = v
+				rateHit = rateCache[rateKey]
 			}
 
-			// 金额计算：费率单位 元/Gbps（客户金额使用折损后的费率）
-			// 参考前端换算逻辑：bitsPerSecond = settlement_value * 8 / 60
-			// 展示为 Mbps = bitsPerSecond / 1e6；则 Gbps = bitsPerSecond / 1e9
-			bitsPerSecond := rec.SettlementValue * 8.0 / 60.0
-			gbps := bitsPerSecond / 1_000_000_000.0
-			// 当日金额按所在月份天数分摊
-			daysInMonth := 30
-			if rec.ServiceDate != nil {
-				y, m, _ := rec.ServiceDate.Date()
-				last := time.Date(y, m+1, 0, 0, 0, 0, 0, rec.ServiceDate.Location())
-				daysInMonth = last.Day()
-			}
-			if rec.CustomerFee != nil {
-				v := gbps * (*rec.CustomerFee) / float64(daysInMonth)
-				vv := math.Round(v*100) / 100
-				rec.CustomerBill = &vv
-			}
-			if rec.NetworkLineFee != nil {
-				v := gbps * (*rec.NetworkLineFee) / float64(daysInMonth)
-				vv := math.Round(v*100) / 100
-				rec.NetworkLineBill = &vv
-			}
-			if rec.ChannelRate != nil {
-				v := gbps * (*rec.ChannelRate) / float64(daysInMonth)
-				vv := math.Round(v*100) / 100
-				rec.ChannelBill = &vv
-			}
-			if rec.NodeDeductionFee != nil {
-				v := gbps * (*rec.NodeDeductionFee) / float64(daysInMonth)
-				vv := math.Round(v*100) / 100
-				rec.NodeDeductionBill = &vv
-			}
-			// 回写客户费率条目的“当日增量值”快照，便于费率列表直接展示
-			if rec.DailyIncrementValue != nil {
-				_ = tx.Model(&model.RateCustomer{}).Where("id = ?", rc.ID).Update("daily_increment_value", *rec.DailyIncrementValue).Error
-			}
-		}
+			if rateHit.found {
+				rc := rateHit.rc
+				// 费率
+				if rc.CustomerFee != nil {
+					rec.CustomerFee = rc.CustomerFee
+				}
+				if rc.NetworkLineFee != nil {
+					rec.NetworkLineFee = rc.NetworkLineFee
+				}
+				// 一般费率映射到节点通用费
+				if rc.GeneralFee != nil {
+					rec.NodeDeductionFee = rc.GeneralFee
+				}
+				if rc.ChannelRate != nil {
+					rec.ChannelRate = rc.ChannelRate
+				}
+				// 归属
+				if rc.CustomerFeeOwnerID != nil {
+					rec.CustomerFeeOwnerID = rc.CustomerFeeOwnerID
+				}
+				if rc.NetworkLineFeeOwnerID != nil {
+					rec.NetworkLineFeeOwnerID = rc.NetworkLineFeeOwnerID
+				}
+				if rc.GeneralFeeOwnerID != nil {
+					rec.NodeDeductionFeeOwnerID = rc.GeneralFeeOwnerID
+				}
+				if rc.ChannelOwnerUserID != nil {
+					rec.ChannelOwnerUserID = rc.ChannelOwnerUserID
+				}
 
-		var existing model.SettlementCustomer
-		err := tx.Where("region = ? AND cp = ? AND school_name = ? AND service_date = ?",
-			it.Region, it.CP, it.SchoolName, it.SettlementDate,
-		).First(&existing).Error
+				stockRatio := 1.0
+				incrementRatio := 0.0
+				if rc.StockRatio != nil {
+					stockRatio = *rc.StockRatio
+				}
+				if rc.IncrementRatio != nil {
+					incrementRatio = *rc.IncrementRatio
+				}
+				// 增量分段仅在“服务日期 >= 增量起算日期”时生效；
+				// 在增量起算日前，按纯存量处理（100%/0%）。
+				incrementNotStarted := false
+				if rc.IncrementStartAt != nil {
+					startInc := time.Date(rc.IncrementStartAt.Year(), rc.IncrementStartAt.Month(), rc.IncrementStartAt.Day(), 0, 0, 0, 0, rc.IncrementStartAt.Location())
+					curDay := time.Date(sd.Year(), sd.Month(), sd.Day(), 0, 0, 0, 0, sd.Location())
+					incrementNotStarted = curDay.Before(startInc)
+				}
+				if rc.IncrementStartAt == nil || incrementNotStarted {
+					stockRatio = 1
+					incrementRatio = 0
+				}
+				rec.StockRatio = &stockRatio
+				rec.IncrementRatio = &incrementRatio
 
-		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
+				incrementValue := rec.SettlementValue * incrementRatio
+				incrementValueRounded := math.Round(incrementValue*1_000_000) / 1_000_000
+				rec.DailyIncrementValue = &incrementValueRounded
+
+				stockYearIdx := calcServiceYearIndex(rc.StartAt, sd)
+				incrementYearIdx := calcServiceYearIndex(rc.IncrementStartAt, sd)
+				rateSchoolName := ""
+				if rc.SchoolName != nil {
+					rateSchoolName = *rc.SchoolName
+				}
+				ruleKey := rateSchoolName + "|" + rc.CP + "|" + rc.Region
+				matchedRule, hasRuleKey := ruleCache[ruleKey]
+				if !hasRuleKey {
+					matchedRule, _ = findMatchedDiscountRule(tx, &rc)
+					ruleCache[ruleKey] = matchedRule
+				}
+				stockDiscountRatio := 1.0
+				incrementDiscountRatio := 1.0
+				if matchedRule != nil {
+					items, okItems := ruleItemCache[matchedRule.ID]
+					if !okItems {
+						var loaded []model.RateDiscountRuleItem
+						if err := tx.Where("rule_id = ?", matchedRule.ID).Order("from_year ASC").Find(&loaded).Error; err != nil {
+							tx.Rollback()
+							return affected, err
+						}
+						ruleItemCache[matchedRule.ID] = loaded
+						items = loaded
+					}
+					stockDiscountRatio = 1
+					incrementDiscountRatio = 1
+					for i := range items {
+						itm := items[i]
+						if stockYearIdx >= itm.FromYear && (itm.ToYear == nil || stockYearIdx <= *itm.ToYear) && itm.DiscountRate > 0 {
+							stockDiscountRatio = itm.DiscountRate
+							break
+						}
+					}
+					for i := range items {
+						itm := items[i]
+						if incrementYearIdx >= itm.FromYear && (itm.ToYear == nil || incrementYearIdx <= *itm.ToYear) && itm.DiscountRate > 0 {
+							incrementDiscountRatio = itm.DiscountRate
+							break
+						}
+					}
+					did := matchedRule.ID
+					rec.DiscountRuleID = &did
+				}
+				if stockYearIdx > 0 {
+					yi := stockYearIdx
+					rec.ServiceYearIndex = &yi
+				}
+				affectedFields := discountRuleFieldSet(matchedRule)
+				blendByField := func(base *float64, field string) *float64 {
+					if base == nil {
+						return nil
+					}
+					if !affectedFields[field] {
+						return base
+					}
+					v := (*base)*stockRatio*stockDiscountRatio + (*base)*incrementRatio*incrementDiscountRatio
+					return &v
+				}
+				if v := blendByField(rec.CustomerFee, "customer_fee"); v != nil {
+					rec.CustomerFee = v
+				}
+				if v := blendByField(rec.NetworkLineFee, "network_line_fee"); v != nil {
+					rec.NetworkLineFee = v
+				}
+				if v := blendByField(rec.NodeDeductionFee, "general_fee"); v != nil {
+					rec.NodeDeductionFee = v
+				}
+				if v := blendByField(rec.ChannelRate, "channel_rate"); v != nil {
+					rec.ChannelRate = v
+				}
+
+				// 金额计算：费率单位 元/Gbps（客户金额使用折损后的费率）
+				// 参考前端换算逻辑：bitsPerSecond = settlement_value * 8 / 60
+				// 展示为 Mbps = bitsPerSecond / 1e6；则 Gbps = bitsPerSecond / 1e9
+				bitsPerSecond := rec.SettlementValue * 8.0 / 60.0
+				gbps := bitsPerSecond / 1_000_000_000.0
+				// 当日金额按所在月份天数分摊
+				daysInMonth := 30
+				if rec.ServiceDate != nil {
+					y, m, _ := rec.ServiceDate.Date()
+					last := time.Date(y, m+1, 0, 0, 0, 0, 0, rec.ServiceDate.Location())
+					daysInMonth = last.Day()
+				}
+				if rec.CustomerFee != nil {
+					v := gbps * (*rec.CustomerFee) / float64(daysInMonth)
+					vv := math.Round(v*100) / 100
+					rec.CustomerBill = &vv
+				}
+				if rec.NetworkLineFee != nil {
+					v := gbps * (*rec.NetworkLineFee) / float64(daysInMonth)
+					vv := math.Round(v*100) / 100
+					rec.NetworkLineBill = &vv
+				}
+				if rec.ChannelRate != nil {
+					v := gbps * (*rec.ChannelRate) / float64(daysInMonth)
+					vv := math.Round(v*100) / 100
+					rec.ChannelBill = &vv
+				}
+				if rec.NodeDeductionFee != nil {
+					v := gbps * (*rec.NodeDeductionFee) / float64(daysInMonth)
+					vv := math.Round(v*100) / 100
+					rec.NodeDeductionBill = &vv
+				}
+				// 回写客户费率条目的“当日增量值”快照：按批去重后统一写
+				if rec.DailyIncrementValue != nil {
+					pendingRateIncrement[rc.ID] = *rec.DailyIncrementValue
+				}
+			}
+			existingID, hasExisting := existingMap[settlementCustomerKey(it.Region, it.CP, it.SchoolName, day)]
+			if !hasExisting {
 				if cerr := tx.Create(&rec).Error; cerr != nil {
 					tx.Rollback()
 					return affected, cerr
 				}
+				existingMap[settlementCustomerKey(it.Region, it.CP, it.SchoolName, day)] = rec.ID
 				affected++
 			} else {
+				// 更新基础字段与复算标记
+				upd := map[string]interface{}{
+					"settlement_value": rec.SettlementValue,
+					"settlement_time":  rec.SettlementTime,
+					"service_date":     rec.ServiceDate,
+				}
+				if markRecalc {
+					upd["recalculated"] = true
+					upd["last_recalc_time"] = now
+				}
+				// 同步费率与归属（如有）
+				if rec.CustomerFee != nil {
+					upd["customer_fee"] = rec.CustomerFee
+				}
+				if rec.NetworkLineFee != nil {
+					upd["network_line_fee"] = rec.NetworkLineFee
+				}
+				if rec.NodeDeductionFee != nil {
+					upd["node_deduction_fee"] = rec.NodeDeductionFee
+				}
+				if rec.ChannelRate != nil {
+					upd["channel_rate"] = rec.ChannelRate
+				}
+				if rec.CustomerFeeOwnerID != nil {
+					upd["customer_fee_owner_id"] = rec.CustomerFeeOwnerID
+				}
+				if rec.NetworkLineFeeOwnerID != nil {
+					upd["network_line_fee_owner_id"] = rec.NetworkLineFeeOwnerID
+				}
+				if rec.NodeDeductionFeeOwnerID != nil {
+					upd["node_deduction_fee_owner_id"] = rec.NodeDeductionFeeOwnerID
+				}
+				if rec.ChannelOwnerUserID != nil {
+					upd["channel_owner_user_id"] = rec.ChannelOwnerUserID
+				}
+				if rec.StockRatio != nil {
+					upd["stock_ratio"] = rec.StockRatio
+				}
+				if rec.IncrementRatio != nil {
+					upd["increment_ratio"] = rec.IncrementRatio
+				}
+				if rec.DailyIncrementValue != nil {
+					upd["daily_increment_value"] = rec.DailyIncrementValue
+				}
+				// 同步金额（如计算出）
+				if rec.CustomerBill != nil {
+					upd["customer_bill"] = rec.CustomerBill
+				}
+				if rec.NetworkLineBill != nil {
+					upd["network_line_bill"] = rec.NetworkLineBill
+				}
+				if rec.ChannelBill != nil {
+					upd["channel_bill"] = rec.ChannelBill
+				}
+				if rec.NodeDeductionBill != nil {
+					upd["node_deduction_bill"] = rec.NodeDeductionBill
+				}
+				if uerr := tx.Model(&model.SettlementCustomer{}).Where("id = ?", existingID).Updates(upd).Error; uerr != nil {
+					tx.Rollback()
+					return affected, uerr
+				}
+				affected++
+			}
+		}
+
+		for rateID, v := range pendingRateIncrement {
+			if err := tx.Model(&model.RateCustomer{}).Where("id = ?", rateID).Update("daily_increment_value", v).Error; err != nil {
 				tx.Rollback()
 				return affected, err
 			}
-		} else {
-			// 更新基础字段与复算标记
-			upd := map[string]interface{}{
-				"settlement_value": rec.SettlementValue,
-				"settlement_time":  rec.SettlementTime,
-				"service_date":     rec.ServiceDate,
-			}
-			if markRecalc {
-				upd["recalculated"] = true
-				upd["last_recalc_time"] = now
-			}
-			// 同步费率与归属（如有）
-			if rec.CustomerFee != nil {
-				upd["customer_fee"] = rec.CustomerFee
-			}
-			if rec.NetworkLineFee != nil {
-				upd["network_line_fee"] = rec.NetworkLineFee
-			}
-			if rec.NodeDeductionFee != nil {
-				upd["node_deduction_fee"] = rec.NodeDeductionFee
-			}
-			if rec.ChannelRate != nil {
-				upd["channel_rate"] = rec.ChannelRate
-			}
-			if rec.CustomerFeeOwnerID != nil {
-				upd["customer_fee_owner_id"] = rec.CustomerFeeOwnerID
-			}
-			if rec.NetworkLineFeeOwnerID != nil {
-				upd["network_line_fee_owner_id"] = rec.NetworkLineFeeOwnerID
-			}
-			if rec.NodeDeductionFeeOwnerID != nil {
-				upd["node_deduction_fee_owner_id"] = rec.NodeDeductionFeeOwnerID
-			}
-			if rec.ChannelOwnerUserID != nil {
-				upd["channel_owner_user_id"] = rec.ChannelOwnerUserID
-			}
-			if rec.StockRatio != nil {
-				upd["stock_ratio"] = rec.StockRatio
-			}
-			if rec.IncrementRatio != nil {
-				upd["increment_ratio"] = rec.IncrementRatio
-			}
-			if rec.DailyIncrementValue != nil {
-				upd["daily_increment_value"] = rec.DailyIncrementValue
-			}
-			// 同步金额（如计算出）
-			if rec.CustomerBill != nil {
-				upd["customer_bill"] = rec.CustomerBill
-			}
-			if rec.NetworkLineBill != nil {
-				upd["network_line_bill"] = rec.NetworkLineBill
-			}
-			if rec.ChannelBill != nil {
-				upd["channel_bill"] = rec.ChannelBill
-			}
-			if rec.NodeDeductionBill != nil {
-				upd["node_deduction_bill"] = rec.NodeDeductionBill
-			}
-			if uerr := tx.Model(&existing).Updates(upd).Error; uerr != nil {
-				tx.Rollback()
-				return affected, uerr
-			}
-			affected++
 		}
-	}
 
-	if err := tx.Commit().Error; err != nil {
-		return affected, err
+		if err := tx.Commit().Error; err != nil {
+			return affected, err
+		}
+		if progress != nil {
+			progress(affected)
+		}
 	}
 	return affected, nil
 }
