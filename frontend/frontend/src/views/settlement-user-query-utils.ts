@@ -33,6 +33,10 @@ function fmtAmount(value: number): string {
   return value.toFixed(2)
 }
 
+function settlementValueToMbps(value: number): number {
+  return (value * 8) / 60 / 1_000_000
+}
+
 export function normalizeDateText(value: unknown): string {
   const raw = value == null ? '' : String(value).trim()
   if (!raw) return ''
@@ -41,7 +45,35 @@ export function normalizeDateText(value: unknown): string {
   return raw
 }
 
-export function buildMonthlyAmountColumnView(rawRows: any[]): { months: string[]; rows: MonthlyMetricRow[] } {
+function computeDaily95AvgBySchool(dailyRows: any[]): Map<string, number> {
+  const dailySumBySchoolDate = new Map<string, number>()
+  for (const row of dailyRows || []) {
+    const schoolName = String(row?.school_name || '').trim() || '-'
+    const serviceDate = normalizeDateText(row?.service_date)
+    if (!serviceDate) continue
+    const raw95 = Number(row?.settlement_value ?? NaN)
+    if (!Number.isFinite(raw95)) continue
+    const key = `${schoolName}__${serviceDate}`
+    dailySumBySchoolDate.set(key, (dailySumBySchoolDate.get(key) || 0) + raw95)
+  }
+
+  const avgBySchool = new Map<string, { sumMbps: number; dayCount: number }>()
+  for (const [key, dailyRawSum] of dailySumBySchoolDate.entries()) {
+    const schoolName = key.split('__')[0]
+    const prev = avgBySchool.get(schoolName) || { sumMbps: 0, dayCount: 0 }
+    prev.sumMbps += settlementValueToMbps(dailyRawSum)
+    prev.dayCount += 1
+    avgBySchool.set(schoolName, prev)
+  }
+
+  const result = new Map<string, number>()
+  for (const [schoolName, agg] of avgBySchool.entries()) {
+    result.set(schoolName, agg.dayCount > 0 ? agg.sumMbps / agg.dayCount : 0)
+  }
+  return result
+}
+
+export function buildMonthlyAmountColumnView(rawRows: any[], dailyRows: any[] = rawRows): { months: string[]; rows: MonthlyMetricRow[] } {
   const monthSet = new Set<string>()
   for (const row of rawRows || []) {
     const month = parseServiceMonth(row?.service_date)
@@ -53,8 +85,6 @@ export function buildMonthlyAmountColumnView(rawRows: any[]): { months: string[]
     monthValues: Record<string, number>
     stockStartAt: string
     incrementStartAt: string
-    daily95Sum: number
-    daily95Count: number
   }>()
   const monthlyTotal: Record<string, number> = {}
   for (const month of months) monthlyTotal[month] = 0
@@ -70,8 +100,6 @@ export function buildMonthlyAmountColumnView(rawRows: any[]): { months: string[]
         monthValues: init,
         stockStartAt: normalizeDateText(row?.stock_start_at),
         incrementStartAt: normalizeDateText(row?.increment_start_at),
-        daily95Sum: 0,
-        daily95Count: 0,
       })
     }
     const sum = AMOUNT_FIELDS.reduce((acc, def) => acc + toAmount(row?.[def.key]), 0)
@@ -79,14 +107,10 @@ export function buildMonthlyAmountColumnView(rawRows: any[]): { months: string[]
     schoolAgg.monthValues[month] += sum
     if (!schoolAgg.stockStartAt) schoolAgg.stockStartAt = normalizeDateText(row?.stock_start_at)
     if (!schoolAgg.incrementStartAt) schoolAgg.incrementStartAt = normalizeDateText(row?.increment_start_at)
-    const raw95 = Number(row?.settlement_value ?? NaN)
-    if (Number.isFinite(raw95)) {
-      schoolAgg.daily95Sum += (raw95 * 8) / 60 / 1_000_000
-      schoolAgg.daily95Count += 1
-    }
     monthlyTotal[month] += sum
   }
 
+  const daily95AvgBySchool = computeDaily95AvgBySchool(dailyRows || [])
   const schoolRows: MonthlyMetricRow[] = Array.from(bySchool.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([schoolName, agg]) => {
@@ -96,7 +120,7 @@ export function buildMonthlyAmountColumnView(rawRows: any[]): { months: string[]
         metric: schoolName,
         stockStartAt: agg.stockStartAt || '-',
         incrementStartAt: agg.incrementStartAt || '-',
-        daily95Mbps: agg.daily95Count > 0 ? fmtAmount(agg.daily95Sum / agg.daily95Count) : '0.00',
+        daily95Mbps: fmtAmount(daily95AvgBySchool.get(schoolName) || 0),
         values,
       }
     })
@@ -105,7 +129,8 @@ export function buildMonthlyAmountColumnView(rawRows: any[]): { months: string[]
   for (const month of months) {
     totalValues[month] = fmtAmount(monthlyTotal[month] || 0)
   }
-  schoolRows.push({ metric: '总和', isTotal: true, stockStartAt: '-', incrementStartAt: '-', daily95Mbps: '-', values: totalValues })
+  const totalDaily95 = schoolRows.reduce((sum, row) => sum + Number(row.daily95Mbps || 0), 0)
+  schoolRows.push({ metric: '总和', isTotal: true, stockStartAt: '-', incrementStartAt: '-', daily95Mbps: fmtAmount(totalDaily95), values: totalValues })
 
   return { months, rows: schoolRows }
 }

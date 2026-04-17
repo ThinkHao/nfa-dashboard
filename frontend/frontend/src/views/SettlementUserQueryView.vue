@@ -300,14 +300,14 @@ async function enrichRowsWithStartDates(inputRows: any[], signal?: AbortSignal):
   })
 }
 
-async function fetchAllRowsForCurrentFilter(signal?: AbortSignal): Promise<any[]> {
+async function fetchAllRowsForCurrentFilter(granularity: Granularity = filter.granularity, signal?: AbortSignal): Promise<any[]> {
   const all: any[] = []
   let page = 1
   const pageSize = 1000
   while (true) {
     if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
     const params = buildParams(page, pageSize)
-    const res = filter.granularity === 'monthly'
+    const res = granularity === 'monthly'
       ? await (api as any).settlementData.monthlyList(params, { signal })
       : await (api as any).settlementData.list(params, { signal })
     const items = Array.isArray(res) ? res : (Array.isArray(res?.items) ? res.items : [])
@@ -415,7 +415,7 @@ async function fetchRows(signal?: AbortSignal) {
 }
 
 async function fetchAllForExport(signal?: AbortSignal): Promise<any[]> {
-  return fetchAllRowsForCurrentFilter(signal)
+  return fetchAllRowsForCurrentFilter(filter.granularity, signal)
 }
 
 async function refreshMonthlyColumnView(signal?: AbortSignal) {
@@ -426,9 +426,10 @@ async function refreshMonthlyColumnView(signal?: AbortSignal) {
   }
   columnViewLoading.value = true
   try {
-    const all = await fetchAllRowsForCurrentFilter(signal)
-    const enrichedAll = await enrichRowsWithStartDates(all, signal)
-    const { months, rows: pivotRows } = buildMonthlyAmountColumnView(enrichedAll)
+    const monthlyRows = await fetchAllRowsForCurrentFilter('monthly', signal)
+    const dailyRows = await fetchAllRowsForCurrentFilter('daily', signal)
+    const enrichedMonthlyRows = await enrichRowsWithStartDates(monthlyRows, signal)
+    const { months, rows: pivotRows } = buildMonthlyAmountColumnView(enrichedMonthlyRows, dailyRows)
     monthlyColumnMonths.value = months
     monthlyColumnRows.value = pivotRows
   } catch (e: any) {
@@ -482,9 +483,10 @@ async function handleExport() {
   exporting.value = true
   try {
     if (isMonthlyColumnView.value) {
-      const all = await fetchAllForExport()
-      const enrichedAll = await enrichRowsWithStartDates(all)
-      const { months, rows: pivotRows } = buildMonthlyAmountColumnView(enrichedAll)
+      const monthlyRows = await fetchAllRowsForCurrentFilter('monthly')
+      const dailyRows = await fetchAllRowsForCurrentFilter('daily')
+      const enrichedMonthlyRows = await enrichRowsWithStartDates(monthlyRows)
+      const { months, rows: pivotRows } = buildMonthlyAmountColumnView(enrichedMonthlyRows, dailyRows)
       const header = [...EXPORT_HEADERS.singleUserMonthlyColumnPrefix, ...months]
       const rowValues = pivotRows.map((row: MonthlyMetricRow) => [
         row.metric,
