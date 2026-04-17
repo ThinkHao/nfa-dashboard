@@ -6,6 +6,7 @@ import (
 	"nfa-dashboard/internal/repository"
 	"nfa-dashboard/internal/scheduler"
 	"nfa-dashboard/internal/service"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -54,8 +55,11 @@ func BuildEngine() *gin.Engine {
 	customerFieldsController := controller.NewCustomerFieldsController(customerFieldsSvc)
 
 	filterRulesRepo := repository.NewFilterRulesRepository()
+	systemSettingsRepo := repository.NewSystemSettingsRepository()
+	systemSettingsSvc := service.NewSystemSettingsService(systemSettingsRepo)
+	settlementParticipationSvc := service.NewSettlementParticipationService(trafficScopeSchoolRepo, filterRulesRepo, 2*time.Minute)
 	filterRulesSvc := service.NewFilterRulesService(filterRulesRepo)
-	filterRulesController := controller.NewFilterRulesController(filterRulesSvc)
+	filterRulesController := controller.NewFilterRulesController(filterRulesSvc, settlementParticipationSvc)
 
 	syncRulesRepo := repository.NewSyncRulesRepository()
 	syncRulesSvc := service.NewSyncRulesService(syncRulesRepo)
@@ -94,8 +98,9 @@ func BuildEngine() *gin.Engine {
 	userSchoolService := service.NewUserSchoolService(userRepo, schoolRepo, userSchoolRepo)
 	userSchoolController := controller.NewSystemUserSchoolController(userSchoolService)
 	trafficScopeService := service.NewTrafficScopeService(trafficScopeRuleRepo, trafficScopeSchoolRepo, userSchoolRepo, userRepo)
-	schoolController := controller.NewSchoolController(schoolService, trafficScopeService)
+	schoolController := controller.NewSchoolController(schoolService, trafficScopeService, systemSettingsSvc, settlementParticipationSvc)
 	trafficScopeController := controller.NewSystemTrafficScopeController(trafficScopeService, userService, schoolService)
+	systemSettingsController := controller.NewSystemSettingsController(systemSettingsSvc)
 
 	opLogRepo := repository.NewOperationLogRepository()
 	opLogService := service.NewOperationLogService(opLogRepo)
@@ -288,6 +293,8 @@ func BuildEngine() *gin.Engine {
 			system.GET("/traffic-scopes/:user_id", authMW.PermissionRequired("traffic.scope.manage"), trafficScopeController.ListRules)
 			system.PUT("/traffic-scopes/:user_id", authMW.PermissionRequired("traffic.scope.manage"), trafficScopeController.ReplaceRules)
 			system.GET("/traffic-scopes/:user_id/preview", authMW.PermissionRequired("traffic.scope.manage"), trafficScopeController.Preview)
+			system.GET("/settings/traffic", authMW.PermissionRequired("system.user.manage"), systemSettingsController.GetTrafficSettings)
+			system.PUT("/settings/traffic", authMW.PermissionRequired("system.user.manage"), systemSettingsController.UpdateTrafficSettings)
 			system.GET("/operation-logs", authMW.PermissionRequired("operation_logs.read"), opLogController.List)
 			system.GET("/operation-logs/export", authMW.PermissionRequired("operation_logs.read"), opLogController.Export)
 		}

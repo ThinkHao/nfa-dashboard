@@ -19,6 +19,8 @@ import (
 type SchoolController struct {
 	schoolService       service.SchoolService
 	trafficScopeService service.TrafficScopeService
+	systemSettingsSvc   service.SystemSettingsService
+	participationSvc    service.SettlementParticipationService
 }
 
 func parseTrafficTimeParam(raw string) (time.Time, error) {
@@ -247,10 +249,17 @@ func (c *SchoolController) GetAllSchoolsV2(ctx *gin.Context) {
 }
 
 // NewSchoolController 创建学校控制器实例
-func NewSchoolController(schoolService service.SchoolService, trafficScopeService service.TrafficScopeService) *SchoolController {
+func NewSchoolController(
+	schoolService service.SchoolService,
+	trafficScopeService service.TrafficScopeService,
+	systemSettingsSvc service.SystemSettingsService,
+	participationSvc service.SettlementParticipationService,
+) *SchoolController {
 	return &SchoolController{
 		schoolService:       schoolService,
 		trafficScopeService: trafficScopeService,
+		systemSettingsSvc:   systemSettingsSvc,
+		participationSvc:    participationSvc,
 	}
 }
 
@@ -262,7 +271,81 @@ func (c *SchoolController) resolveTrafficScope(ctx *gin.Context) (model.Effectiv
 	if !ok || uid == 0 {
 		return model.EffectiveTrafficScope{Source: model.TrafficScopeSourceNone, AllowedSchoolKeys: []model.TrafficScopeSchoolKey{}, AllowedSchoolIDs: []string{}}, nil
 	}
-	return c.trafficScopeService.ResolveEffectiveScope(uid)
+	scope, err := c.trafficScopeService.ResolveEffectiveScope(uid)
+	if err != nil {
+		return model.EffectiveTrafficScope{}, err
+	}
+	if scope.Source == model.TrafficScopeSourceNone {
+		return scope, nil
+	}
+	if c.systemSettingsSvc == nil || c.participationSvc == nil {
+		return scope, nil
+	}
+	cfg, err := c.systemSettingsSvc.GetTrafficSettings()
+	if err != nil {
+		return model.EffectiveTrafficScope{}, err
+	}
+	if cfg == nil || !cfg.HideNonSettlementSchoolsInTraffic {
+		return scope, nil
+	}
+	keys, err := c.participationSvc.ListParticipatingSchoolKeys(ctx.Request.Context())
+	if err != nil {
+		return model.EffectiveTrafficScope{}, err
+	}
+	scope.AllowedSchoolKeys = intersectTrafficScopeSchoolKeys(scope.AllowedSchoolKeys, keys)
+	scope.AllowedSchoolIDs = schoolIDsFromKeys(scope.AllowedSchoolKeys)
+	if len(scope.AllowedSchoolKeys) == 0 {
+		scope.Source = model.TrafficScopeSourceNone
+	}
+	return scope, nil
+}
+
+func intersectTrafficScopeSchoolKeys(left, right []model.TrafficScopeSchoolKey) []model.TrafficScopeSchoolKey {
+	if len(left) == 0 || len(right) == 0 {
+		return []model.TrafficScopeSchoolKey{}
+	}
+	rightSet := map[string]model.TrafficScopeSchoolKey{}
+	for _, key := range right {
+		rightSet[trafficScopeSchoolKeyString(key)] = key
+	}
+	out := make([]model.TrafficScopeSchoolKey, 0, len(left))
+	seen := map[string]struct{}{}
+	for _, key := range left {
+		k := trafficScopeSchoolKeyString(key)
+		if _, ok := rightSet[k]; !ok {
+			continue
+		}
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		out = append(out, key)
+	}
+	return out
+}
+
+func schoolIDsFromKeys(keys []model.TrafficScopeSchoolKey) []string {
+	if len(keys) == 0 {
+		return []string{}
+	}
+	set := map[string]struct{}{}
+	out := make([]string, 0, len(keys))
+	for _, key := range keys {
+		id := strings.TrimSpace(key.SchoolID)
+		if id == "" {
+			continue
+		}
+		if _, ok := set[id]; ok {
+			continue
+		}
+		set[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
+func trafficScopeSchoolKeyString(key model.TrafficScopeSchoolKey) string {
+	return strings.TrimSpace(key.SchoolID) + "|" + strings.TrimSpace(key.Region) + "|" + strings.TrimSpace(key.CP)
 }
 
 // GetAllSchools 获取所有学校

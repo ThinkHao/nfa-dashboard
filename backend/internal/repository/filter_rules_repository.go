@@ -9,6 +9,7 @@ import (
 // FilterRulesRepository 管理 rate_customer_filter_rules 的持久化
 type FilterRulesRepository interface {
 	List(filter map[string]interface{}, limit, offset int) ([]model.RateCustomerFilterRule, int64, error)
+	ListEnabled() ([]model.RateCustomerFilterRule, error)
 	ListDistinctCustomerRegions() ([]string, error)
 	ListDistinctCustomerCPs() ([]string, error)
 	Create(rule *model.RateCustomerFilterRule) (*model.RateCustomerFilterRule, error)
@@ -59,6 +60,17 @@ func (r *filterRulesRepository) List(filter map[string]interface{}, limit, offse
 		return nil, 0, err
 	}
 	return items, total, nil
+}
+
+func (r *filterRulesRepository) ListEnabled() ([]model.RateCustomerFilterRule, error) {
+	items := make([]model.RateCustomerFilterRule, 0)
+	err := model.DB.
+		Model(&model.RateCustomerFilterRule{}).
+		Where("enabled = ?", true).
+		Order("priority ASC").
+		Order("updated_at DESC").
+		Find(&items).Error
+	return items, err
 }
 
 func (r *filterRulesRepository) Create(rule *model.RateCustomerFilterRule) (*model.RateCustomerFilterRule, error) {

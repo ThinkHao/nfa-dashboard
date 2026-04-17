@@ -12,10 +12,22 @@ import (
 )
 
 // FilterRulesController manages endpoints under /api/v1/settlement/rates/filter-rules
-type FilterRulesController struct{ svc service.FilterRulesService }
+type FilterRulesController struct {
+	svc                  service.FilterRulesService
+	participationService service.SettlementParticipationService
+}
 
-func NewFilterRulesController(svc service.FilterRulesService) *FilterRulesController {
-	return &FilterRulesController{svc: svc}
+func NewFilterRulesController(
+	svc service.FilterRulesService,
+	participationService service.SettlementParticipationService,
+) *FilterRulesController {
+	return &FilterRulesController{svc: svc, participationService: participationService}
+}
+
+func (ctl *FilterRulesController) invalidateParticipationCache() {
+	if ctl.participationService != nil {
+		ctl.participationService.InvalidateCache()
+	}
 }
 
 func (ctl *FilterRulesController) ListOptions(c *gin.Context) {
@@ -83,6 +95,7 @@ func (ctl *FilterRulesController) Create(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 		return
 	}
+	ctl.invalidateParticipationCache()
 	c.JSON(http.StatusOK, out)
 }
 
@@ -136,6 +149,7 @@ func (ctl *FilterRulesController) Update(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 		return
 	}
+	ctl.invalidateParticipationCache()
 	c.Status(http.StatusNoContent)
 }
 
@@ -153,6 +167,7 @@ func (ctl *FilterRulesController) Delete(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 		return
 	}
+	ctl.invalidateParticipationCache()
 	c.Status(http.StatusNoContent)
 }
 
@@ -178,6 +193,7 @@ func (ctl *FilterRulesController) UpdatePriority(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 		return
 	}
+	ctl.invalidateParticipationCache()
 	c.Status(http.StatusNoContent)
 }
 
@@ -203,5 +219,6 @@ func (ctl *FilterRulesController) SetEnabled(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 		return
 	}
+	ctl.invalidateParticipationCache()
 	c.Status(http.StatusNoContent)
 }

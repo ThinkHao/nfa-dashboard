@@ -193,6 +193,10 @@ export interface TrafficScopePreview {
   allowed_schools: School[];
 }
 
+export interface SystemTrafficSettings {
+  hide_non_settlement_schools_in_traffic: boolean;
+}
+
 // 新建系统用户请求
 export interface CreateUserRequest {
   username: string;

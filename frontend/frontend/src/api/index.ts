@@ -45,6 +45,7 @@ import type {
   TrafficScopeOptionParams,
   TrafficScopeRuleGroup,
   TrafficScopeUserLite,
+  SystemTrafficSettings,
   SettlementRuleScopeOptions,
 } from '@/types/api'
 import type { AxiosRequestConfig } from 'axios'
@@ -281,6 +282,14 @@ export default {
       },
       preview(userId: number): Promise<TrafficScopePreview> {
         return api.get(`/api/v1/system/traffic-scopes/${userId}/preview`).then((d: any) => d as TrafficScopePreview)
+      },
+    },
+    settings: {
+      getTraffic(): Promise<SystemTrafficSettings> {
+        return api.get('/api/v1/system/settings/traffic').then((d: any) => d as SystemTrafficSettings)
+      },
+      updateTraffic(data: SystemTrafficSettings): Promise<SystemTrafficSettings> {
+        return api.put('/api/v1/system/settings/traffic', data).then((d: any) => d as SystemTrafficSettings)
       },
     },
     roles: {

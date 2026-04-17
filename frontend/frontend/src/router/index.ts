@@ -32,6 +32,7 @@ const router = createRouter({
         { path: 'system/roles', name: 'system-roles', component: () => import('../views/SystemRolesView.vue'), meta: { title: '角色管理', permissions: ['system.role.manage'], order: 81, icon: 'Avatar' } },
         { path: 'system/permissions', name: 'system-permissions', component: () => import('../views/SystemPermissionsView.vue'), meta: { title: '权限设置', permissions: ['system.role.manage', 'system.permission.manage'], order: 82, icon: 'Lock' } },
         { path: 'system/traffic-scopes', name: 'system-traffic-scopes', component: () => import('../views/SystemTrafficScopesView.vue'), meta: { title: '流量范围管理', permissions: ['traffic.scope.manage'], order: 83, icon: 'Connection' } },
+        { path: 'system/settings', name: 'system-settings', component: () => import('../views/SystemSettingsView.vue'), meta: { title: '系统设置', permissions: ['system.user.manage'], order: 84, icon: 'Setting' } },
       ]
     },
     {
