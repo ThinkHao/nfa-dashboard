@@ -87,12 +87,18 @@
         v-else
         v-loading="columnViewLoading"
         :data="monthlyColumnRows"
+        :row-key="(row) => row.id || row.metric"
+        :tree-props="monthlyTreeProps"
+        :expand-row-keys="monthlyExpandedRowKeys"
         :row-class-name="monthlyColumnRowClassName"
         border
-        stripe
         class="field-w-full"
       >
-        <el-table-column prop="metric" label="学校" min-width="180" fixed="left" />
+        <el-table-column prop="metric" label="分组/学校" min-width="220" fixed="left">
+          <template #default="{ row }">
+            <span>{{ row.metric }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="stockStartAt" label="存量起算时间" min-width="130" />
         <el-table-column prop="incrementStartAt" label="增量起算时间" min-width="130" />
         <el-table-column prop="daily95Mbps" label="日95均值(Mbps)" min-width="130" />
@@ -121,13 +127,12 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import api from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { School } from '@/types/api'
-import { buildMonthlyAmountColumnView, normalizeDateText, type MonthlyMetricRow } from './settlement-user-query-utils'
+import { buildMonthlyAmountColumnView, normalizeDateText, resolveMonthRangeDateTime, type MonthlyMetricRow } from './settlement-user-query-utils'
 import { buildCsvContent, formatExportFilename, triggerBlobDownload } from '@/utils/export'
 import { EXPORT_FILENAME_PREFIX, EXPORT_HEADERS } from '@/utils/export-standards'
 import SearchSelect from '@/components/ui/SearchSelect.vue'
 import UnifiedDateRange from '@/components/ui/UnifiedDateRange.vue'
 import QueryActionButton from '@/components/ui/QueryActionButton.vue'
-import { expandMonthRangeToDateTime } from '@/components/ui/unified-date-range-utils'
 import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
 import { usePageRefresh } from '@/composables/usePageRefresh'
 
@@ -152,8 +157,6 @@ const schools = ref<School[]>([])
 const filter = reactive({
   userId: null as number | null,
   granularity: 'monthly' as Granularity,
-  start: '',
-  end: '',
   region: '',
   cp: '',
   schoolName: '',
@@ -163,6 +166,12 @@ const monthRange = ref<[string, string] | null>(null)
 const pagination = reactive({ page: 1, pageSize: 10, total: 0 })
 const serviceDateLabel = computed(() => (filter.granularity === 'monthly' ? '服务月份' : '服务日期'))
 const isMonthlyColumnView = computed(() => filter.granularity === 'monthly' && viewMode.value === 'monthly_columns')
+const isMonthlyTreeMode = computed(() => isMonthlyColumnView.value && !filter.region && !filter.cp && !filter.schoolName)
+const monthlyTreeProps = computed(() => ({ children: 'children' as const }))
+const monthlyExpandedRowKeys = computed(() => {
+  if (!isMonthlyTreeMode.value) return [] as string[]
+  return monthlyColumnRows.value.filter((row) => row.rowType === 'region' && row.id).map((row) => String(row.id))
+})
 const currentDataSourceLabel = computed(() => {
   const first = rows.value.length ? rows.value[0] : null
   const src = String(first?.data_source || '').toLowerCase()
@@ -174,14 +183,6 @@ const currentDataSourceLabel = computed(() => {
 function parseMonth(ym: string): Date {
   const [y, m] = ym.split('-').map((x) => Number(x))
   return new Date(y, (m || 1) - 1, 1)
-}
-
-function monthStartDate(ym: string): string {
-  return expandMonthRangeToDateTime(ym, ym).start
-}
-
-function monthEndDate(ym: string): string {
-  return expandMonthRangeToDateTime(ym, ym).end
 }
 
 function monthDiffInclusive(startYm: string, endYm: string): number {
@@ -196,8 +197,6 @@ function setDefaultMonthRange() {
   const endYm = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}`
   const startYm = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`
   monthRange.value = [startYm, endYm]
-  filter.start = monthStartDate(startYm)
-  filter.end = monthEndDate(endYm)
 }
 
 function fmtMoney(v: any): string {
@@ -223,9 +222,10 @@ function fmtTotal(row: any): string {
 }
 
 function buildParams(page = pagination.page, pageSize = pagination.pageSize) {
+  const { start, end } = resolveMonthRangeDateTime(monthRange.value)
   const params: any = { page, page_size: pageSize, channel_owner_user_id: filter.userId }
-  if (filter.start) params.start_service_date = filter.start
-  if (filter.end) params.end_service_date = filter.end
+  if (start) params.start_service_date = start
+  if (end) params.end_service_date = end
   if (filter.region) params.region = filter.region
   if (filter.cp) params.cp = filter.cp
   if (filter.schoolName) params.school_name = filter.schoolName
@@ -240,6 +240,21 @@ function parseDateOnly(value: unknown): Date | null {
   const y = Number(m[1]); const mo = Number(m[2]); const d = Number(m[3])
   if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null
   return new Date(y, mo - 1, d)
+}
+
+function monthRangeBoundary(): { startMonth: string; endMonth: string } | null {
+  if (!monthRange.value || !monthRange.value[0] || !monthRange.value[1]) return null
+  return { startMonth: String(monthRange.value[0]), endMonth: String(monthRange.value[1]) }
+}
+
+function clipRowsBySelectedMonths<T extends Record<string, any>>(inputRows: T[]): T[] {
+  const boundary = monthRangeBoundary()
+  if (!boundary) return inputRows
+  const { startMonth, endMonth } = boundary
+  return (inputRows || []).filter((row) => {
+    const month = String(row?.service_date || '').slice(0, 7)
+    return !!month && month >= startMonth && month <= endMonth
+  })
 }
 
 function pickEffectiveRate(rates: any[], serviceDateText: string): any | null {
@@ -322,11 +337,12 @@ async function fetchAllRowsForCurrentFilter(granularity: Granularity = filter.gr
 
 async function loadOwnerUsers() {
   try {
+    const { start, end } = resolveMonthRangeDateTime(monthRange.value)
     const params: any = {}
     if (filter.region) params.region = filter.region
     if (filter.cp) params.cp = filter.cp
-    if (filter.start) params.start_service_date = filter.start
-    if (filter.end) params.end_service_date = filter.end
+    if (start) params.start_service_date = start
+    if (end) params.end_service_date = end
     const items: any[] = await (api as any).settlementData.ownerSubjects(params)
     const list = (Array.isArray(items) ? items : [])
       .filter((it: any) => it && String(it.type) === 'user')
@@ -398,12 +414,14 @@ async function fetchRows(signal?: AbortSignal) {
       ? await (api as any).settlementData.monthlyList(params, { signal })
       : await (api as any).settlementData.list(params, { signal })
     if (Array.isArray(res)) {
-      rows.value = await enrichRowsWithStartDates(res, signal)
-      pagination.total = res.length
+      const clipped = clipRowsBySelectedMonths(res)
+      rows.value = await enrichRowsWithStartDates(clipped, signal)
+      pagination.total = clipped.length
     } else {
       const list = Array.isArray(res?.items) ? res.items : []
-      rows.value = await enrichRowsWithStartDates(list, signal)
-      pagination.total = Number(res?.total || list.length)
+      const clipped = clipRowsBySelectedMonths(list)
+      rows.value = await enrichRowsWithStartDates(clipped, signal)
+      pagination.total = clipped.length
     }
     await refreshMonthlyColumnView(signal)
   } catch (e: any) {
@@ -415,7 +433,8 @@ async function fetchRows(signal?: AbortSignal) {
 }
 
 async function fetchAllForExport(signal?: AbortSignal): Promise<any[]> {
-  return fetchAllRowsForCurrentFilter(filter.granularity, signal)
+  const data = await fetchAllRowsForCurrentFilter(filter.granularity, signal)
+  return clipRowsBySelectedMonths(data)
 }
 
 async function refreshMonthlyColumnView(signal?: AbortSignal) {
@@ -429,7 +448,10 @@ async function refreshMonthlyColumnView(signal?: AbortSignal) {
     const monthlyRows = await fetchAllRowsForCurrentFilter('monthly', signal)
     const dailyRows = await fetchAllRowsForCurrentFilter('daily', signal)
     const enrichedMonthlyRows = await enrichRowsWithStartDates(monthlyRows, signal)
-    const { months, rows: pivotRows } = buildMonthlyAmountColumnView(enrichedMonthlyRows, dailyRows)
+    const { months, rows: pivotRows } = buildMonthlyAmountColumnView(enrichedMonthlyRows, dailyRows, {
+      treeByRegionSchoolCp: isMonthlyTreeMode.value,
+      allowedMonthRange: monthRangeBoundary(),
+    })
     monthlyColumnMonths.value = months
     monthlyColumnRows.value = pivotRows
   } catch (e: any) {
@@ -443,17 +465,14 @@ async function refreshMonthlyColumnView(signal?: AbortSignal) {
 }
 
 function monthlyColumnRowClassName({ row }: { row: MonthlyMetricRow }) {
-  return row?.isTotal ? 'monthly-total-row' : ''
+  if (row?.rowType === 'region') return 'monthly-region-row'
+  if (row?.rowType === 'cp') return 'monthly-cp-row'
+  if (row?.rowType === 'school') return 'monthly-school-row'
+  if (row?.isTotal || row?.rowType === 'total') return 'monthly-total-row'
+  return ''
 }
 
-function handleMonthRangeChange(v: [string, string] | null) {
-  if (!v) {
-    filter.start = ''
-    filter.end = ''
-  } else {
-    filter.start = monthStartDate(v[0])
-    filter.end = monthEndDate(v[1])
-  }
+function handleMonthRangeChange(_v: [string, string] | null) {
   loadOwnerUsers()
 }
 
@@ -478,6 +497,17 @@ function handleReset() {
   pagination.total = 0
 }
 
+function flattenMonthlyRows(rows: MonthlyMetricRow[]): MonthlyMetricRow[] {
+  const flat: MonthlyMetricRow[] = []
+  for (const row of rows || []) {
+    flat.push(row)
+    if (Array.isArray(row.children) && row.children.length) {
+      flat.push(...flattenMonthlyRows(row.children))
+    }
+  }
+  return flat
+}
+
 async function handleExport() {
   if (!validateBeforeQuery()) return
   exporting.value = true
@@ -486,9 +516,13 @@ async function handleExport() {
       const monthlyRows = await fetchAllRowsForCurrentFilter('monthly')
       const dailyRows = await fetchAllRowsForCurrentFilter('daily')
       const enrichedMonthlyRows = await enrichRowsWithStartDates(monthlyRows)
-      const { months, rows: pivotRows } = buildMonthlyAmountColumnView(enrichedMonthlyRows, dailyRows)
+      const { months, rows: pivotRows } = buildMonthlyAmountColumnView(enrichedMonthlyRows, dailyRows, {
+        treeByRegionSchoolCp: isMonthlyTreeMode.value,
+        allowedMonthRange: monthRangeBoundary(),
+      })
+      const exportRows = flattenMonthlyRows(pivotRows)
       const header = [...EXPORT_HEADERS.singleUserMonthlyColumnPrefix, ...months]
-      const rowValues = pivotRows.map((row: MonthlyMetricRow) => [
+      const rowValues = exportRows.map((row: MonthlyMetricRow) => [
         row.metric,
         row.stockStartAt || '-',
         row.incrementStartAt || '-',
@@ -617,5 +651,17 @@ usePageRefresh(() => {
 :deep(.monthly-total-row > td) {
   font-weight: 600;
   background: #faf3dd;
+}
+
+:deep(.monthly-region-row > td) {
+  background: #eef4ff;
+}
+
+:deep(.monthly-school-row > td) {
+  background: #ffffff;
+}
+
+:deep(.monthly-cp-row > td) {
+  background: #f7f8fa;
 }
 </style>

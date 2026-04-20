@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildMonthlyAmountColumnView } from '@/views/settlement-user-query-utils'
+import { buildMonthlyAmountColumnView, resolveMonthRangeDateTime } from '@/views/settlement-user-query-utils'
 
 describe('buildMonthlyAmountColumnView', () => {
   it('builds month columns with school rows and bottom monthly total row', () => {
@@ -83,5 +83,103 @@ describe('buildMonthlyAmountColumnView', () => {
     const result = buildMonthlyAmountColumnView(monthlyRows, dailyRows)
     const schoolC = result.rows.find((r) => r.metric === '学校C')
     expect(schoolC?.daily95Mbps).toBe('15.00')
+  })
+
+  it('builds region-school-cp tree rows with subtotal and total in tree mode', () => {
+    const monthlyRows = [
+      { region: '华北', cp: 'CT', school_name: '学校A', service_date: '2026-03', customer_bill: 10, network_line_bill: 1, node_deduction_bill: 1, channel_bill: 1, stock_start_at: '2024-01-01', increment_start_at: '2025-01-01' },
+      { region: '华北', cp: 'CM', school_name: '学校A', service_date: '2026-03', customer_bill: 20, network_line_bill: 2, node_deduction_bill: 2, channel_bill: 2, stock_start_at: '2024-01-01', increment_start_at: '2025-01-01' },
+      { region: '华南', cp: 'CT', school_name: '学校B', service_date: '2026-03', customer_bill: 30, network_line_bill: 3, node_deduction_bill: 3, channel_bill: 3, stock_start_at: '2024-02-01', increment_start_at: '2025-02-01' },
+    ]
+    const dailyRows = [
+      { region: '华北', cp: 'CT', school_name: '学校A', service_date: '2026-03-01', settlement_value: 75_000_000 },
+      { region: '华北', cp: 'CM', school_name: '学校A', service_date: '2026-03-01', settlement_value: 150_000_000 },
+      { region: '华南', cp: 'CT', school_name: '学校B', service_date: '2026-03-01', settlement_value: 37_500_000 },
+    ]
+
+    const result = buildMonthlyAmountColumnView(monthlyRows, dailyRows, { treeByRegionSchoolCp: true })
+    expect(result.rows.map((r) => r.rowType)).toEqual(['region', 'region', 'total'])
+
+    const regionNorth = result.rows[0]
+    expect(regionNorth.metric).toBe('区域：华北')
+    expect(regionNorth.daily95Mbps).toBe('30.00')
+    expect(regionNorth.values['2026-03']).toBe('39.00')
+    expect(regionNorth.children?.map((r) => r.rowType)).toEqual(['school'])
+
+    const schoolA = regionNorth.children?.[0]
+    expect(schoolA?.metric).toBe('学校：学校A')
+    expect(schoolA?.daily95Mbps).toBe('30.00')
+    expect(schoolA?.children?.map((r) => r.metric)).toEqual(['CP：CM', 'CP：CT'])
+    expect(schoolA?.children?.[0]?.daily95Mbps).toBe('20.00')
+    expect(schoolA?.children?.[1]?.daily95Mbps).toBe('10.00')
+
+    const total = result.rows[2]
+    expect(total.metric).toBe('总和')
+    expect(total.daily95Mbps).toBe('35.00')
+    expect(total.values['2026-03']).toBe('78.00')
+  })
+
+  it('clips out-of-range months in utility layer via allowedMonthRange', () => {
+    const monthlyRows = [
+      { school_name: '学校A', service_date: '2026-01-01', customer_bill: 10, network_line_bill: 0, node_deduction_bill: 0, channel_bill: 0 },
+      { school_name: '学校A', service_date: '2026-03-01', customer_bill: 20, network_line_bill: 0, node_deduction_bill: 0, channel_bill: 0 },
+      { school_name: '学校A', service_date: '2026-04-01', customer_bill: 30, network_line_bill: 0, node_deduction_bill: 0, channel_bill: 0 },
+    ]
+    const dailyRows = [
+      { school_name: '学校A', service_date: '2026-01-10', cp: 'CT', settlement_value: 75_000_000 },
+      { school_name: '学校A', service_date: '2026-03-10', cp: 'CT', settlement_value: 75_000_000 },
+      { school_name: '学校A', service_date: '2026-04-10', cp: 'CT', settlement_value: 75_000_000 },
+    ]
+
+    const result = buildMonthlyAmountColumnView(monthlyRows, dailyRows, {
+      allowedMonthRange: { startMonth: '2026-01', endMonth: '2026-03' },
+    })
+
+    expect(result.months).toEqual(['2026-01', '2026-03'])
+    const schoolA = result.rows.find((r) => r.metric === '学校A')
+    expect(schoolA?.values['2026-01']).toBe('10.00')
+    expect(schoolA?.values['2026-03']).toBe('20.00')
+    expect(schoolA?.values['2026-04']).toBeUndefined()
+    // 只使用 1 月和 3 月日数据计算: (10 + 10) / 2
+    expect(schoolA?.daily95Mbps).toBe('10.00')
+  })
+
+  it('clips tree rows by allowedMonthRange and keeps subtotal/total consistent', () => {
+    const monthlyRows = [
+      { region: '华北', cp: 'CT', school_name: '学校A', service_date: '2026-03', customer_bill: 10, network_line_bill: 0, node_deduction_bill: 0, channel_bill: 0 },
+      { region: '华北', cp: 'CT', school_name: '学校A', service_date: '2026-04', customer_bill: 20, network_line_bill: 0, node_deduction_bill: 0, channel_bill: 0 },
+      { region: '华南', cp: 'CM', school_name: '学校B', service_date: '2026-03', customer_bill: 30, network_line_bill: 0, node_deduction_bill: 0, channel_bill: 0 },
+    ]
+    const dailyRows = [
+      { region: '华北', cp: 'CT', school_name: '学校A', service_date: '2026-03-01', settlement_value: 75_000_000 },
+      { region: '华北', cp: 'CT', school_name: '学校A', service_date: '2026-04-01', settlement_value: 150_000_000 },
+      { region: '华南', cp: 'CM', school_name: '学校B', service_date: '2026-03-01', settlement_value: 37_500_000 },
+    ]
+    const result = buildMonthlyAmountColumnView(monthlyRows, dailyRows, {
+      treeByRegionSchoolCp: true,
+      allowedMonthRange: { startMonth: '2026-03', endMonth: '2026-03' },
+    })
+
+    expect(result.months).toEqual(['2026-03'])
+    expect(result.rows.map((r) => r.rowType)).toEqual(['region', 'region', 'total'])
+    const north = result.rows.find((r) => r.metric === '区域：华北')
+    expect(north?.values['2026-03']).toBe('10.00')
+    expect(north?.values['2026-04']).toBeUndefined()
+    const total = result.rows[result.rows.length - 1]
+    expect(total.metric).toBe('总和')
+    expect(total.values['2026-03']).toBe('40.00')
+  })
+})
+
+describe('resolveMonthRangeDateTime', () => {
+  it('returns exact month boundaries based on current monthRange value', () => {
+    const boundary = resolveMonthRangeDateTime(['2026-03', '2026-03'])
+    expect(boundary.start).toBe('2026-03-01 00:00:00')
+    expect(boundary.end).toBe('2026-03-31 23:59:59')
+  })
+
+  it('returns empty boundaries when range is not ready', () => {
+    expect(resolveMonthRangeDateTime(null)).toEqual({ start: '', end: '' })
+    expect(resolveMonthRangeDateTime(['', '2026-03'] as any)).toEqual({ start: '', end: '' })
   })
 })

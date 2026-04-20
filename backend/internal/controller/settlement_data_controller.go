@@ -191,6 +191,11 @@ func (c *SettlementDataController) ListCustomerMonthlyData(ctx *gin.Context) {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询月度结算数据失败", "error": err.Error()})
 		return
 	}
+	effectiveMonthRange := ""
+	if startPtr != nil || endPtr != nil {
+		effectiveMonthRange = fmt.Sprintf("%s~%s", formatYearMonthPtr(startPtr), formatYearMonthPtr(endPtr))
+		ctx.Header("X-Effective-Month-Range", effectiveMonthRange)
+	}
 	// 无用户筛选时若本次结果回退到了实时聚合，后台异步增量回写对应月份，收敛口径差异
 	if channelPtr == nil {
 		needRebuild := false
@@ -206,7 +211,11 @@ func (c *SettlementDataController) ListCustomerMonthlyData(ctx *gin.Context) {
 			}(startPtr, endPtr)
 		}
 	}
-	ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "OK", "data": gin.H{"items": items, "total": total}})
+	data := gin.H{"items": items, "total": total}
+	if effectiveMonthRange != "" {
+		data["effective_month_range"] = effectiveMonthRange
+	}
+	ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "OK", "data": data})
 }
 
 // ExportCustomerData GET /api/v1/settlement/data/customer/export
@@ -403,6 +412,13 @@ func intFrom(s string, def int) int {
 		return v
 	}
 	return def
+}
+
+func formatYearMonthPtr(v *time.Time) string {
+	if v == nil {
+		return ""
+	}
+	return v.Format("2006-01")
 }
 func fmtFloat(p *float64) string {
 	if p == nil {

@@ -17,15 +17,17 @@ func parseDateBoundary(raw string, endOfDay bool) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("empty date")
 	}
 
-	if t, err := time.Parse(dateTimeOnlyLayout, trimmed); err == nil {
+	// Interpret non-timezone inputs in local time to keep date boundaries
+	// consistent with business queries and DB session timezone.
+	if t, err := time.ParseInLocation(dateTimeOnlyLayout, trimmed, time.Local); err == nil {
 		return t, nil
 	}
 
 	if t, err := time.Parse(time.RFC3339, trimmed); err == nil {
-		return t, nil
+		return t.In(time.Local), nil
 	}
 
-	t, err := time.Parse(dateOnlyLayout, trimmed)
+	t, err := time.ParseInLocation(dateOnlyLayout, trimmed, time.Local)
 	if err != nil {
 		return time.Time{}, err
 	}

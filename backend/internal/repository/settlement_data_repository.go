@@ -112,6 +112,33 @@ func applySettlementCustomerFilters(qb *gorm.DB, filter map[string]interface{}) 
 	return qb
 }
 
+func extractServiceMonthRange(filter map[string]interface{}) (string, string) {
+	startMonth := ""
+	endMonth := ""
+	if v, ok := filter["start_service_date"]; ok && v != nil {
+		if ym, ok2 := toYearMonth(v); ok2 {
+			startMonth = ym
+		}
+	}
+	if v, ok := filter["end_service_date"]; ok && v != nil {
+		if ym, ok2 := toYearMonth(v); ok2 {
+			endMonth = ym
+		}
+	}
+	return startMonth, endMonth
+}
+
+func applyServiceMonthRangeToDailyQB(qb *gorm.DB, filter map[string]interface{}) *gorm.DB {
+	startMonth, endMonth := extractServiceMonthRange(filter)
+	if startMonth != "" {
+		qb = qb.Where("DATE_FORMAT(service_date, '%Y-%m') >= ?", startMonth)
+	}
+	if endMonth != "" {
+		qb = qb.Where("DATE_FORMAT(service_date, '%Y-%m') <= ?", endMonth)
+	}
+	return qb
+}
+
 func (r *settlementDataRepository) ListSettlementCustomer(ctx context.Context, filter map[string]interface{}, limit, offset int) ([]model.SettlementCustomer, int64, error) {
 	qb := applySettlementCustomerFilters(model.DB.WithContext(ctx).Model(&model.SettlementCustomer{}), filter)
 
@@ -135,6 +162,7 @@ func (r *settlementDataRepository) ListSettlementCustomer(ctx context.Context, f
 
 func (r *settlementDataRepository) listSettlementCustomerMonthlyFromDaily(ctx context.Context, filter map[string]interface{}, limit, offset int) ([]model.SettlementCustomerMonthly, int64, error) {
 	base := applySettlementCustomerFilters(model.DB.WithContext(ctx).Model(&model.SettlementCustomer{}), filter).Where("service_date IS NOT NULL")
+	base = applyServiceMonthRangeToDailyQB(base, filter)
 
 	// 统计分组后的总条数
 	countSubQuery := base.
@@ -356,6 +384,7 @@ func isMonthlySnapshotStale(ctx context.Context, filter map[string]interface{}) 
 			dailyQB = dailyQB.Where("DATE(service_date) <= ?", t.Format("2006-01-02"))
 		}
 	}
+	dailyQB = applyServiceMonthRangeToDailyQB(dailyQB, filter)
 	var maxDailyUpdatedAt *time.Time
 	if err := dailyQB.Select("MAX(updated_at)").Scan(&maxDailyUpdatedAt).Error; err != nil {
 		return true, err
