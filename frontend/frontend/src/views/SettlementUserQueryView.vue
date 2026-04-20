@@ -15,7 +15,17 @@
 
       <el-form :inline="true" class="query-form">
         <el-form-item label="用户" required>
-          <SearchSelect v-model="filter.userId" :options="userOptions" label-key="label" value-key="id" clearable placeholder="请选择用户" class="field-w-240" />
+          <SearchSelect
+            v-model="filter.userId"
+            :options="userOptions"
+            :loading="userOptionsLoading"
+            label-key="label"
+            value-key="id"
+            clearable
+            placeholder="请选择用户"
+            class="field-w-240"
+            @visible-change="onUserDropdownVisible"
+          />
         </el-form-item>
         <el-form-item label="粒度">
           <el-select v-model="filter.granularity" class="field-w-120">
@@ -150,6 +160,9 @@ const monthlyColumnRows = ref<MonthlyMetricRow[]>([])
 const queryCtl = useCancelableQuery()
 
 const userOptions = ref<UserOption[]>([])
+const userOptionsLoading = ref(false)
+const ownerUsersFetchSeq = ref(0)
+const lastOwnerUsersQueryKey = ref('')
 const regions = ref<string[]>([])
 const cps = ref<string[]>([])
 const schools = ref<School[]>([])
@@ -336,6 +349,8 @@ async function fetchAllRowsForCurrentFilter(granularity: Granularity = filter.gr
 }
 
 async function loadOwnerUsers() {
+  ownerUsersFetchSeq.value += 1
+  const currentSeq = ownerUsersFetchSeq.value
   try {
     const { start, end } = resolveMonthRangeDateTime(monthRange.value)
     const params: any = {}
@@ -343,15 +358,43 @@ async function loadOwnerUsers() {
     if (filter.cp) params.cp = filter.cp
     if (start) params.start_service_date = start
     if (end) params.end_service_date = end
+    const queryKey = JSON.stringify({
+      region: params.region || '',
+      cp: params.cp || '',
+      start: params.start_service_date || '',
+      end: params.end_service_date || '',
+    })
+    userOptionsLoading.value = true
     const items: any[] = await (api as any).settlementData.ownerSubjects(params)
+    if (currentSeq !== ownerUsersFetchSeq.value) return
     const list = (Array.isArray(items) ? items : [])
       .filter((it: any) => it && String(it.type) === 'user')
       .map((it: any) => ({ id: Number(it.id), label: String(it.label || `用户#${it.id}`) }))
       .filter((it: UserOption) => Number.isFinite(it.id))
       .sort((a, b) => a.label.localeCompare(b.label))
     userOptions.value = list
+    lastOwnerUsersQueryKey.value = queryKey
   } catch {
-    userOptions.value = []
+    // 保留已有选项，避免临时失败导致下拉被清空
+  } finally {
+    if (currentSeq === ownerUsersFetchSeq.value) {
+      userOptionsLoading.value = false
+    }
+  }
+}
+
+function onUserDropdownVisible(visible: boolean) {
+  if (!visible) return
+  const { start, end } = resolveMonthRangeDateTime(monthRange.value)
+  const queryKey = JSON.stringify({
+    region: filter.region || '',
+    cp: filter.cp || '',
+    start: start || '',
+    end: end || '',
+  })
+  const needReload = !userOptions.value.length || lastOwnerUsersQueryKey.value !== queryKey
+  if (needReload && !userOptionsLoading.value) {
+    loadOwnerUsers()
   }
 }
 
