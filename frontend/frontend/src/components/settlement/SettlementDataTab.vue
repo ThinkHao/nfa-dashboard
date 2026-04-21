@@ -609,19 +609,17 @@ const getTrafficMetricValue = (row: any, key: string): number | null => {
   return null
 }
 
-// 基于 schools 动态派生地区/运营商选项，仅限可见院校范围
-const computeRegionCpOptions = () => {
+// 加载地区/运营商选项（统一按可见范围）
+const loadRegionCpOptions = async () => {
   try {
-    const rset = new Set<string>()
-    const cset = new Set<string>()
-    ;(schools.value || []).forEach((s: any) => {
-      if (s && typeof s.region === 'string' && s.region && s.region !== 'NULL') rset.add(s.region)
-      if (s && typeof s.cp === 'string' && s.cp && s.cp !== 'NULL') cset.add(s.cp)
-    })
-    regions.value = Array.from(rset).sort()
-    cps.value = Array.from(cset).sort()
+    const [regionResp, cpResp] = await Promise.all([
+      (api as any).v2.getRegions(),
+      (api as any).v2.getCPs(),
+    ])
+    regions.value = Array.isArray(regionResp) ? regionResp.filter((x: any) => typeof x === 'string' && x.trim()) : []
+    cps.value = Array.isArray(cpResp) ? cpResp.filter((x: any) => typeof x === 'string' && x.trim()) : []
   } catch (e) {
-    console.warn('派生地区/运营商选项失败:', e)
+    console.warn('加载地区/运营商选项失败:', e)
     regions.value = []
     cps.value = []
   }
@@ -630,9 +628,10 @@ const computeRegionCpOptions = () => {
 // 获取基础数据
 const fetchBaseData = async () => {
   try {
-    // 直接加载 v2 学校（已按用户权限过滤），后派生地区/运营商
+    // 统一从 v2 接口加载地区/运营商，避免学校分页截断导致选项缺失
+    await loadRegionCpOptions()
+    // 学校仍按 region/cp 联动过滤
     await loadSchools()
-    computeRegionCpOptions()
     // 加载费用归属下拉
     await loadOwnerOptions()
   } catch (error) {
@@ -678,8 +677,6 @@ const loadSchools = async (region: string = '', cp: string = ''): Promise<number
       : Array.isArray(items)
         ? items.length
         : 0
-    // 刷新地区/运营商选项
-    computeRegionCpOptions()
     return total
   } catch (error) {
     console.error('获取学校数据失败', error)
@@ -694,9 +691,9 @@ const handleRegionChange = (region: string): void => {
   console.log('地区选择变化:', region)
   // 当地区变化时，重新加载学校列表
   if (region) {
-    loadSchools(region, filterForm.cp).then(() => computeRegionCpOptions())
+    loadSchools(region, filterForm.cp)
   } else {
-    loadSchools('', filterForm.cp).then(() => computeRegionCpOptions())
+    loadSchools('', filterForm.cp)
   }
   // 当地区变化时自动刷新数据
   queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
@@ -708,9 +705,9 @@ const handleCPChange = (cp: string): void => {
   console.log('运营商选择变化:', cp)
   // 当运营商变化时，重新加载学校列表
   if (cp) {
-    loadSchools(filterForm.region, cp).then(() => computeRegionCpOptions())
+    loadSchools(filterForm.region, cp)
   } else {
-    loadSchools(filterForm.region, '').then(() => computeRegionCpOptions())
+    loadSchools(filterForm.region, '')
   }
   // 当运营商变化时自动刷新数据
   queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })

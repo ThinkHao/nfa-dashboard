@@ -9,20 +9,23 @@ export function normalizeRateUnit(value: unknown, fallback: TrafficRateUnit = 'M
   return value === 'Gbps' ? 'Gbps' : value === 'Mbps' ? 'Mbps' : fallback
 }
 
-export function rateUnitDivisor(unit: TrafficRateUnit): number {
-  return unit === 'Gbps' ? 1_000_000_000 : 1_000_000
+export function rateUnitDivisor(unit: TrafficRateUnit, unitBase: TrafficByteUnitBase = 1000): number {
+  const normalizedBase = normalizeByteUnitBase(unitBase, 1000)
+  return unit === 'Gbps'
+    ? normalizedBase * normalizedBase * normalizedBase
+    : normalizedBase * normalizedBase
 }
 
 export function settlementValueToBitsPerSecond(value: number): number {
   return (value * 8) / 60
 }
 
-export function bitsPerSecondToRate(bitsPerSecond: number, unit: TrafficRateUnit): number {
-  return bitsPerSecond / rateUnitDivisor(unit)
+export function bitsPerSecondToRate(bitsPerSecond: number, unit: TrafficRateUnit, unitBase: TrafficByteUnitBase = 1000): number {
+  return bitsPerSecond / rateUnitDivisor(unit, unitBase)
 }
 
-export function settlementValueToRate(value: number, unit: TrafficRateUnit): number {
-  return bitsPerSecondToRate(settlementValueToBitsPerSecond(value), unit)
+export function settlementValueToRate(value: number, unit: TrafficRateUnit, unitBase: TrafficByteUnitBase = 1000): number {
+  return bitsPerSecondToRate(settlementValueToBitsPerSecond(value), unit, unitBase)
 }
 
 export function formatRateValue(

@@ -80,6 +80,24 @@ describe('buildMonthlyAmountColumnView', () => {
     expect(schoolA?.daily95Rate).toBe('0.03')
   })
 
+  it('uses unitBase=1024 when provided', () => {
+    const monthlyRows = [
+      { school_name: '学校A', service_date: '2026-01-01', customer_bill: 1, network_line_bill: 0, node_deduction_bill: 0, channel_bill: 0 },
+    ]
+    const dailyRows = [
+      { school_name: '学校A', service_date: '2026-01-01', cp: 'CT', settlement_value: 75_000_000 },
+      { school_name: '学校A', service_date: '2026-01-01', cp: 'CM', settlement_value: 150_000_000 },
+    ]
+
+    const resultDecimal = buildMonthlyAmountColumnView(monthlyRows, dailyRows, { rateUnit: 'Mbps', unitBase: 1000 })
+    const resultBinary = buildMonthlyAmountColumnView(monthlyRows, dailyRows, { rateUnit: 'Mbps', unitBase: 1024 })
+
+    const schoolDecimal = resultDecimal.rows.find((r) => r.metric === '学校A')
+    const schoolBinary = resultBinary.rows.find((r) => r.metric === '学校A')
+    expect(schoolDecimal?.daily95Rate).toBe('30.00')
+    expect(schoolBinary?.daily95Rate).toBe('28.61')
+  })
+
   it('builds region-school-cp tree rows with subtotal and total in tree mode', () => {
     const monthlyRows = [
       { region: '华北', cp: 'CT', school_name: '学校A', service_date: '2026-03', customer_bill: 10, network_line_bill: 1, node_deduction_bill: 1, channel_bill: 1, stock_start_at: '2024-01-01', increment_start_at: '2025-01-01' },

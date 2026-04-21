@@ -146,7 +146,7 @@ import QueryActionButton from '@/components/ui/QueryActionButton.vue'
 import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import { useSystemTrafficSettings } from '@/composables/useSystemTrafficSettings'
-import { settlementValueToRate } from '@/utils/traffic-units'
+import { normalizeByteUnitBase, settlementValueToRate } from '@/utils/traffic-units'
 
 type Granularity = 'daily' | 'monthly'
 type UserOption = { id: number; label: string }
@@ -163,6 +163,9 @@ const queryCtl = useCancelableQuery()
 const trafficSettings = useSystemTrafficSettings()
 const singleUserRateUnit = computed<'Mbps' | 'Gbps'>(() => (
   trafficSettings.settings.value.settlement_single_user_rate_unit === 'Mbps' ? 'Mbps' : 'Gbps'
+))
+const singleUserUnitBase = computed<1000 | 1024>(() => (
+  normalizeByteUnitBase(trafficSettings.settings.value.settlement_result_unit_base, 1024)
 ))
 
 const userOptions = ref<UserOption[]>([])
@@ -229,7 +232,7 @@ function fmtFlowRate(v: any): string {
   if (v == null || v === '') return '-'
   const n = Number(v)
   if (Number.isNaN(n)) return '-'
-  return settlementValueToRate(n, singleUserRateUnit.value).toFixed(2)
+  return settlementValueToRate(n, singleUserRateUnit.value, singleUserUnitBase.value).toFixed(2)
 }
 
 function fmtTotal(row: any): string {
@@ -405,12 +408,12 @@ function onUserDropdownVisible(visible: boolean) {
 
 async function loadRegionCpSchool() {
   try {
-    const rs = await (api as any).getRegions()
+    const rs = await (api as any).v2.getRegions()
     regions.value = Array.isArray(rs) ? rs.filter((x) => typeof x === 'string') : []
   } catch { regions.value = [] }
 
   try {
-    const cs = await (api as any).getCPs()
+    const cs = await (api as any).v2.getCPs()
     cps.value = Array.isArray(cs) ? cs.filter((x) => typeof x === 'string') : []
   } catch { cps.value = [] }
 
@@ -499,6 +502,7 @@ async function refreshMonthlyColumnView(signal?: AbortSignal) {
     const { months, rows: pivotRows } = buildMonthlyAmountColumnView(enrichedMonthlyRows, dailyRows, {
       treeByRegionSchoolCp: isMonthlyTreeMode.value,
       rateUnit: singleUserRateUnit.value,
+      unitBase: singleUserUnitBase.value,
       allowedMonthRange: monthRangeBoundary(),
     })
     monthlyColumnMonths.value = months
@@ -568,6 +572,7 @@ async function handleExport() {
       const { months, rows: pivotRows } = buildMonthlyAmountColumnView(enrichedMonthlyRows, dailyRows, {
         treeByRegionSchoolCp: isMonthlyTreeMode.value,
         rateUnit: singleUserRateUnit.value,
+        unitBase: singleUserUnitBase.value,
         allowedMonthRange: monthRangeBoundary(),
       })
       const exportRows = flattenMonthlyRows(pivotRows)
