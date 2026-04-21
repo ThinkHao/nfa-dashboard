@@ -14,6 +14,7 @@ import (
 func BuildEngine() *gin.Engine {
 	r := gin.Default()
 	r.Use(middleware.Logger())
+	r.Use(middleware.SecurityHeaders())
 	r.Use(middleware.CORS())
 	r.Use(middleware.Gzip())
 	r.Use(middleware.Audit())
@@ -113,9 +114,10 @@ func BuildEngine() *gin.Engine {
 	{
 		auth := api.Group("/auth")
 		{
-			auth.POST("/login", authController.Login)
+			auth.POST("/login", middleware.LoginRateLimit(), authController.Login)
 			auth.POST("/refresh", authController.Refresh)
 			auth.GET("/profile", authMW.AuthRequired(), authController.Profile)
+			auth.POST("/change-password", authMW.AuthRequired(), authController.ChangePassword)
 		}
 
 		v2 := r.Group("/api/v2")

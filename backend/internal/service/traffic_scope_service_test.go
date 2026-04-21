@@ -125,6 +125,9 @@ func (s *trafficScopeUserRepoStub) UpdateStatus(userID uint64, status int8) erro
 func (s *trafficScopeUserRepoStub) UpdateAlias(userID uint64, alias *string) error {
 	return nil
 }
+func (s *trafficScopeUserRepoStub) UpdatePasswordHash(userID uint64, passwordHash string) error {
+	return nil
+}
 func (s *trafficScopeUserRepoStub) Exists(id uint64) (bool, error) {
 	return s.existsByUser[id], nil
 }

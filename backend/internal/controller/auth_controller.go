@@ -43,14 +43,14 @@ func (a *AuthController) Login(c *gin.Context) {
 		return
 	}
 	resp := gin.H{
-		"token": token,
+		"token":         token,
 		"refresh_token": refreshToken,
 		"user": gin.H{
-			"id": user.ID,
+			"id":       user.ID,
 			"username": user.Username,
-			"alias": user.Alias,
-			"email": user.Email,
-			"phone": user.Phone,
+			"alias":    user.Alias,
+			"email":    user.Email,
+			"phone":    user.Phone,
 		},
 		"permissions": toPermissionCodes(perms),
 	}
@@ -97,14 +97,14 @@ func (a *AuthController) Refresh(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"token": accessToken,
+		"token":         accessToken,
 		"refresh_token": newRefresh,
 		"user": gin.H{
-			"id": user.ID,
+			"id":       user.ID,
 			"username": user.Username,
-			"alias": user.Alias,
-			"email": user.Email,
-			"phone": user.Phone,
+			"alias":    user.Alias,
+			"email":    user.Email,
+			"phone":    user.Phone,
 		},
 		"permissions": toPermissionCodes(perms),
 	})
@@ -117,20 +117,60 @@ func (a *AuthController) Profile(c *gin.Context) {
 	codes := toPermissionCodesFromAny(pVal)
 	c.JSON(http.StatusOK, gin.H{
 		"user": gin.H{
-			"id": user.ID,
+			"id":       user.ID,
 			"username": user.Username,
-			"alias": user.Alias,
-			"email": user.Email,
-			"phone": user.Phone,
+			"alias":    user.Alias,
+			"email":    user.Email,
+			"phone":    user.Phone,
 		},
 		"permissions": codes,
 	})
 }
 
+type ChangePasswordRequest struct {
+	OldPassword string `json:"old_password" binding:"required"`
+	NewPassword string `json:"new_password" binding:"required"`
+}
+
+// POST /api/v1/auth/change-password
+func (a *AuthController) ChangePassword(c *gin.Context) {
+	var req ChangePasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid request"})
+		return
+	}
+	uVal, exists := c.Get(middleware.ContextUserKey)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"message": "unauthorized"})
+		return
+	}
+	user, ok := uVal.(*model.User)
+	if !ok || user == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"message": "unauthorized"})
+		return
+	}
+
+	if err := a.authSvc.ChangePassword(user.ID, req.OldPassword, req.NewPassword); err != nil {
+		if service.IsBadRequest(err) {
+			c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+			return
+		}
+		if err.Error() == "current password is incorrect" {
+			c.JSON(http.StatusUnauthorized, gin.H{"message": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 // helpers
 func toPermissionCodes(perms []model.Permission) []string {
 	res := make([]string, 0, len(perms))
-	for _, p := range perms { res = append(res, p.Code) }
+	for _, p := range perms {
+		res = append(res, p.Code)
+	}
 	return res
 }
 

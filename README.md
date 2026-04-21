@@ -80,6 +80,48 @@ go run main.go
 go build -o nfa-dashboard-backend main.go
 ```
 
+### HTTPS（自签名证书）
+
+当服务映射到公网时，建议优先启用 HTTPS。后端已支持直接读取证书并以 TLS 启动。
+
+1. 生成自签名证书（Linux/OpenSSL）：
+
+```bash
+mkdir -p certs
+openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
+  -keyout certs/server.key \
+  -out certs/server.crt \
+  -subj "/CN=YOUR_SERVER_IP"
+```
+
+2. 修改 `backend/config/config.yaml`：
+
+```yaml
+server:
+  tls:
+    enabled: true
+    cert_file: ./certs/server.crt
+    key_file: ./certs/server.key
+```
+
+3. 启动后端：
+
+```bash
+cd backend
+go run main.go
+```
+
+4. 首次访问时浏览器会提示证书不受信任（自签名证书正常现象）。
+
+### 公网映射安全基线
+
+- 强制使用复杂 `AUTH_SECRET`，不要保留默认值 `dev-secret-change-me`
+- 不要把数据库明文密码提交到仓库，生产环境用环境变量注入
+- 限制 CORS 来源：将 `server.security.cors.allowed_origins` 改为你的实际前端地址
+- 启用登录限流（已内置，默认开启）
+- 仅开放必要端口（建议前端/反向代理暴露 443，后端只对内网开放）
+- 定期轮换管理员密码，至少 8 位并包含大小写、数字、符号
+
 ## 发布与部署
 
 ### 发布新版本

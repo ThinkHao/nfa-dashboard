@@ -19,7 +19,32 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Port int `mapstructure:"port"`
+	Port     int                  `mapstructure:"port"`
+	TLS      ServerTLSConfig      `mapstructure:"tls"`
+	Security ServerSecurityConfig `mapstructure:"security"`
+}
+
+type ServerTLSConfig struct {
+	Enabled  bool   `mapstructure:"enabled"`
+	CertFile string `mapstructure:"cert_file"`
+	KeyFile  string `mapstructure:"key_file"`
+}
+
+type ServerSecurityConfig struct {
+	CORS           CORSConfig           `mapstructure:"cors"`
+	LoginRateLimit LoginRateLimitConfig `mapstructure:"login_rate_limit"`
+}
+
+type CORSConfig struct {
+	AllowedOrigins   []string `mapstructure:"allowed_origins"`
+	AllowCredentials bool     `mapstructure:"allow_credentials"`
+}
+
+type LoginRateLimitConfig struct {
+	Enabled     bool `mapstructure:"enabled"`
+	MaxAttempts int  `mapstructure:"max_attempts"`
+	WindowSecs  int  `mapstructure:"window_secs"`
+	BlockSecs   int  `mapstructure:"block_secs"`
 }
 
 type DatabaseConfig struct {
@@ -78,6 +103,15 @@ func LoadConfig() {
 	_ = viper.BindEnv("database.username", "DB_USER", "NFA_DB_USER")
 	_ = viper.BindEnv("database.password", "DB_PASS", "NFA_DB_PASS")
 	_ = viper.BindEnv("database.dbname", "DB_NAME", "NFA_DB_NAME")
+	_ = viper.BindEnv("server.tls.enabled", "SERVER_TLS_ENABLED")
+	_ = viper.BindEnv("server.tls.cert_file", "SERVER_TLS_CERT_FILE")
+	_ = viper.BindEnv("server.tls.key_file", "SERVER_TLS_KEY_FILE")
+	_ = viper.BindEnv("server.security.cors.allowed_origins", "CORS_ALLOWED_ORIGINS")
+	_ = viper.BindEnv("server.security.cors.allow_credentials", "CORS_ALLOW_CREDENTIALS")
+	_ = viper.BindEnv("server.security.login_rate_limit.enabled", "LOGIN_RATE_LIMIT_ENABLED")
+	_ = viper.BindEnv("server.security.login_rate_limit.max_attempts", "LOGIN_RATE_LIMIT_MAX_ATTEMPTS")
+	_ = viper.BindEnv("server.security.login_rate_limit.window_secs", "LOGIN_RATE_LIMIT_WINDOW_SECS")
+	_ = viper.BindEnv("server.security.login_rate_limit.block_secs", "LOGIN_RATE_LIMIT_BLOCK_SECS")
 	// Auth via env
 	_ = viper.BindEnv("auth.secret", "AUTH_SECRET")
 	_ = viper.BindEnv("auth.access_token_ttl_minutes", "AUTH_ACCESS_TOKEN_TTL_MINUTES")
@@ -134,12 +168,60 @@ func validateAndSetDefaults() error {
 	if AppConfig.Server.Port == 0 {
 		AppConfig.Server.Port = 8081
 	}
+	if len(AppConfig.Server.Security.CORS.AllowedOrigins) == 0 {
+		AppConfig.Server.Security.CORS.AllowedOrigins = []string{
+			"http://localhost:5173",
+			"http://127.0.0.1:5173",
+		}
+	}
+	if AppConfig.Server.Security.LoginRateLimit.MaxAttempts <= 0 {
+		AppConfig.Server.Security.LoginRateLimit.MaxAttempts = 8
+	}
+	if AppConfig.Server.Security.LoginRateLimit.WindowSecs <= 0 {
+		AppConfig.Server.Security.LoginRateLimit.WindowSecs = 600
+	}
+	if AppConfig.Server.Security.LoginRateLimit.BlockSecs <= 0 {
+		AppConfig.Server.Security.LoginRateLimit.BlockSecs = 900
+	}
+	if !AppConfig.Server.Security.LoginRateLimit.Enabled {
+		AppConfig.Server.Security.LoginRateLimit.Enabled = true
+	}
+	if AppConfig.Server.TLS.Enabled {
+		if strings.TrimSpace(AppConfig.Server.TLS.CertFile) == "" || strings.TrimSpace(AppConfig.Server.TLS.KeyFile) == "" {
+			return fmt.Errorf("server.tls is enabled but cert_file/key_file is missing")
+		}
+	}
+
 	// Database required fields
 	db := AppConfig.Database
 	if db.Host == "" || db.Port == 0 || db.Username == "" || db.Password == "" || db.DBName == "" {
 		return fmt.Errorf("incomplete database config")
 	}
 	return nil
+}
+
+func GetCORSAllowedOrigins() []string {
+	return AppConfig.Server.Security.CORS.AllowedOrigins
+}
+
+func GetCORSAllowCredentials() bool {
+	return AppConfig.Server.Security.CORS.AllowCredentials
+}
+
+func IsLoginRateLimitEnabled() bool {
+	return AppConfig.Server.Security.LoginRateLimit.Enabled
+}
+
+func GetLoginRateLimitMaxAttempts() int {
+	return AppConfig.Server.Security.LoginRateLimit.MaxAttempts
+}
+
+func GetLoginRateLimitWindowSecs() int {
+	return AppConfig.Server.Security.LoginRateLimit.WindowSecs
+}
+
+func GetLoginRateLimitBlockSecs() int {
+	return AppConfig.Server.Security.LoginRateLimit.BlockSecs
 }
 
 // applyEnvOverridesFromEnv overrides list-type configs from comma-separated env vars.

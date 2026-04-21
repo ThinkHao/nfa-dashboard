@@ -6,6 +6,7 @@ import type {
   ProfileResponse,
   RefreshRequest,
   RefreshResponse,
+  ChangePasswordRequest,
   Role,
   SystemUser,
   UpdateUserStatusRequest,
@@ -71,6 +72,9 @@ export default {
     },
     profile(): Promise<ProfileResponse> {
       return api.get('/api/v1/auth/profile').then((d: any) => d as ProfileResponse)
+    },
+    changePassword(data: ChangePasswordRequest): Promise<void> {
+      return api.post('/api/v1/auth/change-password', data).then(() => undefined)
     }
   },
   // 获取学校列表

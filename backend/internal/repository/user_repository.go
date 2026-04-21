@@ -20,6 +20,7 @@ type UserRepository interface {
 	SetRoles(userID uint64, roleIDs []uint64) error
 	UpdateStatus(userID uint64, status int8) error
 	UpdateAlias(userID uint64, alias *string) error
+	UpdatePasswordHash(userID uint64, passwordHash string) error
 	Exists(id uint64) (bool, error)
 }
 
@@ -159,6 +160,16 @@ func (r *userRepository) UpdateAlias(userID uint64, alias *string) error {
 	}
 	// Using single-column Update will set NULL when alias is nil
 	return model.DB.Model(&model.User{}).Where("id = ?", userID).Update("alias", alias).Error
+}
+
+func (r *userRepository) UpdatePasswordHash(userID uint64, passwordHash string) error {
+	if userID == 0 {
+		return errors.New("invalid userID")
+	}
+	if strings.TrimSpace(passwordHash) == "" {
+		return errors.New("invalid password hash")
+	}
+	return model.DB.Model(&model.User{}).Where("id = ?", userID).Update("password_hash", passwordHash).Error
 }
 
 func (r *userRepository) Exists(id uint64) (bool, error) {

@@ -60,6 +60,10 @@ func (s *ratesServiceUserRepoStub) UpdateStatus(userID uint64, status int8) erro
 
 func (s *ratesServiceUserRepoStub) UpdateAlias(userID uint64, alias *string) error { return nil }
 
+func (s *ratesServiceUserRepoStub) UpdatePasswordHash(userID uint64, passwordHash string) error {
+	return nil
+}
+
 func (s *ratesServiceUserRepoStub) Exists(id uint64) (bool, error) { return false, nil }
 
 func TestNormalizeIncrementConfig_NoIncrementStartForcesDefault(t *testing.T) {

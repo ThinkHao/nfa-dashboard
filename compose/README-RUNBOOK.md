@@ -78,6 +78,17 @@ docker compose --env-file .env --profile with-db up -d
   - 前端：http://<host>:${FRONTEND_PORT}（默认 8080）
   - 健康检查：http://<host>:${APP_PORT}/health（默认 8081），返回 `{ "status": "ok" }`
 
+- 离线包启用 HTTPS（自签名，推荐公网映射时开启）
+  1. 编辑 `compose/.env`：
+     - `ENABLE_HTTPS=true`
+     - `FRONTEND_PORT=443`（或其他 HTTPS 端口）
+     - `CORS_ALLOWED_ORIGINS=https://<你的访问地址或IP>`
+  2. 证书来源二选一：
+     - 留空 `SSL_CERT_PATH/SSL_KEY_PATH`：脚本会自动在 `compose/nginx/certs/` 生成自签名证书
+     - 指定 `SSL_CERT_PATH/SSL_KEY_PATH`：脚本会导入你提供的证书文件
+  3. 执行 `./offline-deploy.sh`，脚本会自动生成 HTTPS Nginx 配置并启动
+  4. 使用 `https://<host>:<FRONTEND_PORT>` 访问
+
 - 回滚
   - 手动回滚：`cd scripts && ./offline-rollback.sh`
   - 升级失败时脚本会尝试自动回滚到 `releases/` 中的上一个版本

@@ -62,6 +62,11 @@ export interface ProfileResponse {
   permissions: (PermissionLite | string)[];
 }
 
+export interface ChangePasswordRequest {
+  old_password: string;
+  new_password: string;
+}
+
 // 分页数据接口
 export interface PaginatedData<T = any> {
   items: T[];
