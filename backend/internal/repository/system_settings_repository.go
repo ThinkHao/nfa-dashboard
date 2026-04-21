@@ -27,6 +27,11 @@ func (r *systemSettingsRepository) Get() (*model.SystemSettings, error) {
 	}
 	cfg = model.SystemSettings{
 		HideNonSettlementSchoolsInTraffic: false,
+		TrafficByteUnitBase:               1024,
+		SettlementResultUnitBase:          1024,
+		SettlementDataRateUnit:            "Mbps",
+		SettlementDailyDetailRateUnit:     "Mbps",
+		SettlementSingleUserRateUnit:      "Gbps",
 	}
 	if createErr := model.DB.Create(&cfg).Error; createErr != nil {
 		return nil, createErr
@@ -45,9 +50,21 @@ func (r *systemSettingsRepository) Upsert(settings *model.SystemSettings) (*mode
 	}
 
 	current.HideNonSettlementSchoolsInTraffic = settings.HideNonSettlementSchoolsInTraffic
+	current.TrafficByteUnitBase = settings.TrafficByteUnitBase
+	current.SettlementResultUnitBase = settings.SettlementResultUnitBase
+	current.SettlementDataRateUnit = settings.SettlementDataRateUnit
+	current.SettlementDailyDetailRateUnit = settings.SettlementDailyDetailRateUnit
+	current.SettlementSingleUserRateUnit = settings.SettlementSingleUserRateUnit
 	if err := model.DB.Model(&model.SystemSettings{}).
 		Where("id = ?", current.ID).
-		Update("hide_non_settlement_schools_in_traffic", current.HideNonSettlementSchoolsInTraffic).Error; err != nil {
+		Updates(map[string]any{
+			"hide_non_settlement_schools_in_traffic": current.HideNonSettlementSchoolsInTraffic,
+			"traffic_byte_unit_base":                 current.TrafficByteUnitBase,
+			"settlement_result_unit_base":            current.SettlementResultUnitBase,
+			"settlement_data_rate_unit":              current.SettlementDataRateUnit,
+			"settlement_daily_detail_rate_unit":      current.SettlementDailyDetailRateUnit,
+			"settlement_single_user_rate_unit":       current.SettlementSingleUserRateUnit,
+		}).Error; err != nil {
 		return nil, err
 	}
 	return current, nil

@@ -17,14 +17,14 @@ describe('buildMonthlyAmountColumnView', () => {
     const schoolA = result.rows[0]
     expect(schoolA.stockStartAt).toBe('2024-01-01')
     expect(schoolA.incrementStartAt).toBe('2025-01-01')
-    expect(schoolA.daily95Mbps).toBe('0.00')
+    expect(schoolA.daily95Rate).toBe('0.00')
     expect(schoolA.values['2026-01']).toBe('10.00')
     expect(schoolA.values['2026-02']).toBe('100.00')
 
     const schoolB = result.rows[1]
     expect(schoolB.stockStartAt).toBe('2023-06-01')
     expect(schoolB.incrementStartAt).toBe('2024-06-01')
-    expect(schoolB.daily95Mbps).toBe('0.00')
+    expect(schoolB.daily95Rate).toBe('0.00')
     expect(schoolB.values['2026-01']).toBe('0.00')
     expect(schoolB.values['2026-02']).toBe('18.00')
 
@@ -52,37 +52,32 @@ describe('buildMonthlyAmountColumnView', () => {
     expect(result.rows.map((r) => r.metric)).toEqual(['学校A', '学校B', '总和'])
 
     const schoolA = result.rows[0]
-    // 学校A每日累计Mbps: [30,10] => 均值 20
-    expect(schoolA.daily95Mbps).toBe('20.00')
+    expect(schoolA.daily95Rate).toBe('20.00')
     expect(schoolA.values['2026-01']).toBe('10.00')
     expect(schoolA.values['2026-02']).toBe('20.00')
 
     const schoolB = result.rows[1]
-    // 学校B每日累计Mbps: [5] => 均值 5
-    expect(schoolB.daily95Mbps).toBe('5.00')
+    expect(schoolB.daily95Rate).toBe('5.00')
     expect(schoolB.values['2026-01']).toBe('0.00')
     expect(schoolB.values['2026-02']).toBe('10.00')
 
     const totalRow = result.rows[2]
-    // 总行日95均值按学校行求和
-    expect(totalRow.daily95Mbps).toBe('25.00')
-    // 金额口径保持不变
+    expect(totalRow.daily95Rate).toBe('25.00')
     expect(totalRow.values['2026-01']).toBe('10.00')
     expect(totalRow.values['2026-02']).toBe('30.00')
   })
 
-  it('keeps single-CP daily95 result consistent with historical average semantics', () => {
+  it('supports Gbps output when rateUnit is Gbps', () => {
     const monthlyRows = [
-      { school_name: '学校C', service_date: '2026-01-01', customer_bill: 1, network_line_bill: 0, node_deduction_bill: 0, channel_bill: 0 },
+      { school_name: '学校A', service_date: '2026-01-01', customer_bill: 1, network_line_bill: 0, node_deduction_bill: 0, channel_bill: 0 },
     ]
     const dailyRows = [
-      { school_name: '学校C', service_date: '2026-01-01', cp: 'CT', settlement_value: 75_000_000 },
-      { school_name: '学校C', service_date: '2026-01-02', cp: 'CT', settlement_value: 150_000_000 },
+      { school_name: '学校A', service_date: '2026-01-01', cp: 'CT', settlement_value: 75_000_000 },
+      { school_name: '学校A', service_date: '2026-01-01', cp: 'CM', settlement_value: 150_000_000 },
     ]
-
-    const result = buildMonthlyAmountColumnView(monthlyRows, dailyRows)
-    const schoolC = result.rows.find((r) => r.metric === '学校C')
-    expect(schoolC?.daily95Mbps).toBe('15.00')
+    const result = buildMonthlyAmountColumnView(monthlyRows, dailyRows, { rateUnit: 'Gbps' })
+    const schoolA = result.rows.find((r) => r.metric === '学校A')
+    expect(schoolA?.daily95Rate).toBe('0.03')
   })
 
   it('builds region-school-cp tree rows with subtotal and total in tree mode', () => {
@@ -102,20 +97,20 @@ describe('buildMonthlyAmountColumnView', () => {
 
     const regionNorth = result.rows[0]
     expect(regionNorth.metric).toBe('区域：华北')
-    expect(regionNorth.daily95Mbps).toBe('30.00')
+    expect(regionNorth.daily95Rate).toBe('30.00')
     expect(regionNorth.values['2026-03']).toBe('39.00')
     expect(regionNorth.children?.map((r) => r.rowType)).toEqual(['school'])
 
     const schoolA = regionNorth.children?.[0]
     expect(schoolA?.metric).toBe('学校：学校A')
-    expect(schoolA?.daily95Mbps).toBe('30.00')
+    expect(schoolA?.daily95Rate).toBe('30.00')
     expect(schoolA?.children?.map((r) => r.metric)).toEqual(['CP：CM', 'CP：CT'])
-    expect(schoolA?.children?.[0]?.daily95Mbps).toBe('20.00')
-    expect(schoolA?.children?.[1]?.daily95Mbps).toBe('10.00')
+    expect(schoolA?.children?.[0]?.daily95Rate).toBe('20.00')
+    expect(schoolA?.children?.[1]?.daily95Rate).toBe('10.00')
 
     const total = result.rows[2]
     expect(total.metric).toBe('总和')
-    expect(total.daily95Mbps).toBe('35.00')
+    expect(total.daily95Rate).toBe('35.00')
     expect(total.values['2026-03']).toBe('78.00')
   })
 
@@ -140,8 +135,7 @@ describe('buildMonthlyAmountColumnView', () => {
     expect(schoolA?.values['2026-01']).toBe('10.00')
     expect(schoolA?.values['2026-03']).toBe('20.00')
     expect(schoolA?.values['2026-04']).toBeUndefined()
-    // 只使用 1 月和 3 月日数据计算: (10 + 10) / 2
-    expect(schoolA?.daily95Mbps).toBe('10.00')
+    expect(schoolA?.daily95Rate).toBe('10.00')
   })
 
   it('clips tree rows by allowedMonthRange and keeps subtotal/total consistent', () => {

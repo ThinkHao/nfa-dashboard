@@ -235,6 +235,8 @@ import { buildSettlementDayRange, splitSettlementDayRange } from './settlement-d
 import QueryActionButton from '@/components/ui/QueryActionButton.vue'
 import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
 import { usePageRefresh } from '@/composables/usePageRefresh'
+import { useSystemTrafficSettings } from '@/composables/useSystemTrafficSettings'
+import { bitsPerSecondToRate, type TrafficRateUnit } from '@/utils/traffic-units'
 
 // 学校、地区和运营商数据
 
@@ -242,6 +244,7 @@ const schools = ref<School[]>([])
 const regions = ref<string[]>([])
 const cps = ref<string[]>([])
 const queryCtl = useCancelableQuery()
+const trafficSettings = useSystemTrafficSettings()
 // 费用归属（统一：仅用户）下拉
 type OwnerOption = { id: number; name: string; label: string }
 const ownerOptions = ref<OwnerOption[]>([])
@@ -260,9 +263,12 @@ interface FilterForm {
 }
 type SettlementGranularity = 'daily' | 'monthly'
 const granularity = ref<SettlementGranularity>('daily')
+const settlementDataRateUnit = computed<TrafficRateUnit>(() => (
+  trafficSettings.settings.value.settlement_data_rate_unit === 'Gbps' ? 'Gbps' : 'Mbps'
+))
 const serviceDateColumnLabel = computed(() => (granularity.value === 'monthly' ? '服务月份' : '服务日期'))
-const trafficColumnLabel = computed(() => (granularity.value === 'monthly' ? '月均95值(Mbps)' : '日95值(Mbps)'))
-const incrementColumnLabel = computed(() => (granularity.value === 'monthly' ? '月均增量(Mbps)' : '当日增量(Mbps)'))
+const trafficColumnLabel = computed(() => (granularity.value === 'monthly' ? `月均95值(${settlementDataRateUnit.value})` : `日95值(${settlementDataRateUnit.value})`))
+const incrementColumnLabel = computed(() => (granularity.value === 'monthly' ? `月均增量(${settlementDataRateUnit.value})` : `当日增量(${settlementDataRateUnit.value})`))
 
 function daysInMonthFrom(dateStr?: string | null): number {
   try {
@@ -494,13 +500,11 @@ const convertToBitsPerSecond = (bytes: number | null | undefined): number => {
 // 格式化比特率
 const formatBitRate = (bitsPerSecond: number | null | undefined, withUnit = true): string => {
   if (bitsPerSecond === null || bitsPerSecond === undefined) {
-    return withUnit ? '0.00 Mbps' : '0.00'
+    return withUnit ? `0.00 ${settlementDataRateUnit.value}` : '0.00'
   }
-  
-  // 转换为 Mbps
-  const mbps = bitsPerSecond / 1000000
-  
-  return withUnit ? `${mbps.toFixed(2)} Mbps` : mbps.toFixed(2)
+
+  const rate = bitsPerSecondToRate(bitsPerSecond, settlementDataRateUnit.value)
+  return withUnit ? `${rate.toFixed(2)} ${settlementDataRateUnit.value}` : rate.toFixed(2)
 }
 
 // 格式化日期显示
@@ -596,11 +600,11 @@ async function hydrateRowCalcMeta(rows: any[]) {
 const getTrafficMetricValue = (row: any, key: string): number | null => {
   if (!row) return null
   if (key === 'daily_95_mbps') {
-    return Number((convertToBitsPerSecond(Number(row?.settlement_value ?? 0)) / 1_000_000).toFixed(9))
+    return Number(bitsPerSecondToRate(convertToBitsPerSecond(Number(row?.settlement_value ?? 0)), settlementDataRateUnit.value).toFixed(9))
   }
   if (key === 'daily_increment_mbps') {
     if (row?.daily_increment_value == null) return null
-    return Number((convertToBitsPerSecond(Number(row.daily_increment_value)) / 1_000_000).toFixed(9))
+    return Number(bitsPerSecondToRate(convertToBitsPerSecond(Number(row.daily_increment_value)), settlementDataRateUnit.value).toFixed(9))
   }
   return null
 }
@@ -931,13 +935,13 @@ const exportForm = reactive<{ selectedFields: string[]; monthlyAvg: boolean; gro
 type FieldType = 'base' | 'traffic' | 'money'
 interface FieldDef { key: string; label: string; type: FieldType; getter?: (row: any) => any }
 
-const allFieldDefs: FieldDef[] = [
+const allFieldDefs = computed<FieldDef[]>(() => [
   { key: 'school_name', label: '学校名称', type: 'base', getter: (r:any)=> r?.school_name ?? '' },
   { key: 'region', label: '地区', type: 'base', getter: (r:any)=> r?.region ?? '' },
   { key: 'cp', label: 'CP', type: 'base', getter: (r:any)=> r?.cp ?? '' },
   { key: 'service_date', label: '服务日期', type: 'base', getter: (r:any)=> r?.service_date ? formatDateDisplay(String(r.service_date)) : '' },
-  { key: 'daily_95_mbps', label: '日95(Mbps)', type: 'traffic', getter: (r:any)=> (convertToBitsPerSecond(Number(r?.settlement_value ?? 0)) / 1_000_000).toFixed(2) },
-  { key: 'daily_increment_mbps', label: '当日增量(Mbps)', type: 'traffic', getter: (r:any)=> r?.daily_increment_value != null ? (convertToBitsPerSecond(Number(r.daily_increment_value)) / 1_000_000).toFixed(2) : '' },
+  { key: 'daily_95_mbps', label: `日95(${settlementDataRateUnit.value})`, type: 'traffic', getter: (r:any)=> bitsPerSecondToRate(convertToBitsPerSecond(Number(r?.settlement_value ?? 0)), settlementDataRateUnit.value).toFixed(2) },
+  { key: 'daily_increment_mbps', label: `当日增量(${settlementDataRateUnit.value})`, type: 'traffic', getter: (r:any)=> r?.daily_increment_value != null ? bitsPerSecondToRate(convertToBitsPerSecond(Number(r.daily_increment_value)), settlementDataRateUnit.value).toFixed(2) : '' },
   { key: 'customer_fee', label: '客户费率', type: 'base', getter: (r:any)=> r?.customer_fee },
   { key: 'customer_bill', label: '客户金额', type: 'money', getter: (r:any)=> r?.customer_bill },
   { key: 'customer_fee_owner_name', label: '客户费归属', type: 'base', getter: (r:any)=> displayUser(r?.customer_fee_owner_id) },
@@ -952,11 +956,11 @@ const allFieldDefs: FieldDef[] = [
   { key: 'channel_owner_name', label: '渠道费归属', type: 'base', getter: (r:any)=> displayUser(r?.channel_owner_user_id) },
   { key: 'recalculated', label: '是否复算', type: 'base', getter: (r:any)=> r?.recalculated ? '是' : '否' },
   { key: 'last_recalc_time', label: '最近复算时间', type: 'base', getter: (r:any)=> r?.last_recalc_time ?? '' },
-]
+])
 
-const baseFields = computed(() => allFieldDefs.filter(f => ['school_name','region','cp','service_date','customer_fee','network_line_fee','node_deduction_fee','channel_rate','recalculated','last_recalc_time'].includes(f.key)))
-const numericFields = computed(() => allFieldDefs.filter(f => f.type === 'traffic' || f.type === 'money'))
-const otherFields = computed(() => allFieldDefs.filter(f => ['customer_fee_owner_name','network_line_fee_owner_name','node_deduction_fee_owner_name','channel_owner_name'].includes(f.key)))
+const baseFields = computed(() => allFieldDefs.value.filter(f => ['school_name','region','cp','service_date','customer_fee','network_line_fee','node_deduction_fee','channel_rate','recalculated','last_recalc_time'].includes(f.key)))
+const numericFields = computed(() => allFieldDefs.value.filter(f => f.type === 'traffic' || f.type === 'money'))
+const otherFields = computed(() => allFieldDefs.value.filter(f => ['customer_fee_owner_name','network_line_fee_owner_name','node_deduction_fee_owner_name','channel_owner_name'].includes(f.key)))
 
 const monthlyAvgDisabled = computed(() => {
   if (granularity.value === 'monthly') return true
@@ -1024,7 +1028,7 @@ async function doExport() {
     tasks.start({ id: taskId, type: 'export', title: '结算数据导出', status: 'running', progress: 0 })
     const data = await fetchAllDataForExport((p, meta) => { tasks.update(taskId, { progress: p, status: 'running', processed: meta?.processed ?? null, total: meta?.total ?? null }) })
     const selectedDefs = exportForm.selectedFields
-      .map(k => allFieldDefs.find(f => f.key === k))
+      .map(k => allFieldDefs.value.find(f => f.key === k))
       .filter((x): x is FieldDef => !!x)
     let header: string[] = []
 
@@ -1082,7 +1086,7 @@ async function doExport() {
           const baseSelectedKeysAll = exportForm.selectedFields.filter(k => allowedBase.has(k))
           for (const k of baseSelectedKeysAll) {
             if (g.base[k] != null && g.base[k] !== '') continue
-            const def = allFieldDefs.find(f => f.key === k)
+            const def = allFieldDefs.value.find(f => f.key === k)
             const val = def && def.getter ? def.getter(r) : (r as any)?.[k]
             g.base[k] = val ?? ''
           }
@@ -1108,7 +1112,7 @@ async function doExport() {
       }
       const allowedBase = new Set(['school_name','region','cp','customer_fee_owner_name','network_line_fee_owner_name','node_deduction_fee_owner_name','channel_owner_name'])
       const baseSelectedKeys = exportForm.selectedFields.filter(k => allowedBase.has(k))
-      header = baseSelectedKeys.map(k => (allFieldDefs.find(f => f.key === k)?.label || k))
+      header = baseSelectedKeys.map(k => (allFieldDefs.value.find(f => f.key === k)?.label || k))
       for (const def of metricDefs) {
         const name = stripLabel(def.label)
         for (const mo of months) header.push(`${mo.label}${name}`)
@@ -1150,7 +1154,7 @@ async function doExport() {
           const baseSelectedKeysAll = exportForm.selectedFields.filter(k => allowedBase.has(k))
           for (const k of baseSelectedKeysAll) {
             if (g.base[k] != null && g.base[k] !== '') continue
-            const def = allFieldDefs.find(f => f.key === k)
+            const def = allFieldDefs.value.find(f => f.key === k)
             const val = def && def.getter ? def.getter(r) : (r as any)?.[k]
             g.base[k] = val ?? ''
           }
@@ -1176,7 +1180,7 @@ async function doExport() {
       }
       const allowedBase2 = new Set(['school_name','region','cp','customer_fee_owner_name','network_line_fee_owner_name','node_deduction_fee_owner_name','channel_owner_name'])
       const baseSelectedKeys2 = exportForm.selectedFields.filter(k => allowedBase2.has(k))
-      header = baseSelectedKeys2.map(k => (allFieldDefs.find(f => f.key === k)?.label || k))
+      header = baseSelectedKeys2.map(k => (allFieldDefs.value.find(f => f.key === k)?.label || k))
       for (const def of metricDefs) header.push(def.label)
       const lines2: string[] = []
       for (const [, g] of group2) {
@@ -1323,7 +1327,8 @@ const onRecalculate = async () => {
 }
 
 // 组件挂载时获取数据
-onMounted(() => {
+onMounted(async () => {
+  await trafficSettings.ensureLoaded()
   syncDateRangeFromFilter()
   fetchBaseData()
   queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })

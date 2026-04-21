@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -32,6 +33,10 @@ func (ctl *SystemSettingsController) UpdateTrafficSettings(c *gin.Context) {
 	}
 	cfg, err := ctl.svc.UpdateTrafficSettings(req)
 	if err != nil {
+		if errors.Is(err, service.ErrInvalidTrafficSettings) {
+			c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 		return
 	}

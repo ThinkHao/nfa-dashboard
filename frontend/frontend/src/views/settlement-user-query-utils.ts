@@ -1,3 +1,6 @@
+import type { TrafficRateUnit } from '@/utils/traffic-units'
+import { settlementValueToRate } from '@/utils/traffic-units'
+
 export type MonthlyMetricRow = {
   id?: string
   metric: string
@@ -8,7 +11,7 @@ export type MonthlyMetricRow = {
   cp?: string
   stockStartAt?: string
   incrementStartAt?: string
-  daily95Mbps?: string
+  daily95Rate?: string
   values: Record<string, string>
   children?: MonthlyMetricRow[]
 }
@@ -16,6 +19,7 @@ export type MonthlyMetricRow = {
 export type MonthRangeValue = [string, string] | null
 type BuildMonthlyAmountColumnViewOptions = {
   treeByRegionSchoolCp?: boolean
+  rateUnit?: TrafficRateUnit
   allowedMonthRange?: {
     startMonth: string
     endMonth: string
@@ -89,10 +93,6 @@ function fmtAmount(value: number): string {
   return value.toFixed(2)
 }
 
-function settlementValueToMbps(value: number): number {
-  return (value * 8) / 60 / 1_000_000
-}
-
 export function normalizeDateText(value: unknown): string {
   const raw = value == null ? '' : String(value).trim()
   if (!raw) return ''
@@ -111,7 +111,7 @@ function sumMonthlyAmount(row: any): number {
   return AMOUNT_FIELDS.reduce((acc, def) => acc + toAmount(row?.[def.key]), 0)
 }
 
-function computeDaily95AvgBySchool(dailyRows: any[]): Map<string, number> {
+function computeDaily95AvgBySchool(dailyRows: any[], rateUnit: TrafficRateUnit): Map<string, number> {
   const dailySumBySchoolDate = new Map<string, number>()
   for (const row of dailyRows || []) {
     const schoolName = String(row?.school_name || '').trim() || '-'
@@ -123,23 +123,23 @@ function computeDaily95AvgBySchool(dailyRows: any[]): Map<string, number> {
     dailySumBySchoolDate.set(key, (dailySumBySchoolDate.get(key) || 0) + raw95)
   }
 
-  const avgBySchool = new Map<string, { sumMbps: number; dayCount: number }>()
+  const avgBySchool = new Map<string, { sumRate: number; dayCount: number }>()
   for (const [key, dailyRawSum] of dailySumBySchoolDate.entries()) {
     const schoolName = key.split('__')[0]
-    const prev = avgBySchool.get(schoolName) || { sumMbps: 0, dayCount: 0 }
-    prev.sumMbps += settlementValueToMbps(dailyRawSum)
+    const prev = avgBySchool.get(schoolName) || { sumRate: 0, dayCount: 0 }
+    prev.sumRate += settlementValueToRate(dailyRawSum, rateUnit)
     prev.dayCount += 1
     avgBySchool.set(schoolName, prev)
   }
 
   const result = new Map<string, number>()
   for (const [schoolName, agg] of avgBySchool.entries()) {
-    result.set(schoolName, agg.dayCount > 0 ? agg.sumMbps / agg.dayCount : 0)
+    result.set(schoolName, agg.dayCount > 0 ? agg.sumRate / agg.dayCount : 0)
   }
   return result
 }
 
-function buildFlatRows(months: string[], rawRows: any[], dailyRows: any[]): MonthlyMetricRow[] {
+function buildFlatRows(months: string[], rawRows: any[], dailyRows: any[], rateUnit: TrafficRateUnit): MonthlyMetricRow[] {
   const bySchool = new Map<string, {
     monthValues: Record<string, number>
     stockStartAt: string
@@ -166,7 +166,7 @@ function buildFlatRows(months: string[], rawRows: any[], dailyRows: any[]): Mont
     monthlyTotal[month] += sum
   }
 
-  const daily95AvgBySchool = computeDaily95AvgBySchool(dailyRows || [])
+  const daily95AvgBySchool = computeDaily95AvgBySchool(dailyRows || [], rateUnit)
   const schoolRows: MonthlyMetricRow[] = Array.from(bySchool.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([schoolName, agg]) => {
@@ -178,7 +178,7 @@ function buildFlatRows(months: string[], rawRows: any[], dailyRows: any[]): Mont
         rowType: 'school',
         stockStartAt: agg.stockStartAt || '-',
         incrementStartAt: agg.incrementStartAt || '-',
-        daily95Mbps: fmtAmount(daily95AvgBySchool.get(schoolName) || 0),
+        daily95Rate: fmtAmount(daily95AvgBySchool.get(schoolName) || 0),
         values,
       }
     })
@@ -187,13 +187,13 @@ function buildFlatRows(months: string[], rawRows: any[], dailyRows: any[]): Mont
   for (const month of months) {
     totalValues[month] = fmtAmount(monthlyTotal[month] || 0)
   }
-  const totalDaily95 = schoolRows.reduce((sum, row) => sum + Number(row.daily95Mbps || 0), 0)
-  schoolRows.push({ id: 'total', metric: '总和', rowType: 'total', isTotal: true, stockStartAt: '-', incrementStartAt: '-', daily95Mbps: fmtAmount(totalDaily95), values: totalValues })
+  const totalDaily95 = schoolRows.reduce((sum, row) => sum + Number(row.daily95Rate || 0), 0)
+  schoolRows.push({ id: 'total', metric: '总和', rowType: 'total', isTotal: true, stockStartAt: '-', incrementStartAt: '-', daily95Rate: fmtAmount(totalDaily95), values: totalValues })
 
   return schoolRows
 }
 
-function computeDaily95AvgByGroup(dailyRows: any[], toGroupKey: (row: any) => string): Map<string, number> {
+function computeDaily95AvgByGroup(dailyRows: any[], toGroupKey: (row: any) => string, rateUnit: TrafficRateUnit): Map<string, number> {
   const daySumMap = new Map<string, number>()
   for (const row of dailyRows || []) {
     const groupKey = toGroupKey(row)
@@ -205,25 +205,25 @@ function computeDaily95AvgByGroup(dailyRows: any[], toGroupKey: (row: any) => st
     daySumMap.set(dayKey, (daySumMap.get(dayKey) || 0) + raw95)
   }
 
-  const aggMap = new Map<string, { sumMbps: number; dayCount: number }>()
+  const aggMap = new Map<string, { sumRate: number; dayCount: number }>()
   for (const [dayKey, rawSum] of daySumMap.entries()) {
     const splitIndex = dayKey.lastIndexOf('__')
     if (splitIndex <= 0) continue
     const groupKey = dayKey.slice(0, splitIndex)
-    const prev = aggMap.get(groupKey) || { sumMbps: 0, dayCount: 0 }
-    prev.sumMbps += settlementValueToMbps(rawSum)
+    const prev = aggMap.get(groupKey) || { sumRate: 0, dayCount: 0 }
+    prev.sumRate += settlementValueToRate(rawSum, rateUnit)
     prev.dayCount += 1
     aggMap.set(groupKey, prev)
   }
 
   const result = new Map<string, number>()
   for (const [groupKey, agg] of aggMap.entries()) {
-    result.set(groupKey, agg.dayCount > 0 ? agg.sumMbps / agg.dayCount : 0)
+    result.set(groupKey, agg.dayCount > 0 ? agg.sumRate / agg.dayCount : 0)
   }
   return result
 }
 
-function buildTreeRows(months: string[], rawRows: any[], dailyRows: any[]): MonthlyMetricRow[] {
+function buildTreeRows(months: string[], rawRows: any[], dailyRows: any[], rateUnit: TrafficRateUnit): MonthlyMetricRow[] {
   type CpAgg = {
     region: string
     schoolName: string
@@ -282,7 +282,7 @@ function buildTreeRows(months: string[], rawRows: any[], dailyRows: any[]): Mont
     const schoolName = String(row?.school_name || '').trim() || '-'
     const cp = String(row?.cp || '').trim() || '未知CP'
     return `${region}__${schoolName}__${cp}`
-  })
+  }, rateUnit)
 
   const rows: MonthlyMetricRow[] = []
   const sortedRegions = Array.from(regionMap.keys()).sort((a, b) => a.localeCompare(b))
@@ -321,7 +321,7 @@ function buildTreeRows(months: string[], rawRows: any[], dailyRows: any[]): Mont
           cp,
           stockStartAt: cpAgg.stockStartAt || '-',
           incrementStartAt: cpAgg.incrementStartAt || '-',
-          daily95Mbps: fmtAmount(cpDaily95Value),
+          daily95Rate: fmtAmount(cpDaily95Value),
           values: cpValues,
         })
       }
@@ -338,7 +338,7 @@ function buildTreeRows(months: string[], rawRows: any[], dailyRows: any[]): Mont
         schoolName,
         stockStartAt: schoolStockStartAt || '-',
         incrementStartAt: schoolIncrementStartAt || '-',
-        daily95Mbps: fmtAmount(schoolDaily95),
+        daily95Rate: fmtAmount(schoolDaily95),
         values: schoolValues,
         children: cpChildren,
       })
@@ -353,7 +353,7 @@ function buildTreeRows(months: string[], rawRows: any[], dailyRows: any[]): Mont
       region,
       stockStartAt: '-',
       incrementStartAt: '-',
-      daily95Mbps: fmtAmount(regionDaily95),
+      daily95Rate: fmtAmount(regionDaily95),
       values: regionValues,
       children: schoolChildren,
     })
@@ -361,7 +361,7 @@ function buildTreeRows(months: string[], rawRows: any[], dailyRows: any[]): Mont
 
   const totalValues: Record<string, string> = {}
   for (const month of months) totalValues[month] = fmtAmount(totalMonthValues[month] || 0)
-  const totalDaily95 = rows.reduce((sum, row) => sum + Number(row.daily95Mbps || 0), 0)
+  const totalDaily95 = rows.reduce((sum, row) => sum + Number(row.daily95Rate || 0), 0)
   rows.push({
     id: 'total',
     metric: '总和',
@@ -369,7 +369,7 @@ function buildTreeRows(months: string[], rawRows: any[], dailyRows: any[]): Mont
     isTotal: true,
     stockStartAt: '-',
     incrementStartAt: '-',
-    daily95Mbps: fmtAmount(totalDaily95),
+    daily95Rate: fmtAmount(totalDaily95),
     values: totalValues,
   })
 
@@ -377,6 +377,7 @@ function buildTreeRows(months: string[], rawRows: any[], dailyRows: any[]): Mont
 }
 
 export function buildMonthlyAmountColumnView(rawRows: any[], dailyRows: any[] = rawRows, options: BuildMonthlyAmountColumnViewOptions = {}): { months: string[]; rows: MonthlyMetricRow[] } {
+  const rateUnit: TrafficRateUnit = options.rateUnit === 'Gbps' ? 'Gbps' : 'Mbps'
   const clippedRawRows = clipRowsByAllowedMonthRange(rawRows || [], options.allowedMonthRange)
   const clippedDailyRows = clipRowsByAllowedMonthRange(dailyRows || [], options.allowedMonthRange)
   const monthSet = new Set<string>()
@@ -387,7 +388,7 @@ export function buildMonthlyAmountColumnView(rawRows: any[], dailyRows: any[] = 
 
   const months = Array.from(monthSet).sort((a, b) => a.localeCompare(b))
   if (options.treeByRegionSchoolCp) {
-    return { months, rows: buildTreeRows(months, clippedRawRows, clippedDailyRows) }
+    return { months, rows: buildTreeRows(months, clippedRawRows, clippedDailyRows, rateUnit) }
   }
-  return { months, rows: buildFlatRows(months, clippedRawRows, clippedDailyRows) }
+  return { months, rows: buildFlatRows(months, clippedRawRows, clippedDailyRows, rateUnit) }
 }

@@ -74,7 +74,7 @@
         <el-table-column prop="school_name" label="学校名称" min-width="180" />
         <el-table-column prop="region" label="地区" width="120" />
         <el-table-column prop="cp" label="CP" width="120" />
-        <el-table-column label="95值(Mbps)" width="150">
+        <el-table-column :label="`95值(${dailyDetailRateUnit})`" width="150">
           <template #default="scope">
             {{ scope.row.daily_95_value ? formatBitRate(convertToBitsPerSecond(scope.row.daily_95_value), false) : '0.00' }}
           </template>
@@ -104,12 +104,14 @@ import { ElMessage } from 'element-plus'
 import type { School } from '../../types/api'
 import { useTasksStore } from '@/stores/tasks'
 import { buildCsvContent, formatExportFilename, triggerBlobDownload } from '@/utils/export'
-import { EXPORT_FILENAME_PREFIX, EXPORT_HEADERS } from '@/utils/export-standards'
+import { EXPORT_FILENAME_PREFIX } from '@/utils/export-standards'
 import UnifiedDateRange from '@/components/ui/UnifiedDateRange.vue'
 import { buildSettlementDayRange, splitSettlementDayRange } from './settlement-day-range'
 import QueryActionButton from '@/components/ui/QueryActionButton.vue'
 import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
 import { usePageRefresh } from '@/composables/usePageRefresh'
+import { useSystemTrafficSettings } from '@/composables/useSystemTrafficSettings'
+import { bitsPerSecondToRate } from '@/utils/traffic-units'
 
 // 定义日95明细数据项接口
 interface DailySettlementDetail {
@@ -161,6 +163,8 @@ const dateRange = ref<[string, string] | null>(null)
 const currentPage = ref(1)
 const pageSize = ref(10)
 const queryCtl = useCancelableQuery()
+const trafficSettings = useSystemTrafficSettings()
+const dailyDetailRateUnit = ref<'Mbps' | 'Gbps'>('Mbps')
 
 // 加载状态
 const loading = ref(false)
@@ -183,10 +187,10 @@ const convertToBitsPerSecond = (bytes: number | null | undefined): number => {
 // 格式化比特率
 const formatBitRate = (bitsPerSecond: number | null | undefined, withUnit = true): string => {
   if (bitsPerSecond === null || bitsPerSecond === undefined) {
-    return withUnit ? '0.00 Mbps' : '0.00'
+    return withUnit ? `0.00 ${dailyDetailRateUnit.value}` : '0.00'
   }
-  const mbps = bitsPerSecond / 1000000
-  return withUnit ? `${mbps.toFixed(2)} Mbps` : mbps.toFixed(2)
+  const rate = bitsPerSecondToRate(bitsPerSecond, dailyDetailRateUnit.value)
+  return withUnit ? `${rate.toFixed(2)} ${dailyDetailRateUnit.value}` : rate.toFixed(2)
 }
 
 // 格式化日期显示
@@ -407,12 +411,12 @@ const exportData = async () => {
     const data = await fetchAllDailyDetailsForExport((p, meta) => {
       tasks.update(taskId, { progress: p == null ? undefined : p, status: 'running', processed: meta?.processed ?? null, total: (meta?.total as any) ?? null })
     })
-    const header = [...EXPORT_HEADERS.daily95Detail]
+    const header = ['日期', '学校名称', '地区', 'CP', `95值(${dailyDetailRateUnit.value})`]
     const rows: Array<Array<unknown>> = []
     for (const r of data) {
       const date = formatDateDisplay(String(r?.daily_date || ''))
-      const mbps = (convertToBitsPerSecond(Number(r?.daily_95_value ?? 0)) / 1_000_000).toFixed(2)
-      rows.push([date, r?.school_name ?? '', r?.region ?? '', r?.cp ?? '', mbps])
+      const rate = bitsPerSecondToRate(convertToBitsPerSecond(Number(r?.daily_95_value ?? 0)), dailyDetailRateUnit.value).toFixed(2)
+      rows.push([date, r?.school_name ?? '', r?.region ?? '', r?.cp ?? '', rate])
     }
     const content = buildCsvContent(header, rows)
     const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
@@ -428,6 +432,9 @@ const exportData = async () => {
 
 // 组件挂载时获取数据
 onMounted(() => {
+  trafficSettings.ensureLoaded().then(() => {
+    dailyDetailRateUnit.value = trafficSettings.settings.value.settlement_daily_detail_rate_unit === 'Gbps' ? 'Gbps' : 'Mbps'
+  })
   syncDateRangeFromFilter()
   fetchBaseData()
   queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
@@ -464,4 +471,3 @@ usePageRefresh(() => {
   justify-content: flex-end;
 }
 </style>
-

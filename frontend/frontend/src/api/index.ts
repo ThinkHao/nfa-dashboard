@@ -51,6 +51,13 @@ import type {
 import type { AxiosRequestConfig } from 'axios'
 import { api, raw } from './httpClient'
 
+let latestTrafficSettings: SystemTrafficSettings | null = null
+
+function normalizeSettlementResultUnitBase(value: unknown): 1000 | 1024 | null {
+  if (value === 1000 || value === 1024) return value
+  return null
+}
+
 // API接口
 export default {
   // 认证
@@ -158,8 +165,14 @@ export default {
 
     // 获取结算结果列表
     getResults(params?: any, config?: AxiosRequestConfig) {
+      const normalizedParams = { ...(params || {}) }
+      const hasUnitBase = normalizedParams.unit_base === 1000 || normalizedParams.unit_base === 1024
+      if (!hasUnitBase) {
+        const fallback = normalizeSettlementResultUnitBase(latestTrafficSettings?.settlement_result_unit_base)
+        if (fallback != null) normalizedParams.unit_base = fallback
+      }
       return api
-        .get('/api/v1/settlement/results', { params, ...(config || {}) })
+        .get('/api/v1/settlement/results', { params: normalizedParams, ...(config || {}) })
         .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
 
@@ -286,10 +299,16 @@ export default {
     },
     settings: {
       getTraffic(): Promise<SystemTrafficSettings> {
-        return api.get('/api/v1/system/settings/traffic').then((d: any) => d as SystemTrafficSettings)
+        return api.get('/api/v1/system/settings/traffic').then((d: any) => {
+          latestTrafficSettings = d as SystemTrafficSettings
+          return d as SystemTrafficSettings
+        })
       },
       updateTraffic(data: SystemTrafficSettings): Promise<SystemTrafficSettings> {
-        return api.put('/api/v1/system/settings/traffic', data).then((d: any) => d as SystemTrafficSettings)
+        return api.put('/api/v1/system/settings/traffic', data).then((d: any) => {
+          latestTrafficSettings = d as SystemTrafficSettings
+          return d as SystemTrafficSettings
+        })
       },
     },
     roles: {

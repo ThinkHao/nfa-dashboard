@@ -73,8 +73,8 @@
         <el-table-column prop="increment_start_at" label="增量起算时间" width="130">
           <template #default="{ row }">{{ row.increment_start_at || '-' }}</template>
         </el-table-column>
-        <el-table-column label="日95流量值(Mbps)" width="150">
-          <template #default="{ row }">{{ fmtFlowMbps(row.settlement_value) }}</template>
+        <el-table-column :label="`日95流量值(${singleUserRateUnit})`" width="150">
+          <template #default="{ row }">{{ fmtFlowRate(row.settlement_value) }}</template>
         </el-table-column>
         <el-table-column label="客户金额" width="120">
           <template #default="{ row }">{{ fmtMoney(row.customer_bill) }}</template>
@@ -111,7 +111,7 @@
         </el-table-column>
         <el-table-column prop="stockStartAt" label="存量起算时间" min-width="130" />
         <el-table-column prop="incrementStartAt" label="增量起算时间" min-width="130" />
-        <el-table-column prop="daily95Mbps" label="日95均值(Mbps)" min-width="130" />
+        <el-table-column prop="daily95Rate" :label="`日95均值(${singleUserRateUnit})`" min-width="130" />
         <el-table-column v-for="month in monthlyColumnMonths" :key="month" :label="month" min-width="120">
           <template #default="{ row }">{{ row.values[month] || '-' }}</template>
         </el-table-column>
@@ -139,12 +139,14 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import type { School } from '@/types/api'
 import { buildMonthlyAmountColumnView, normalizeDateText, resolveMonthRangeDateTime, type MonthlyMetricRow } from './settlement-user-query-utils'
 import { buildCsvContent, formatExportFilename, triggerBlobDownload } from '@/utils/export'
-import { EXPORT_FILENAME_PREFIX, EXPORT_HEADERS } from '@/utils/export-standards'
+import { EXPORT_FILENAME_PREFIX } from '@/utils/export-standards'
 import SearchSelect from '@/components/ui/SearchSelect.vue'
 import UnifiedDateRange from '@/components/ui/UnifiedDateRange.vue'
 import QueryActionButton from '@/components/ui/QueryActionButton.vue'
 import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
 import { usePageRefresh } from '@/composables/usePageRefresh'
+import { useSystemTrafficSettings } from '@/composables/useSystemTrafficSettings'
+import { settlementValueToRate } from '@/utils/traffic-units'
 
 type Granularity = 'daily' | 'monthly'
 type UserOption = { id: number; label: string }
@@ -158,6 +160,10 @@ const viewMode = ref<ViewMode>('detail')
 const monthlyColumnMonths = ref<string[]>([])
 const monthlyColumnRows = ref<MonthlyMetricRow[]>([])
 const queryCtl = useCancelableQuery()
+const trafficSettings = useSystemTrafficSettings()
+const singleUserRateUnit = computed<'Mbps' | 'Gbps'>(() => (
+  trafficSettings.settings.value.settlement_single_user_rate_unit === 'Mbps' ? 'Mbps' : 'Gbps'
+))
 
 const userOptions = ref<UserOption[]>([])
 const userOptionsLoading = ref(false)
@@ -219,12 +225,11 @@ function fmtMoney(v: any): string {
   return n.toFixed(2)
 }
 
-function fmtFlowMbps(v: any): string {
+function fmtFlowRate(v: any): string {
   if (v == null || v === '') return '-'
   const n = Number(v)
   if (Number.isNaN(n)) return '-'
-  const bitsPerSecond = (n * 8) / 60
-  return (bitsPerSecond / 1_000_000).toFixed(2)
+  return settlementValueToRate(n, singleUserRateUnit.value).toFixed(2)
 }
 
 function fmtTotal(row: any): string {
@@ -493,6 +498,7 @@ async function refreshMonthlyColumnView(signal?: AbortSignal) {
     const enrichedMonthlyRows = await enrichRowsWithStartDates(monthlyRows, signal)
     const { months, rows: pivotRows } = buildMonthlyAmountColumnView(enrichedMonthlyRows, dailyRows, {
       treeByRegionSchoolCp: isMonthlyTreeMode.value,
+      rateUnit: singleUserRateUnit.value,
       allowedMonthRange: monthRangeBoundary(),
     })
     monthlyColumnMonths.value = months
@@ -561,15 +567,16 @@ async function handleExport() {
       const enrichedMonthlyRows = await enrichRowsWithStartDates(monthlyRows)
       const { months, rows: pivotRows } = buildMonthlyAmountColumnView(enrichedMonthlyRows, dailyRows, {
         treeByRegionSchoolCp: isMonthlyTreeMode.value,
+        rateUnit: singleUserRateUnit.value,
         allowedMonthRange: monthRangeBoundary(),
       })
       const exportRows = flattenMonthlyRows(pivotRows)
-      const header = [...EXPORT_HEADERS.singleUserMonthlyColumnPrefix, ...months]
+      const header = ['学校', '存量起算时间', '增量起算时间', `日95均值(${singleUserRateUnit.value})`, ...months]
       const rowValues = exportRows.map((row: MonthlyMetricRow) => [
         row.metric,
         row.stockStartAt || '-',
         row.incrementStartAt || '-',
-        row.daily95Mbps || '0.00',
+        row.daily95Rate || '0.00',
         ...months.map((m) => row.values[m] || '0.00'),
       ])
       const content = buildCsvContent(header, rowValues)
@@ -577,14 +584,13 @@ async function handleExport() {
       triggerBlobDownload(blob, formatExportFilename(EXPORT_FILENAME_PREFIX.singleUserMonthlyColumn, 'csv'))
     } else {
       const data = await fetchAllForExport()
-      const header: string[] = [...EXPORT_HEADERS.singleUserDetail]
-      header[3] = serviceDateLabel.value
+      const header: string[] = ['学校名称', '地区', 'CP', serviceDateLabel.value, `日95流量值(${singleUserRateUnit.value})`, '客户金额', '线路金额', '节点金额', '渠道金额', '总归属金额']
       const rowValues = data.map((r: any) => [
         r?.school_name,
         r?.region,
         r?.cp,
         r?.service_date,
-        fmtFlowMbps(r?.settlement_value),
+        fmtFlowRate(r?.settlement_value),
         fmtMoney(r?.customer_bill),
         fmtMoney(r?.network_line_bill),
         fmtMoney(r?.node_deduction_bill),
@@ -644,6 +650,7 @@ watch(viewMode, () => {
 })
 
 onMounted(async () => {
+  await trafficSettings.ensureLoaded()
   setDefaultMonthRange()
   await loadRegionCpSchool()
   await loadOwnerUsers()

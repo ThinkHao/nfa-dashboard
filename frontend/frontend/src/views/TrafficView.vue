@@ -12,6 +12,8 @@ import { buildRangeValue, splitRangeValue } from '@/components/ui/unified-date-r
 import { clearTrafficCustomRange, resolvePresetTrafficRange, type TrafficTimeRangeOption } from './traffic-time-range'
 import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
 import { usePageRefresh } from '@/composables/usePageRefresh'
+import { useSystemTrafficSettings } from '@/composables/useSystemTrafficSettings'
+import { normalizeByteUnitBase } from '@/utils/traffic-units'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart } from 'echarts/charts'
@@ -181,6 +183,8 @@ const currentPage = ref(1)
 const pageSize = ref(10)
 const currentGranularity = ref('5m') // 当前使用的时间粒度
 const queryCtl = useCancelableQuery()
+const trafficSettings = useSystemTrafficSettings()
+const trafficByteUnitBase = computed(() => normalizeByteUnitBase(trafficSettings.settings.value.traffic_byte_unit_base, 1024))
 
 const pagedTrafficData = computed(() => {
   const list = trafficData.value as any[]
@@ -449,6 +453,7 @@ const chartOption = computed(() => {
 // 初始化数据
 onMounted(async () => {
   try {
+    await trafficSettings.ensureLoaded()
     // 设置默认时间范围为最近1小时（与 timeRange 保持一致）
     const initialRange = resolvePresetTrafficRange('last1h')
     queryForm.start_time = initialRange?.[0] || ''
@@ -912,7 +917,7 @@ function handleReset() {
 function formatTraffic(bytes, withUnit = true) {
   if (bytes === 0) return withUnit ? '0 B' : 0
   
-  const k = 1024
+  const k = trafficByteUnitBase.value
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   
