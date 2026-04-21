@@ -31,6 +31,61 @@ resolve_compose_path() {
   fi
 }
 
+generate_self_signed_cert() {
+  local cert_file="$1"
+  local key_file="$2"
+  local cert_cn="$3"
+  local cert_sans="$4"
+
+  if openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
+    -keyout "$key_file" \
+    -out "$cert_file" \
+    -subj "/CN=${cert_cn}" \
+    -addext "subjectAltName=${cert_sans}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local tmp_conf
+  tmp_conf="$(mktemp)"
+  {
+    echo "[req]"
+    echo "distinguished_name = dn"
+    echo "x509_extensions = v3_req"
+    echo "prompt = no"
+    echo
+    echo "[dn]"
+    echo "CN = ${cert_cn}"
+    echo
+    echo "[v3_req]"
+    echo "subjectAltName = @alt_names"
+    echo
+    echo "[alt_names]"
+  } > "$tmp_conf"
+
+  local dns_i=1
+  local ip_i=1
+  local token=""
+  IFS=',' read -ra _sans_arr <<< "$cert_sans"
+  for token in "${_sans_arr[@]}"; do
+    token="$(echo "$token" | xargs)"
+    [[ -z "$token" ]] && continue
+    if [[ "$token" =~ ^DNS:(.+)$ ]]; then
+      echo "DNS.${dns_i} = ${BASH_REMATCH[1]}" >> "$tmp_conf"
+      dns_i=$((dns_i + 1))
+    elif [[ "$token" =~ ^IP:(.+)$ ]]; then
+      echo "IP.${ip_i} = ${BASH_REMATCH[1]}" >> "$tmp_conf"
+      ip_i=$((ip_i + 1))
+    fi
+  done
+
+  openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
+    -keyout "$key_file" \
+    -out "$cert_file" \
+    -config "$tmp_conf" \
+    -extensions v3_req >/dev/null 2>&1
+  rm -f "$tmp_conf"
+}
+
 ensure_frontend_nginx_conf() {
   local enable_https cert_src key_src cert_cn cert_sans cert_dest key_dest
   enable_https="$(grep -E '^ENABLE_HTTPS=' "$ENV_FILE" | head -n1 | cut -d'=' -f2-)"
@@ -61,11 +116,7 @@ ensure_frontend_nginx_conf() {
       cp "$key_src" "$key_dest"
     elif [[ ! -f "$cert_dest" || ! -f "$key_dest" ]]; then
       need_cmd openssl
-      openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
-        -keyout "$key_dest" \
-        -out "$cert_dest" \
-        -subj "/CN=${cert_cn}" \
-        -addext "subjectAltName=${cert_sans}" >/dev/null 2>&1
+      generate_self_signed_cert "$cert_dest" "$key_dest" "$cert_cn" "$cert_sans"
     fi
 
     cat > "${COMPOSE_DIR}/nginx/nginx.conf" <<'EOF'
