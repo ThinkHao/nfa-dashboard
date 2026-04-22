@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS `settlement_customer_v` (
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_scv_month_slot_region_cp_school_date` (`service_month`,`slot`,`region`,`cp`,`school_name`,`service_date`),
+  KEY `idx_scv_region_cp_school_date_month_slot` (`region`,`cp`,`school_name`,`service_date`,`service_month`,`slot`),
   KEY `idx_scv_month_slot_service_date_id` (`service_month`,`slot`,`service_date`,`id`),
   KEY `idx_scv_region` (`region`),
   KEY `idx_scv_cp` (`cp`),

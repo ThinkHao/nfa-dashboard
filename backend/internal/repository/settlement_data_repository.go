@@ -23,7 +23,7 @@ type SettlementDataRepository interface {
 	RebuildSettlementCustomerMonthly(start, end time.Time) (int64, error)
 	UpdateRecalculated(region, cp, school string, start, end time.Time) (int64, error)
 	CountSchoolSettlementRows(region, cp, school string, start, end time.Time) (int64, error)
-	BackfillFromSchoolSettlement(region, cp, school string, start, end time.Time, markRecalc bool, progress func(processed int64)) (int64, error)
+	BackfillFromSchoolSettlement(region, cp, school string, start, end time.Time, markRecalc bool, progress func(processed int64, stageMetrics map[string]int64)) (int64, error)
 }
 
 type settlementDataRepository struct{}
@@ -849,7 +849,7 @@ func (r *settlementDataRepository) CountSchoolSettlementRows(region, cp, school 
 // - 不做费用计算，仅复制 95 值与服务日期/时间等基础信息
 // - 以 (region, cp, school_name, service_date) 作为匹配键，存在则更新，不存在则插入
 // - markRecalc: 为 true 时表示“复算”，会设置 recalculated 与 last_recalc_time；为 false 表示“初算”，不设置上述标记
-func (r *settlementDataRepository) BackfillFromSchoolSettlement(region, cp, school string, start, end time.Time, markRecalc bool, progress func(processed int64)) (int64, error) {
+func (r *settlementDataRepository) BackfillFromSchoolSettlement(region, cp, school string, start, end time.Time, markRecalc bool, progress func(processed int64, stageMetrics map[string]int64)) (int64, error) {
 	if isSlotTableSupported() {
 		return r.backfillFromSchoolSettlementWithSlot(region, cp, school, start, end, markRecalc, progress)
 	}
@@ -1149,7 +1149,7 @@ func (r *settlementDataRepository) BackfillFromSchoolSettlement(region, cp, scho
 		}
 		processed += int64(len(chunkRows))
 		if progress != nil {
-			progress(processed)
+			progress(processed, nil)
 		}
 	}
 	return affected, nil
@@ -1318,20 +1318,11 @@ func countTempRows(tx *gorm.DB, table string) (int64, error) {
 	return cnt, nil
 }
 
-func runTempPipelineForMonth(
+func createTmpSourceAndKeys(
 	tx *gorm.DB,
-	month string,
 	monthStart, monthEnd time.Time,
 	region, cp, school string,
-	inactiveSlot int8,
-	markRecalc bool,
-) (rowsSource, rowsKey, rowsRate, rowsUpsert int64, err error) {
-	if err = prepareTmpTables(tx); err != nil {
-		return
-	}
-
-	settlementResultUnitBase := loadSettlementResultUnitBaseFromSystemSettings()
-	unitDiv := float64(settlementResultUnitBase * settlementResultUnitBase * settlementResultUnitBase)
+) (rowsSource, rowsKey int64, err error) {
 	whereClause, dynamicArgs := buildTmpSourceWhere(region, cp, school)
 	args := make([]interface{}, 0, 2+len(dynamicArgs))
 	args = append(args, monthStart, monthEnd.AddDate(0, 0, 1))
@@ -1350,13 +1341,18 @@ func runTempPipelineForMonth(
 		WHERE `+whereClause, args...).Error; err != nil {
 		return
 	}
+	if err = tx.Exec(`
+		ALTER TABLE tmp_source
+		ADD INDEX idx_tmp_source_key (region, cp, school_name, service_date)
+	`).Error; err != nil {
+		return
+	}
 	if rowsSource, err = countTempRows(tx, "tmp_source"); err != nil {
 		return
 	}
 	if rowsSource == 0 {
 		return
 	}
-
 	if err = tx.Exec(`
 		CREATE TEMPORARY TABLE tmp_key AS
 		SELECT DISTINCT region, cp, school_name, service_date
@@ -1364,9 +1360,76 @@ func runTempPipelineForMonth(
 	`).Error; err != nil {
 		return
 	}
+	if err = tx.Exec(`
+		ALTER TABLE tmp_key
+		ADD PRIMARY KEY (region, cp, school_name, service_date)
+	`).Error; err != nil {
+		return
+	}
 	if rowsKey, err = countTempRows(tx, "tmp_key"); err != nil {
 		return
 	}
+	return
+}
+
+func copyHitKeysFromActiveSlot(tx *gorm.DB, month string, activeSlot, inactiveSlot int8) (rowsDeleted, rowsCopied int64, err error) {
+	delRes := tx.Exec(`
+		DELETE scv
+		FROM tmp_key tk
+		JOIN settlement_customer_v scv FORCE INDEX (uk_scv_month_slot_region_cp_school_date)
+		  ON scv.service_month = ?
+		 AND scv.slot = ?
+		 AND scv.region = tk.region
+		 AND scv.cp = tk.cp
+		 AND scv.school_name = tk.school_name
+		 AND scv.service_date = tk.service_date
+	`, month, inactiveSlot)
+	if delRes.Error != nil {
+		err = delRes.Error
+		return
+	}
+	rowsDeleted = delRes.RowsAffected
+
+	copyRes := tx.Exec(`
+		INSERT INTO settlement_customer_v (
+			region,cp,school_name,service_month,slot,settlement_value,settlement_time,service_date,
+			recalculated,last_recalc_time,customer_fee,customer_bill,customer_fee_owner_id,
+			network_line_fee,network_line_bill,network_line_fee_owner_id,node_deduction_fee,node_deduction_bill,node_deduction_fee_owner_id,
+			channel_rate,channel_bill,channel_owner_user_id,stock_ratio,increment_ratio,daily_increment_value,discount_rule_id,service_year_index,
+			created_at,updated_at
+		)
+		SELECT
+			scv.region,scv.cp,scv.school_name,scv.service_month,?,
+			scv.settlement_value,scv.settlement_time,scv.service_date,
+			scv.recalculated,scv.last_recalc_time,scv.customer_fee,scv.customer_bill,scv.customer_fee_owner_id,
+			scv.network_line_fee,scv.network_line_bill,scv.network_line_fee_owner_id,scv.node_deduction_fee,scv.node_deduction_bill,scv.node_deduction_fee_owner_id,
+			scv.channel_rate,scv.channel_bill,scv.channel_owner_user_id,scv.stock_ratio,scv.increment_ratio,scv.daily_increment_value,scv.discount_rule_id,scv.service_year_index,
+			scv.created_at,scv.updated_at
+		FROM tmp_key tk
+		JOIN settlement_customer_v scv FORCE INDEX (uk_scv_month_slot_region_cp_school_date)
+		  ON scv.service_month = ?
+		 AND scv.slot = ?
+		 AND scv.region = tk.region
+		 AND scv.cp = tk.cp
+		 AND scv.school_name = tk.school_name
+		 AND scv.service_date = tk.service_date
+	`, inactiveSlot, month, activeSlot)
+	if copyRes.Error != nil {
+		err = copyRes.Error
+		return
+	}
+	rowsCopied = copyRes.RowsAffected
+	return
+}
+
+func runTempPipelineForMonth(
+	tx *gorm.DB,
+	month string,
+	inactiveSlot int8,
+	markRecalc bool,
+) (rowsRate, rowsUpsert int64, err error) {
+	settlementResultUnitBase := loadSettlementResultUnitBaseFromSystemSettings()
+	unitDiv := float64(settlementResultUnitBase * settlementResultUnitBase * settlementResultUnitBase)
 
 	if err = tx.Exec(`
 		CREATE TEMPORARY TABLE tmp_rate AS
@@ -1660,13 +1723,32 @@ func runTempPipelineForMonth(
 	return
 }
 
-func (r *settlementDataRepository) backfillFromSchoolSettlementWithSlot(region, cp, school string, start, end time.Time, markRecalc bool, progress func(processed int64)) (int64, error) {
+func cloneStageMetrics(metrics map[string]int64) map[string]int64 {
+	cloned := make(map[string]int64, len(metrics))
+	for k, v := range metrics {
+		cloned[k] = v
+	}
+	return cloned
+}
+
+func (r *settlementDataRepository) backfillFromSchoolSettlementWithSlot(region, cp, school string, start, end time.Time, markRecalc bool, progress func(processed int64, stageMetrics map[string]int64)) (int64, error) {
 	months := buildMonthList(start, end)
 	if len(months) == 0 {
 		return 0, nil
 	}
 	var totalAffected int64
 	var processed int64
+	stageMetrics := map[string]int64{
+		"rows_hit_key":            0,
+		"rows_source":             0,
+		"rows_rate":               0,
+		"rows_deleted_inactive":   0,
+		"rows_copied_from_active": 0,
+		"rows_upsert":             0,
+		"copy_slot_ms":            0,
+		"compute_ms":              0,
+		"publish_ms":              0,
+	}
 	var taskID int64
 	if markRecalc {
 		taskID = int64(time.Now().Unix())
@@ -1685,52 +1767,53 @@ func (r *settlementDataRepository) backfillFromSchoolSettlementWithSlot(region, 
 			return totalAffected, tx.Error
 		}
 
+		if err := prepareTmpTables(tx); err != nil {
+			tx.Rollback()
+			return totalAffected, err
+		}
+		rowsSource, rowsKey, err := createTmpSourceAndKeys(tx, monthStart, monthEnd, region, cp, school)
+		if err != nil {
+			tx.Rollback()
+			return totalAffected, err
+		}
+		if rowsSource == 0 {
+			tx.Rollback()
+			continue
+		}
+
 		activeSlot, err := activeSlotForMonth(tx, month, taskID)
 		if err != nil {
 			tx.Rollback()
 			return totalAffected, err
 		}
 		inactiveSlot := int8(1 - activeSlot)
-
-		if err := tx.Exec("DELETE FROM settlement_customer_v WHERE service_month = ? AND slot = ?", month, inactiveSlot).Error; err != nil {
-			tx.Rollback()
-			return totalAffected, err
-		}
-		if err := tx.Exec(`
-			INSERT INTO settlement_customer_v (
-				region,cp,school_name,service_month,slot,settlement_value,settlement_time,service_date,
-				recalculated,last_recalc_time,customer_fee,customer_bill,customer_fee_owner_id,
-				network_line_fee,network_line_bill,network_line_fee_owner_id,node_deduction_fee,node_deduction_bill,node_deduction_fee_owner_id,
-				channel_rate,channel_bill,channel_owner_user_id,stock_ratio,increment_ratio,daily_increment_value,discount_rule_id,service_year_index,
-				created_at,updated_at
-			)
-			SELECT
-				region,cp,school_name,service_month,?,settlement_value,settlement_time,service_date,
-				recalculated,last_recalc_time,customer_fee,customer_bill,customer_fee_owner_id,
-				network_line_fee,network_line_bill,network_line_fee_owner_id,node_deduction_fee,node_deduction_bill,node_deduction_fee_owner_id,
-				channel_rate,channel_bill,channel_owner_user_id,stock_ratio,increment_ratio,daily_increment_value,discount_rule_id,service_year_index,
-				created_at,updated_at
-			FROM settlement_customer_v
-			WHERE service_month = ? AND slot = ?`, inactiveSlot, month, activeSlot).Error; err != nil {
-			tx.Rollback()
-			return totalAffected, err
-		}
-
-		rowsSource, rowsKey, rowsRate, rowsUpsert, err := runTempPipelineForMonth(tx, month, monthStart, monthEnd, region, cp, school, inactiveSlot, markRecalc)
+		copyStageStart := time.Now()
+		rowsDeletedInactive, rowsCopiedFromActive, err := copyHitKeysFromActiveSlot(tx, month, activeSlot, inactiveSlot)
 		if err != nil {
 			tx.Rollback()
 			return totalAffected, err
 		}
-		_ = rowsKey
-		_ = rowsRate
+		stageMetrics["copy_slot_ms"] += time.Since(copyStageStart).Milliseconds()
+
+		computeStageStart := time.Now()
+		rowsRate, rowsUpsert, err := runTempPipelineForMonth(tx, month, inactiveSlot, markRecalc)
+		if err != nil {
+			tx.Rollback()
+			return totalAffected, err
+		}
+		stageMetrics["compute_ms"] += time.Since(computeStageStart).Milliseconds()
 		if rowsUpsert > 0 {
 			totalAffected += rowsUpsert
 		}
-		processed += rowsSource
-		if progress != nil {
-			progress(processed)
-		}
 
+		stageMetrics["rows_source"] += rowsSource
+		stageMetrics["rows_hit_key"] += rowsKey
+		stageMetrics["rows_rate"] += rowsRate
+		stageMetrics["rows_deleted_inactive"] += rowsDeletedInactive
+		stageMetrics["rows_copied_from_active"] += rowsCopiedFromActive
+		stageMetrics["rows_upsert"] += rowsUpsert
+
+		publishStageStart := time.Now()
 		if err := tx.Exec("DELETE FROM settlement_customer_monthly_v WHERE service_month = ? AND slot = ?", month, inactiveSlot).Error; err != nil {
 			tx.Rollback()
 			return totalAffected, err
@@ -1778,8 +1861,13 @@ func (r *settlementDataRepository) backfillFromSchoolSettlementWithSlot(region, 
 			tx.Rollback()
 			return totalAffected, err
 		}
+		stageMetrics["publish_ms"] += time.Since(publishStageStart).Milliseconds()
 		if err := tx.Commit().Error; err != nil {
 			return totalAffected, err
+		}
+		processed += rowsSource
+		if progress != nil {
+			progress(processed, cloneStageMetrics(stageMetrics))
 		}
 	}
 	return totalAffected, nil

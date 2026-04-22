@@ -16,7 +16,7 @@ type SettlementDataService interface {
 	ListMonthly(ctx context.Context, filter SettlementCustomerFilter, page, pageSize int) ([]model.SettlementCustomerMonthly, int64, error)
 	ListAll(ctx context.Context, filter SettlementCustomerFilter) ([]model.SettlementCustomer, error)
 	Recalculate(filter SettlementCustomerFilter) (int64, error)
-	RecalculateWithProgress(filter SettlementCustomerFilter, progress func(processed int64)) (int64, error)
+	RecalculateWithProgress(filter SettlementCustomerFilter, progress func(processed int64, stageMetrics map[string]int64)) (int64, error)
 	EstimateRecalculateTotal(filter SettlementCustomerFilter) (int64, error)
 	RebuildMonthlySnapshot(start, end *time.Time) (int64, error)
 	ListUsedChannelOwners(ctx context.Context, filter SettlementCustomerFilter) ([]UsedChannelOwner, error)
@@ -183,7 +183,7 @@ func (s *settlementDataService) Recalculate(filter SettlementCustomerFilter) (in
 	return s.RecalculateWithProgress(filter, nil)
 }
 
-func (s *settlementDataService) RecalculateWithProgress(filter SettlementCustomerFilter, progress func(processed int64)) (int64, error) {
+func (s *settlementDataService) RecalculateWithProgress(filter SettlementCustomerFilter, progress func(processed int64, stageMetrics map[string]int64)) (int64, error) {
 	var start, end time.Time
 	if filter.Start != nil {
 		start = *filter.Start

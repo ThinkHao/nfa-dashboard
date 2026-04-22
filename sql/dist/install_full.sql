@@ -760,6 +760,7 @@ CREATE TABLE IF NOT EXISTS `settlement_customer_v` (
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_scv_month_slot_region_cp_school_date` (`service_month`,`slot`,`region`,`cp`,`school_name`,`service_date`),
+  KEY `idx_scv_region_cp_school_date_month_slot` (`region`,`cp`,`school_name`,`service_date`,`service_month`,`slot`),
   KEY `idx_scv_month_slot_service_date_id` (`service_month`,`slot`,`service_date`,`id`),
   KEY `idx_scv_region` (`region`),
   KEY `idx_scv_cp` (`cp`),
@@ -823,4 +824,47 @@ INNER JOIN settlement_customer sc_new
 SET @ddl := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer' AND INDEX_NAME='uk_settlement_customer_region_cp_school_date')=0,
   'ALTER TABLE `settlement_customer` ADD UNIQUE KEY `uk_settlement_customer_region_cp_school_date` (`region`,`cp`,`school_name`,`service_date`)',
   'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 039_optimize_recalc_slot_copy_indexes.sql
+SET @ddl := IF(
+  (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'settlement_customer_v'
+      AND INDEX_NAME IN ('uk_scv_month_slot_region_cp_school_date', 'idx_scv_month_slot_region_cp_school_date')
+  ) = 0,
+  'ALTER TABLE `settlement_customer_v`
+     ADD INDEX `idx_scv_month_slot_region_cp_school_date` (`service_month`,`slot`,`region`,`cp`,`school_name`,`service_date`)',
+  'SELECT 1'
+);
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl := IF(
+  (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'settlement_customer_v'
+      AND INDEX_NAME = 'idx_scv_region_cp_school_date_month_slot'
+  ) = 0,
+  'ALTER TABLE `settlement_customer_v`
+     ADD INDEX `idx_scv_region_cp_school_date_month_slot` (`region`,`cp`,`school_name`,`service_date`,`service_month`,`slot`)',
+  'SELECT 1'
+);
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl := IF(
+  (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'nfa_school_settlement'
+      AND INDEX_NAME = 'idx_school_settlement_date_region_cp_school_time'
+  ) = 0,
+  'ALTER TABLE `nfa_school_settlement`
+     ADD INDEX `idx_school_settlement_date_region_cp_school_time` (`settlement_date`,`region`,`cp`,`school_name`,`settlement_time`)',
+  'SELECT 1'
+);
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;

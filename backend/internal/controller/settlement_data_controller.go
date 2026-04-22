@@ -374,6 +374,7 @@ func (c *SettlementDataController) RecalculateCustomerData(ctx *gin.Context) {
 
 		jobStart := time.Now()
 		durations := map[string]int64{}
+		calcMetrics := map[string]int64{}
 		const timeoutLimit = 15 * time.Minute
 
 		_ = c.dataSvc.MarkTaskRunning(tid, 0)
@@ -403,13 +404,22 @@ func (c *SettlementDataController) RecalculateCustomerData(ctx *gin.Context) {
 		}
 
 		stageStart = time.Now()
-		affected, recErr := c.dataSvc.RecalculateWithProgress(filter, func(processed int64) {
+		affected, recErr := c.dataSvc.RecalculateWithProgress(filter, func(processed int64, stageMetrics map[string]int64) {
 			_ = c.dataSvc.MarkTaskProgress(tid, processed)
+			if len(stageMetrics) > 0 {
+				calcMetrics = mergeInt64Maps(calcMetrics, stageMetrics)
+				mergedMetrics := mergeInt64Maps(durations, calcMetrics)
+				_ = c.dataSvc.MarkTaskStage(tid, "computing", processed, map[string]interface{}{
+					"scope_hash":    scopeHash,
+					"stage_metrics": mergedMetrics,
+				})
+			}
 		})
 		durations["recalculate_ms"] = time.Since(stageStart).Milliseconds()
 		if recErr != nil {
+			mergedMetrics := mergeInt64Maps(durations, calcMetrics)
 			_ = c.dataSvc.MarkTaskStage(tid, "failed", -1, map[string]interface{}{
-				"stage_metrics": durations,
+				"stage_metrics": mergedMetrics,
 				"scope_hash":    scopeHash,
 				"error_stage":   "recalculate",
 			})
@@ -417,8 +427,9 @@ func (c *SettlementDataController) RecalculateCustomerData(ctx *gin.Context) {
 			return
 		}
 		if time.Since(jobStart) > timeoutLimit {
+			mergedMetrics := mergeInt64Maps(durations, calcMetrics)
 			_ = c.dataSvc.MarkTaskStage(tid, "failed", affected, map[string]interface{}{
-				"stage_metrics": durations,
+				"stage_metrics": mergedMetrics,
 				"scope_hash":    scopeHash,
 				"error_stage":   "timeout",
 			})
@@ -426,16 +437,18 @@ func (c *SettlementDataController) RecalculateCustomerData(ctx *gin.Context) {
 			return
 		}
 
+		mergedMetrics := mergeInt64Maps(durations, calcMetrics)
 		_ = c.dataSvc.MarkTaskStage(tid, "publishing", affected, map[string]interface{}{
-			"stage_metrics": durations,
+			"stage_metrics": mergedMetrics,
 			"scope_hash":    scopeHash,
 		})
 		stageStart = time.Now()
 		if _, snapErr := c.dataSvc.RebuildMonthlySnapshot(&s, &e); snapErr != nil {
 			durations["rebuild_monthly_ms"] = time.Since(stageStart).Milliseconds()
 			durations["total_ms"] = time.Since(jobStart).Milliseconds()
+			mergedMetrics = mergeInt64Maps(durations, calcMetrics)
 			_ = c.dataSvc.MarkTaskStage(tid, "failed", affected, map[string]interface{}{
-				"stage_metrics": durations,
+				"stage_metrics": mergedMetrics,
 				"scope_hash":    scopeHash,
 				"error_stage":   "rebuild_monthly",
 			})
@@ -444,8 +457,9 @@ func (c *SettlementDataController) RecalculateCustomerData(ctx *gin.Context) {
 		}
 		durations["rebuild_monthly_ms"] = time.Since(stageStart).Milliseconds()
 		durations["total_ms"] = time.Since(jobStart).Milliseconds()
+		mergedMetrics = mergeInt64Maps(durations, calcMetrics)
 		_ = c.dataSvc.MarkTaskStage(tid, "finalizing", affected, map[string]interface{}{
-			"stage_metrics": durations,
+			"stage_metrics": mergedMetrics,
 			"scope_hash":    scopeHash,
 		})
 		_ = c.dataSvc.MarkTaskSuccess(tid, affected)
@@ -523,6 +537,16 @@ func formatYearMonthPtr(v *time.Time) string {
 		return ""
 	}
 	return v.Format("2006-01")
+}
+func mergeInt64Maps(left, right map[string]int64) map[string]int64 {
+	merged := make(map[string]int64, len(left)+len(right))
+	for k, v := range left {
+		merged[k] = v
+	}
+	for k, v := range right {
+		merged[k] = v
+	}
+	return merged
 }
 func fmtFloat(p *float64) string {
 	if p == nil {
