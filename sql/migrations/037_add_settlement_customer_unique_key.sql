@@ -1,5 +1,5 @@
 -- Migration: dedupe settlement_customer and add unique key for upsert
--- contract: index=settlement_customer.uk_settlement_customer_region_cp_school_date
+-- contract: none
 
 -- 1) 清理重复数据：同键保留 updated_at 更晚（相同 updated_at 保留 id 更大）
 DELETE sc_old
@@ -30,4 +30,3 @@ SET @ddl := IF(
 PREPARE stmt FROM @ddl;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
-
