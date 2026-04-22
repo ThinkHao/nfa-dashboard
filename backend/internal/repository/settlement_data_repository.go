@@ -1422,6 +1422,56 @@ func copyHitKeysFromActiveSlot(tx *gorm.DB, month string, activeSlot, inactiveSl
 	return
 }
 
+func copyFullMonthFromActiveSlot(tx *gorm.DB, month string, activeSlot, inactiveSlot int8) (rowsDeleted, rowsCopied int64, err error) {
+	delRes := tx.Exec(`
+		DELETE FROM settlement_customer_v
+		WHERE service_month = ? AND slot = ?
+	`, month, inactiveSlot)
+	if delRes.Error != nil {
+		err = delRes.Error
+		return
+	}
+	rowsDeleted = delRes.RowsAffected
+
+	copyRes := tx.Exec(`
+		INSERT INTO settlement_customer_v (
+			region,cp,school_name,service_month,slot,settlement_value,settlement_time,service_date,
+			recalculated,last_recalc_time,customer_fee,customer_bill,customer_fee_owner_id,
+			network_line_fee,network_line_bill,network_line_fee_owner_id,node_deduction_fee,node_deduction_bill,node_deduction_fee_owner_id,
+			channel_rate,channel_bill,channel_owner_user_id,stock_ratio,increment_ratio,daily_increment_value,discount_rule_id,service_year_index,
+			created_at,updated_at
+		)
+		SELECT
+			scv.region,scv.cp,scv.school_name,scv.service_month,?,
+			scv.settlement_value,scv.settlement_time,scv.service_date,
+			scv.recalculated,scv.last_recalc_time,scv.customer_fee,scv.customer_bill,scv.customer_fee_owner_id,
+			scv.network_line_fee,scv.network_line_bill,scv.network_line_fee_owner_id,scv.node_deduction_fee,scv.node_deduction_bill,scv.node_deduction_fee_owner_id,
+			scv.channel_rate,scv.channel_bill,scv.channel_owner_user_id,scv.stock_ratio,scv.increment_ratio,scv.daily_increment_value,scv.discount_rule_id,scv.service_year_index,
+			scv.created_at,scv.updated_at
+		FROM settlement_customer_v scv FORCE INDEX (idx_scv_month_slot_service_date_id)
+		WHERE scv.service_month = ?
+		  AND scv.slot = ?
+	`, inactiveSlot, month, activeSlot)
+	if copyRes.Error != nil {
+		err = copyRes.Error
+		return
+	}
+	rowsCopied = copyRes.RowsAffected
+	return
+}
+
+func countMonthSlotRows(tx *gorm.DB, month string, slot int8) (int64, error) {
+	var cnt int64
+	if err := tx.Raw(`
+		SELECT COUNT(1)
+		FROM settlement_customer_v FORCE INDEX (idx_scv_month_slot_service_date_id)
+		WHERE service_month = ? AND slot = ?
+	`, month, slot).Scan(&cnt).Error; err != nil {
+		return 0, err
+	}
+	return cnt, nil
+}
+
 func runTempPipelineForMonth(
 	tx *gorm.DB,
 	month string,
@@ -1742,9 +1792,12 @@ func (r *settlementDataRepository) backfillFromSchoolSettlementWithSlot(region, 
 		"rows_hit_key":            0,
 		"rows_source":             0,
 		"rows_rate":               0,
+		"rows_active_month":       0,
 		"rows_deleted_inactive":   0,
 		"rows_copied_from_active": 0,
 		"rows_upsert":             0,
+		"copy_mode_full_month":    0,
+		"copy_mode_hit_key":       0,
 		"copy_slot_ms":            0,
 		"compute_ms":              0,
 		"publish_ms":              0,
@@ -1787,8 +1840,24 @@ func (r *settlementDataRepository) backfillFromSchoolSettlementWithSlot(region, 
 			return totalAffected, err
 		}
 		inactiveSlot := int8(1 - activeSlot)
+		activeMonthRows, err := countMonthSlotRows(tx, month, activeSlot)
+		if err != nil {
+			tx.Rollback()
+			return totalAffected, err
+		}
+		stageMetrics["rows_active_month"] += activeMonthRows
+
 		copyStageStart := time.Now()
-		rowsDeletedInactive, rowsCopiedFromActive, err := copyHitKeysFromActiveSlot(tx, month, activeSlot, inactiveSlot)
+		useFullMonthCopy := rowsKey > 0 && activeMonthRows > 0 && rowsKey*100 >= activeMonthRows*80
+		var rowsDeletedInactive int64
+		var rowsCopiedFromActive int64
+		if useFullMonthCopy {
+			rowsDeletedInactive, rowsCopiedFromActive, err = copyFullMonthFromActiveSlot(tx, month, activeSlot, inactiveSlot)
+			stageMetrics["copy_mode_full_month"]++
+		} else {
+			rowsDeletedInactive, rowsCopiedFromActive, err = copyHitKeysFromActiveSlot(tx, month, activeSlot, inactiveSlot)
+			stageMetrics["copy_mode_hit_key"]++
+		}
 		if err != nil {
 			tx.Rollback()
 			return totalAffected, err
