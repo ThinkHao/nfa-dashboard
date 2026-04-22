@@ -62,6 +62,13 @@
     </el-card>
 
     <el-card class="table-card" shadow="hover">
+      <el-alert
+        v-if="isMonthlyColumnView"
+        class="monthly-tip"
+        type="info"
+        :closable="false"
+        title="提示：日95均值与金额使用同一进制口径，可直接对账。"
+      />
       <el-table v-if="!isMonthlyColumnView" v-loading="loading" :data="rows" border stripe class="field-w-full">
         <el-table-column prop="school_name" label="学校名称" min-width="180" />
         <el-table-column prop="region" label="地区" width="110" />
@@ -111,10 +118,14 @@
         </el-table-column>
         <el-table-column prop="stockStartAt" label="存量起算时间" min-width="130" />
         <el-table-column prop="incrementStartAt" label="增量起算时间" min-width="130" />
-        <el-table-column prop="daily95Rate" :label="`日95均值(${singleUserRateUnit})`" min-width="130" />
-        <el-table-column v-for="month in monthlyColumnMonths" :key="month" :label="month" min-width="120">
-          <template #default="{ row }">{{ row.values[month] || '-' }}</template>
-        </el-table-column>
+        <template v-for="month in monthlyColumnMonths" :key="month">
+          <el-table-column :label="`${month} 日95均值(${singleUserRateUnit})`" min-width="160">
+            <template #default="{ row }">{{ row.monthlyDaily95Values?.[month] || '-' }}</template>
+          </el-table-column>
+          <el-table-column :label="`${month} 金额`" min-width="120">
+            <template #default="{ row }">{{ row.monthlyAmountValues?.[month] || '-' }}</template>
+          </el-table-column>
+        </template>
       </el-table>
 
       <div v-if="!isMonthlyColumnView" class="pagination">
@@ -576,13 +587,16 @@ async function handleExport() {
         allowedMonthRange: monthRangeBoundary(),
       })
       const exportRows = flattenMonthlyRows(pivotRows)
-      const header = ['学校', '存量起算时间', '增量起算时间', `日95均值(${singleUserRateUnit.value})`, ...months]
+      const monthHeaders = months.flatMap((m) => [`${m} 日95均值(${singleUserRateUnit.value})`, `${m} 金额`])
+      const header = ['学校', '存量起算时间', '增量起算时间', ...monthHeaders]
       const rowValues = exportRows.map((row: MonthlyMetricRow) => [
         row.metric,
         row.stockStartAt || '-',
         row.incrementStartAt || '-',
-        row.daily95Rate || '0.00',
-        ...months.map((m) => row.values[m] || '0.00'),
+        ...months.flatMap((m) => [
+          row.monthlyDaily95Values?.[m] || '0.00',
+          row.monthlyAmountValues?.[m] || '0.00',
+        ]),
       ])
       const content = buildCsvContent(header, rowValues)
       const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
@@ -701,6 +715,10 @@ usePageRefresh(() => {
   margin-top: 16px;
   display: flex;
   justify-content: flex-end;
+}
+
+.monthly-tip {
+  margin-bottom: 10px;
 }
 
 :deep(.monthly-total-row > td) {

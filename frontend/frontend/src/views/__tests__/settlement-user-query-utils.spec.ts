@@ -17,21 +17,25 @@ describe('buildMonthlyAmountColumnView', () => {
     const schoolA = result.rows[0]
     expect(schoolA.stockStartAt).toBe('2024-01-01')
     expect(schoolA.incrementStartAt).toBe('2025-01-01')
-    expect(schoolA.daily95Rate).toBe('0.00')
-    expect(schoolA.values['2026-01']).toBe('10.00')
-    expect(schoolA.values['2026-02']).toBe('100.00')
+    expect(schoolA.monthlyDaily95Values['2026-01']).toBe('0.00')
+    expect(schoolA.monthlyDaily95Values['2026-02']).toBe('0.00')
+    expect(schoolA.monthlyAmountValues['2026-01']).toBe('10.00')
+    expect(schoolA.monthlyAmountValues['2026-02']).toBe('100.00')
 
     const schoolB = result.rows[1]
     expect(schoolB.stockStartAt).toBe('2023-06-01')
     expect(schoolB.incrementStartAt).toBe('2024-06-01')
-    expect(schoolB.daily95Rate).toBe('0.00')
-    expect(schoolB.values['2026-01']).toBe('0.00')
-    expect(schoolB.values['2026-02']).toBe('18.00')
+    expect(schoolB.monthlyDaily95Values['2026-01']).toBe('0.00')
+    expect(schoolB.monthlyDaily95Values['2026-02']).toBe('0.00')
+    expect(schoolB.monthlyAmountValues['2026-01']).toBe('0.00')
+    expect(schoolB.monthlyAmountValues['2026-02']).toBe('18.00')
 
     const totalRow = result.rows[2]
     expect(totalRow.isTotal).toBe(true)
-    expect(totalRow.values['2026-01']).toBe('10.00')
-    expect(totalRow.values['2026-02']).toBe('118.00')
+    expect(totalRow.monthlyDaily95Values['2026-01']).toBe('0.00')
+    expect(totalRow.monthlyDaily95Values['2026-02']).toBe('0.00')
+    expect(totalRow.monthlyAmountValues['2026-01']).toBe('10.00')
+    expect(totalRow.monthlyAmountValues['2026-02']).toBe('118.00')
   })
 
   it('recalculates daily95 by daily school alignment (sum CP first, then average by day)', () => {
@@ -52,19 +56,22 @@ describe('buildMonthlyAmountColumnView', () => {
     expect(result.rows.map((r) => r.metric)).toEqual(['学校A', '学校B', '总和'])
 
     const schoolA = result.rows[0]
-    expect(schoolA.daily95Rate).toBe('20.00')
-    expect(schoolA.values['2026-01']).toBe('10.00')
-    expect(schoolA.values['2026-02']).toBe('20.00')
+    expect(schoolA.monthlyDaily95Values['2026-01']).toBe('20.00')
+    expect(schoolA.monthlyDaily95Values['2026-02']).toBe('0.00')
+    expect(schoolA.monthlyAmountValues['2026-01']).toBe('10.00')
+    expect(schoolA.monthlyAmountValues['2026-02']).toBe('20.00')
 
     const schoolB = result.rows[1]
-    expect(schoolB.daily95Rate).toBe('5.00')
-    expect(schoolB.values['2026-01']).toBe('0.00')
-    expect(schoolB.values['2026-02']).toBe('10.00')
+    expect(schoolB.monthlyDaily95Values['2026-01']).toBe('0.00')
+    expect(schoolB.monthlyDaily95Values['2026-02']).toBe('5.00')
+    expect(schoolB.monthlyAmountValues['2026-01']).toBe('0.00')
+    expect(schoolB.monthlyAmountValues['2026-02']).toBe('10.00')
 
     const totalRow = result.rows[2]
-    expect(totalRow.daily95Rate).toBe('25.00')
-    expect(totalRow.values['2026-01']).toBe('10.00')
-    expect(totalRow.values['2026-02']).toBe('30.00')
+    expect(totalRow.monthlyDaily95Values['2026-01']).toBe('20.00')
+    expect(totalRow.monthlyDaily95Values['2026-02']).toBe('5.00')
+    expect(totalRow.monthlyAmountValues['2026-01']).toBe('10.00')
+    expect(totalRow.monthlyAmountValues['2026-02']).toBe('30.00')
   })
 
   it('supports Gbps output when rateUnit is Gbps', () => {
@@ -77,7 +84,7 @@ describe('buildMonthlyAmountColumnView', () => {
     ]
     const result = buildMonthlyAmountColumnView(monthlyRows, dailyRows, { rateUnit: 'Gbps' })
     const schoolA = result.rows.find((r) => r.metric === '学校A')
-    expect(schoolA?.daily95Rate).toBe('0.03')
+    expect(schoolA?.monthlyDaily95Values['2026-01']).toBe('0.03')
   })
 
   it('uses unitBase=1024 when provided', () => {
@@ -94,8 +101,8 @@ describe('buildMonthlyAmountColumnView', () => {
 
     const schoolDecimal = resultDecimal.rows.find((r) => r.metric === '学校A')
     const schoolBinary = resultBinary.rows.find((r) => r.metric === '学校A')
-    expect(schoolDecimal?.daily95Rate).toBe('30.00')
-    expect(schoolBinary?.daily95Rate).toBe('28.61')
+    expect(schoolDecimal?.monthlyDaily95Values['2026-01']).toBe('30.00')
+    expect(schoolBinary?.monthlyDaily95Values['2026-01']).toBe('28.61')
   })
 
   it('builds region-school-cp tree rows with subtotal and total in tree mode', () => {
@@ -115,21 +122,21 @@ describe('buildMonthlyAmountColumnView', () => {
 
     const regionNorth = result.rows[0]
     expect(regionNorth.metric).toBe('区域：华北')
-    expect(regionNorth.daily95Rate).toBe('30.00')
-    expect(regionNorth.values['2026-03']).toBe('39.00')
+    expect(regionNorth.monthlyDaily95Values['2026-03']).toBe('30.00')
+    expect(regionNorth.monthlyAmountValues['2026-03']).toBe('39.00')
     expect(regionNorth.children?.map((r) => r.rowType)).toEqual(['school'])
 
     const schoolA = regionNorth.children?.[0]
     expect(schoolA?.metric).toBe('学校：学校A')
-    expect(schoolA?.daily95Rate).toBe('30.00')
+    expect(schoolA?.monthlyDaily95Values['2026-03']).toBe('30.00')
     expect(schoolA?.children?.map((r) => r.metric)).toEqual(['CP：CM', 'CP：CT'])
-    expect(schoolA?.children?.[0]?.daily95Rate).toBe('20.00')
-    expect(schoolA?.children?.[1]?.daily95Rate).toBe('10.00')
+    expect(schoolA?.children?.[0]?.monthlyDaily95Values['2026-03']).toBe('20.00')
+    expect(schoolA?.children?.[1]?.monthlyDaily95Values['2026-03']).toBe('10.00')
 
     const total = result.rows[2]
     expect(total.metric).toBe('总和')
-    expect(total.daily95Rate).toBe('35.00')
-    expect(total.values['2026-03']).toBe('78.00')
+    expect(total.monthlyDaily95Values['2026-03']).toBe('35.00')
+    expect(total.monthlyAmountValues['2026-03']).toBe('78.00')
   })
 
   it('clips out-of-range months in utility layer via allowedMonthRange', () => {
@@ -150,10 +157,11 @@ describe('buildMonthlyAmountColumnView', () => {
 
     expect(result.months).toEqual(['2026-01', '2026-03'])
     const schoolA = result.rows.find((r) => r.metric === '学校A')
-    expect(schoolA?.values['2026-01']).toBe('10.00')
-    expect(schoolA?.values['2026-03']).toBe('20.00')
-    expect(schoolA?.values['2026-04']).toBeUndefined()
-    expect(schoolA?.daily95Rate).toBe('10.00')
+    expect(schoolA?.monthlyAmountValues['2026-01']).toBe('10.00')
+    expect(schoolA?.monthlyAmountValues['2026-03']).toBe('20.00')
+    expect(schoolA?.monthlyAmountValues['2026-04']).toBeUndefined()
+    expect(schoolA?.monthlyDaily95Values['2026-01']).toBe('10.00')
+    expect(schoolA?.monthlyDaily95Values['2026-03']).toBe('10.00')
   })
 
   it('clips tree rows by allowedMonthRange and keeps subtotal/total consistent', () => {
@@ -175,11 +183,11 @@ describe('buildMonthlyAmountColumnView', () => {
     expect(result.months).toEqual(['2026-03'])
     expect(result.rows.map((r) => r.rowType)).toEqual(['region', 'region', 'total'])
     const north = result.rows.find((r) => r.metric === '区域：华北')
-    expect(north?.values['2026-03']).toBe('10.00')
-    expect(north?.values['2026-04']).toBeUndefined()
+    expect(north?.monthlyAmountValues['2026-03']).toBe('10.00')
+    expect(north?.monthlyAmountValues['2026-04']).toBeUndefined()
     const total = result.rows[result.rows.length - 1]
     expect(total.metric).toBe('总和')
-    expect(total.values['2026-03']).toBe('40.00')
+    expect(total.monthlyAmountValues['2026-03']).toBe('40.00')
   })
 })
 

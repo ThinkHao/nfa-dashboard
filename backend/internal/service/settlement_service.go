@@ -341,13 +341,31 @@ func (s *settlementService) ExecuteDailySettlement(taskID int64, date time.Time)
 			return
 		}
 		dataRepo := repository.NewSettlementDataRepository()
-		affected, recErr := dataRepo.BackfillFromSchoolSettlement("", "", "", runDate, runDate, false, nil)
+		srcCount, cntErr := dataRepo.CountSchoolSettlementRows("", "", "", runDate, runDate)
 		end := time.Now()
+		if cntErr != nil {
+			init.Status = "failed"
+			init.EndTime = &end
+			init.ErrorMessage = fmt.Sprintf("统计源数据失败: %v", cntErr)
+			_ = s.repo.UpdateSettlementTask(init)
+			log.Printf("customer_init task failed: task_id=%d date=%s count source rows failed: %v", init.ID, runDate.Format("2006-01-02"), cntErr)
+			return
+		}
+		affected, recErr := dataRepo.BackfillFromSchoolSettlement("", "", "", runDate, runDate, false, nil)
 		if recErr != nil {
 			init.Status = "failed"
 			init.EndTime = &end
 			init.ErrorMessage = recErr.Error()
 			_ = s.repo.UpdateSettlementTask(init)
+			log.Printf("customer_init task failed: task_id=%d date=%s backfill failed: %v", init.ID, runDate.Format("2006-01-02"), recErr)
+			return
+		}
+		if shouldFailCustomerInitOnZeroAffected(srcCount, affected) {
+			init.Status = "failed"
+			init.EndTime = &end
+			init.ErrorMessage = fmt.Sprintf("源表有数据但回填0条（疑似日期边界异常）: source=%d, affected=%d", srcCount, affected)
+			_ = s.repo.UpdateSettlementTask(init)
+			log.Printf("customer_init task failed: task_id=%d date=%s zero affected with source rows, source=%d affected=%d", init.ID, runDate.Format("2006-01-02"), srcCount, affected)
 			return
 		}
 		init.Status = "success"
@@ -415,13 +433,31 @@ func (s *settlementService) ExecuteWeeklySettlementWithDateRange(taskID int64, s
 			return
 		}
 		dataRepo := repository.NewSettlementDataRepository()
-		affected, recErr := dataRepo.BackfillFromSchoolSettlement("", "", "", sdate, edate, false, nil)
+		srcCount, cntErr := dataRepo.CountSchoolSettlementRows("", "", "", sdate, edate)
 		end := time.Now()
+		if cntErr != nil {
+			init.Status = "failed"
+			init.EndTime = &end
+			init.ErrorMessage = fmt.Sprintf("统计源数据失败: %v", cntErr)
+			_ = s.repo.UpdateSettlementTask(init)
+			log.Printf("customer_init task failed: task_id=%d range=%s~%s count source rows failed: %v", init.ID, sdate.Format("2006-01-02"), edate.Format("2006-01-02"), cntErr)
+			return
+		}
+		affected, recErr := dataRepo.BackfillFromSchoolSettlement("", "", "", sdate, edate, false, nil)
 		if recErr != nil {
 			init.Status = "failed"
 			init.EndTime = &end
 			init.ErrorMessage = recErr.Error()
 			_ = s.repo.UpdateSettlementTask(init)
+			log.Printf("customer_init task failed: task_id=%d range=%s~%s backfill failed: %v", init.ID, sdate.Format("2006-01-02"), edate.Format("2006-01-02"), recErr)
+			return
+		}
+		if shouldFailCustomerInitOnZeroAffected(srcCount, affected) {
+			init.Status = "failed"
+			init.EndTime = &end
+			init.ErrorMessage = fmt.Sprintf("源表有数据但回填0条（疑似日期边界异常）: source=%d, affected=%d", srcCount, affected)
+			_ = s.repo.UpdateSettlementTask(init)
+			log.Printf("customer_init task failed: task_id=%d range=%s~%s zero affected with source rows, source=%d affected=%d", init.ID, sdate.Format("2006-01-02"), edate.Format("2006-01-02"), srcCount, affected)
 			return
 		}
 		init.Status = "success"
@@ -434,3 +470,7 @@ func (s *settlementService) ExecuteWeeklySettlementWithDateRange(taskID int64, s
 
 // 辅助：取指针
 func ptrTime(t time.Time) *time.Time { return &t }
+
+func shouldFailCustomerInitOnZeroAffected(srcCount, affected int64) bool {
+	return srcCount > 0 && affected == 0
+}

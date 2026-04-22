@@ -109,3 +109,17 @@ func TestBuildExistingSettlementMap(t *testing.T) {
 		t.Fatalf("map[d2]=%d, want=202", got)
 	}
 }
+
+func TestSettlementValueToGbps(t *testing.T) {
+	settlementValue := 2691087483.870968
+	got1000 := settlementValueToGbps(settlementValue, 1000)
+	got1024 := settlementValueToGbps(settlementValue, 1024)
+	if got1000 <= got1024 {
+		t.Fatalf("expected gbps(1000) > gbps(1024), got %f <= %f", got1000, got1024)
+	}
+	// fallback to 1024
+	gotFallback := settlementValueToGbps(settlementValue, 0)
+	if gotFallback != got1024 {
+		t.Fatalf("expected fallback base to equal 1024 calculation, got %f want %f", gotFallback, got1024)
+	}
+}

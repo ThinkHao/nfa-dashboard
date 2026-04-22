@@ -40,6 +40,28 @@ func normalizeDayBounds(start, end time.Time) (*time.Time, *time.Time) {
 	return startBound, endExclusive
 }
 
+func normalizeSettlementResultUnitBase(base int) int {
+	if base == 1000 || base == 1024 {
+		return base
+	}
+	return 1024
+}
+
+func loadSettlementResultUnitBaseFromSystemSettings() int {
+	var cfg model.SystemSettings
+	err := model.DB.Select("settlement_result_unit_base").First(&cfg).Error
+	if err != nil {
+		return 1024
+	}
+	return normalizeSettlementResultUnitBase(cfg.SettlementResultUnitBase)
+}
+
+func settlementValueToGbps(settlementValue float64, unitBase int) float64 {
+	normalizedBase := normalizeSettlementResultUnitBase(unitBase)
+	bitsPerSecond := settlementValue * 8.0 / 60.0
+	return bitsPerSecond / float64(normalizedBase*normalizedBase*normalizedBase)
+}
+
 func buildChunkRanges(total, chunkSize int) [][2]int {
 	if total <= 0 {
 		return [][2]int{}
@@ -685,6 +707,7 @@ func (r *settlementDataRepository) BackfillFromSchoolSettlement(region, cp, scho
 
 	var affected int64 = 0
 	const chunkSize = 500
+	settlementResultUnitBase := loadSettlementResultUnitBaseFromSystemSettings()
 	type rateLookup struct {
 		rc    model.RateCustomer
 		found bool
@@ -894,11 +917,8 @@ func (r *settlementDataRepository) BackfillFromSchoolSettlement(region, cp, scho
 					rec.ChannelRate = v
 				}
 
-				// 金额计算：费率单位 元/Gbps（客户金额使用折损后的费率）
-				// 参考前端换算逻辑：bitsPerSecond = settlement_value * 8 / 60
-				// 展示为 Mbps = bitsPerSecond / 1e6；则 Gbps = bitsPerSecond / 1e9
-				bitsPerSecond := rec.SettlementValue * 8.0 / 60.0
-				gbps := bitsPerSecond / 1_000_000_000.0
+				// 金额计算：费率单位 元/Gbps（客户金额使用折损后的费率），Gbps 进制与系统设置保持一致（1000/1024）。
+				gbps := settlementValueToGbps(rec.SettlementValue, settlementResultUnitBase)
 				// 当日金额按所在月份天数分摊
 				daysInMonth := 30
 				if rec.ServiceDate != nil {

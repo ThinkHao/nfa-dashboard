@@ -1,6 +1,7 @@
 !docs/*.md
 *.png
 backend/config/config.yaml
+backend/certs/
 backend/nfa-dashboard
 backend/internal/service/*.bak
 frontend/frontend/node_modules/

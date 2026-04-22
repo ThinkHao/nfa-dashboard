@@ -650,27 +650,15 @@ func (c *SettlementController) GetDailySettlementDetails(ctx *gin.Context) {
 func (c *SettlementController) CreateDailySettlementTask(ctx *gin.Context) {
 	// 获取日期参数
 	dateStr := ctx.DefaultQuery("date", "")
-	var settlementDate time.Time
-	var err error
 
-	if dateStr == "" {
-		// 默认计算前一天的数据
-		yesterday := time.Now().AddDate(0, 0, -1)
-		// 设置为前一天的零点
-		settlementDate = time.Date(yesterday.Year(), yesterday.Month(), yesterday.Day(), 0, 0, 0, 0, yesterday.Location())
-	} else {
-		// 解析日期字符串
-		parsedDate, err := time.Parse("2006-01-02", dateStr)
-		if err != nil {
-			ctx.JSON(http.StatusBadRequest, gin.H{
-				"code":    400,
-				"message": "日期格式错误，应为YYYY-MM-DD",
-				"error":   err.Error(),
-			})
-			return
-		}
-		// 设置为指定日期的零点
-		settlementDate = time.Date(parsedDate.Year(), parsedDate.Month(), parsedDate.Day(), 0, 0, 0, 0, parsedDate.Location())
+	settlementDate, err := resolveDailySettlementDate(dateStr, time.Now())
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"code":    400,
+			"message": "日期格式错误，应为YYYY-MM-DD",
+			"error":   err.Error(),
+		})
+		return
 	}
 
 	// 创建结算任务
@@ -700,6 +688,19 @@ func (c *SettlementController) CreateDailySettlementTask(ctx *gin.Context) {
 		"message": "创建日结算任务成功",
 		"data":    task,
 	})
+}
+
+func resolveDailySettlementDate(dateStr string, now time.Time) (time.Time, error) {
+	loc := time.Local
+	if dateStr == "" {
+		yesterday := now.In(loc).AddDate(0, 0, -1)
+		return time.Date(yesterday.Year(), yesterday.Month(), yesterday.Day(), 0, 0, 0, 0, loc), nil
+	}
+	parsedDate, err := time.ParseInLocation("2006-01-02", dateStr, loc)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return time.Date(parsedDate.Year(), parsedDate.Month(), parsedDate.Day(), 0, 0, 0, 0, loc), nil
 }
 
 // CreateWeeklySettlementTask 创建周结算任务

@@ -11,8 +11,9 @@ export type MonthlyMetricRow = {
   cp?: string
   stockStartAt?: string
   incrementStartAt?: string
-  daily95Rate?: string
   values: Record<string, string>
+  monthlyDaily95Values: Record<string, string>
+  monthlyAmountValues: Record<string, string>
   children?: MonthlyMetricRow[]
 }
 
@@ -108,34 +109,50 @@ function monthValuesTemplate(months: string[]): Record<string, number> {
   return values
 }
 
+function monthTextTemplate(months: string[], fallback = '0.00'): Record<string, string> {
+  const values: Record<string, string> = {}
+  for (const month of months) values[month] = fallback
+  return values
+}
+
 function sumMonthlyAmount(row: any): number {
   return AMOUNT_FIELDS.reduce((acc, def) => acc + toAmount(row?.[def.key]), 0)
 }
 
-function computeDaily95AvgBySchool(dailyRows: any[], rateUnit: TrafficRateUnit, unitBase: TrafficByteUnitBase): Map<string, number> {
-  const dailySumBySchoolDate = new Map<string, number>()
+function computeMonthlyDaily95AvgByGroup(
+  dailyRows: any[],
+  toGroupKey: (row: any) => string,
+  rateUnit: TrafficRateUnit,
+  unitBase: TrafficByteUnitBase,
+): Map<string, Record<string, number>> {
+  const groupDailyRawSum = new Map<string, Map<string, number>>()
   for (const row of dailyRows || []) {
-    const schoolName = String(row?.school_name || '').trim() || '-'
+    const groupKey = toGroupKey(row)
     const serviceDate = normalizeDateText(row?.service_date)
-    if (!serviceDate) continue
+    if (!groupKey || !serviceDate) continue
     const raw95 = Number(row?.settlement_value ?? NaN)
     if (!Number.isFinite(raw95)) continue
-    const key = `${schoolName}__${serviceDate}`
-    dailySumBySchoolDate.set(key, (dailySumBySchoolDate.get(key) || 0) + raw95)
+    if (!groupDailyRawSum.has(groupKey)) groupDailyRawSum.set(groupKey, new Map<string, number>())
+    const dayMap = groupDailyRawSum.get(groupKey)!
+    dayMap.set(serviceDate, (dayMap.get(serviceDate) || 0) + raw95)
   }
 
-  const avgBySchool = new Map<string, { sumRate: number; dayCount: number }>()
-  for (const [key, dailyRawSum] of dailySumBySchoolDate.entries()) {
-    const schoolName = key.split('__')[0]
-    const prev = avgBySchool.get(schoolName) || { sumRate: 0, dayCount: 0 }
-    prev.sumRate += settlementValueToRate(dailyRawSum, rateUnit, unitBase)
-    prev.dayCount += 1
-    avgBySchool.set(schoolName, prev)
-  }
-
-  const result = new Map<string, number>()
-  for (const [schoolName, agg] of avgBySchool.entries()) {
-    result.set(schoolName, agg.dayCount > 0 ? agg.sumRate / agg.dayCount : 0)
+  const result = new Map<string, Record<string, number>>()
+  for (const [groupKey, dayMap] of groupDailyRawSum.entries()) {
+    const monthAgg = new Map<string, { sumRate: number; dayCount: number }>()
+    for (const [serviceDate, dailyRawSum] of dayMap.entries()) {
+      const month = parseServiceMonth(serviceDate)
+      if (!month) continue
+      const prev = monthAgg.get(month) || { sumRate: 0, dayCount: 0 }
+      prev.sumRate += settlementValueToRate(dailyRawSum, rateUnit, unitBase)
+      prev.dayCount += 1
+      monthAgg.set(month, prev)
+    }
+    const monthlyAverage: Record<string, number> = {}
+    for (const [month, agg] of monthAgg.entries()) {
+      monthlyAverage[month] = agg.dayCount > 0 ? agg.sumRate / agg.dayCount : 0
+    }
+    result.set(groupKey, monthlyAverage)
   }
   return result
 }
@@ -167,61 +184,56 @@ function buildFlatRows(months: string[], rawRows: any[], dailyRows: any[], rateU
     monthlyTotal[month] += sum
   }
 
-  const daily95AvgBySchool = computeDaily95AvgBySchool(dailyRows || [], rateUnit, unitBase)
+  const monthlyDaily95BySchool = computeMonthlyDaily95AvgByGroup(
+    dailyRows || [],
+    (row) => String(row?.school_name || '').trim() || '-',
+    rateUnit,
+    unitBase,
+  )
+  const totalDaily95ByMonth: Record<string, number> = monthValuesTemplate(months)
   const schoolRows: MonthlyMetricRow[] = Array.from(bySchool.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([schoolName, agg]) => {
-      const values: Record<string, string> = {}
-      for (const month of months) values[month] = fmtAmount(agg.monthValues[month] || 0)
+      const monthlyAmountValues: Record<string, string> = {}
+      const monthlyDaily95Values: Record<string, string> = {}
+      const schoolMonthlyDaily95 = monthlyDaily95BySchool.get(schoolName) || {}
+      for (const month of months) {
+        monthlyAmountValues[month] = fmtAmount(agg.monthValues[month] || 0)
+        const month95 = Number(schoolMonthlyDaily95[month] || 0)
+        monthlyDaily95Values[month] = fmtAmount(month95)
+        totalDaily95ByMonth[month] += month95
+      }
       return {
         id: `school:${schoolName}`,
         metric: schoolName,
         rowType: 'school',
         stockStartAt: agg.stockStartAt || '-',
         incrementStartAt: agg.incrementStartAt || '-',
-        daily95Rate: fmtAmount(daily95AvgBySchool.get(schoolName) || 0),
-        values,
+        values: monthlyAmountValues,
+        monthlyAmountValues,
+        monthlyDaily95Values,
       }
     })
 
-  const totalValues: Record<string, string> = {}
+  const totalAmountValues: Record<string, string> = {}
+  const totalDaily95Values: Record<string, string> = {}
   for (const month of months) {
-    totalValues[month] = fmtAmount(monthlyTotal[month] || 0)
+    totalAmountValues[month] = fmtAmount(monthlyTotal[month] || 0)
+    totalDaily95Values[month] = fmtAmount(totalDaily95ByMonth[month] || 0)
   }
-  const totalDaily95 = schoolRows.reduce((sum, row) => sum + Number(row.daily95Rate || 0), 0)
-  schoolRows.push({ id: 'total', metric: '总和', rowType: 'total', isTotal: true, stockStartAt: '-', incrementStartAt: '-', daily95Rate: fmtAmount(totalDaily95), values: totalValues })
+  schoolRows.push({
+    id: 'total',
+    metric: '总和',
+    rowType: 'total',
+    isTotal: true,
+    stockStartAt: '-',
+    incrementStartAt: '-',
+    values: totalAmountValues,
+    monthlyAmountValues: totalAmountValues,
+    monthlyDaily95Values: totalDaily95Values,
+  })
 
   return schoolRows
-}
-
-function computeDaily95AvgByGroup(dailyRows: any[], toGroupKey: (row: any) => string, rateUnit: TrafficRateUnit, unitBase: TrafficByteUnitBase): Map<string, number> {
-  const daySumMap = new Map<string, number>()
-  for (const row of dailyRows || []) {
-    const groupKey = toGroupKey(row)
-    const serviceDate = normalizeDateText(row?.service_date)
-    if (!groupKey || !serviceDate) continue
-    const raw95 = Number(row?.settlement_value ?? NaN)
-    if (!Number.isFinite(raw95)) continue
-    const dayKey = `${groupKey}__${serviceDate}`
-    daySumMap.set(dayKey, (daySumMap.get(dayKey) || 0) + raw95)
-  }
-
-  const aggMap = new Map<string, { sumRate: number; dayCount: number }>()
-  for (const [dayKey, rawSum] of daySumMap.entries()) {
-    const splitIndex = dayKey.lastIndexOf('__')
-    if (splitIndex <= 0) continue
-    const groupKey = dayKey.slice(0, splitIndex)
-    const prev = aggMap.get(groupKey) || { sumRate: 0, dayCount: 0 }
-    prev.sumRate += settlementValueToRate(rawSum, rateUnit, unitBase)
-    prev.dayCount += 1
-    aggMap.set(groupKey, prev)
-  }
-
-  const result = new Map<string, number>()
-  for (const [groupKey, agg] of aggMap.entries()) {
-    result.set(groupKey, agg.dayCount > 0 ? agg.sumRate / agg.dayCount : 0)
-  }
-  return result
 }
 
 function buildTreeRows(months: string[], rawRows: any[], dailyRows: any[], rateUnit: TrafficRateUnit, unitBase: TrafficByteUnitBase): MonthlyMetricRow[] {
@@ -278,7 +290,7 @@ function buildTreeRows(months: string[], rawRows: any[], dailyRows: any[], rateU
     totalMonthValues[month] += amount
   }
 
-  const cpDaily95 = computeDaily95AvgByGroup(dailyRows, (row) => {
+  const cpMonthlyDaily95 = computeMonthlyDaily95AvgByGroup(dailyRows, (row) => {
     const region = String(row?.region || '').trim() || '未知区域'
     const schoolName = String(row?.school_name || '').trim() || '-'
     const cp = String(row?.cp || '').trim() || '未知CP'
@@ -290,13 +302,13 @@ function buildTreeRows(months: string[], rawRows: any[], dailyRows: any[], rateU
   for (const region of sortedRegions) {
     const regionAgg = regionMap.get(region)!
     const regionValuesNum: Record<string, number> = monthValuesTemplate(months)
-    let regionDaily95 = 0
+    const regionDaily95Num: Record<string, number> = monthValuesTemplate(months)
     const schoolChildren: MonthlyMetricRow[] = []
     const sortedSchools = Array.from(regionAgg.schoolMap.keys()).sort((a, b) => a.localeCompare(b))
     for (const schoolName of sortedSchools) {
       const schoolAgg = regionAgg.schoolMap.get(schoolName)!
       const schoolValuesNum: Record<string, number> = monthValuesTemplate(months)
-      let schoolDaily95 = 0
+      const schoolDaily95Num: Record<string, number> = monthValuesTemplate(months)
       let schoolStockStartAt = ''
       let schoolIncrementStartAt = ''
       const cpChildren: MonthlyMetricRow[] = []
@@ -309,10 +321,15 @@ function buildTreeRows(months: string[], rawRows: any[], dailyRows: any[], rateU
         if (!schoolStockStartAt && cpAgg.stockStartAt) schoolStockStartAt = cpAgg.stockStartAt
         if (!schoolIncrementStartAt && cpAgg.incrementStartAt) schoolIncrementStartAt = cpAgg.incrementStartAt
         const cpKey = `${region}__${schoolName}__${cp}`
-        const cpDaily95Value = cpDaily95.get(cpKey) || 0
-        schoolDaily95 += cpDaily95Value
-        const cpValues: Record<string, string> = {}
-        for (const month of months) cpValues[month] = fmtAmount(cpAgg.monthValues[month] || 0)
+        const cpDaily95ByMonth = cpMonthlyDaily95.get(cpKey) || {}
+        const cpAmountValues: Record<string, string> = {}
+        const cpDaily95Values: Record<string, string> = {}
+        for (const month of months) {
+          cpAmountValues[month] = fmtAmount(cpAgg.monthValues[month] || 0)
+          const month95 = Number(cpDaily95ByMonth[month] || 0)
+          cpDaily95Values[month] = fmtAmount(month95)
+          schoolDaily95Num[month] += month95
+        }
         cpChildren.push({
           id: `cp:${region}:${schoolName}:${cp}`,
           rowType: 'cp',
@@ -322,15 +339,22 @@ function buildTreeRows(months: string[], rawRows: any[], dailyRows: any[], rateU
           cp,
           stockStartAt: cpAgg.stockStartAt || '-',
           incrementStartAt: cpAgg.incrementStartAt || '-',
-          daily95Rate: fmtAmount(cpDaily95Value),
-          values: cpValues,
+          values: cpAmountValues,
+          monthlyAmountValues: cpAmountValues,
+          monthlyDaily95Values: cpDaily95Values,
         })
       }
 
-      for (const month of months) regionValuesNum[month] += schoolValuesNum[month]
-      regionDaily95 += schoolDaily95
-      const schoolValues: Record<string, string> = {}
-      for (const month of months) schoolValues[month] = fmtAmount(schoolValuesNum[month] || 0)
+      for (const month of months) {
+        regionValuesNum[month] += schoolValuesNum[month]
+        regionDaily95Num[month] += schoolDaily95Num[month]
+      }
+      const schoolAmountValues: Record<string, string> = {}
+      const schoolDaily95Values: Record<string, string> = {}
+      for (const month of months) {
+        schoolAmountValues[month] = fmtAmount(schoolValuesNum[month] || 0)
+        schoolDaily95Values[month] = fmtAmount(schoolDaily95Num[month] || 0)
+      }
       schoolChildren.push({
         id: `school:${region}:${schoolName}`,
         rowType: 'school',
@@ -339,14 +363,19 @@ function buildTreeRows(months: string[], rawRows: any[], dailyRows: any[], rateU
         schoolName,
         stockStartAt: schoolStockStartAt || '-',
         incrementStartAt: schoolIncrementStartAt || '-',
-        daily95Rate: fmtAmount(schoolDaily95),
-        values: schoolValues,
+        values: schoolAmountValues,
+        monthlyAmountValues: schoolAmountValues,
+        monthlyDaily95Values: schoolDaily95Values,
         children: cpChildren,
       })
     }
 
-    const regionValues: Record<string, string> = {}
-    for (const month of months) regionValues[month] = fmtAmount(regionValuesNum[month] || 0)
+    const regionAmountValues: Record<string, string> = {}
+    const regionDaily95Values: Record<string, string> = {}
+    for (const month of months) {
+      regionAmountValues[month] = fmtAmount(regionValuesNum[month] || 0)
+      regionDaily95Values[month] = fmtAmount(regionDaily95Num[month] || 0)
+    }
     rows.push({
       id: `region:${region}`,
       rowType: 'region',
@@ -354,15 +383,19 @@ function buildTreeRows(months: string[], rawRows: any[], dailyRows: any[], rateU
       region,
       stockStartAt: '-',
       incrementStartAt: '-',
-      daily95Rate: fmtAmount(regionDaily95),
-      values: regionValues,
+      values: regionAmountValues,
+      monthlyAmountValues: regionAmountValues,
+      monthlyDaily95Values: regionDaily95Values,
       children: schoolChildren,
     })
   }
 
-  const totalValues: Record<string, string> = {}
-  for (const month of months) totalValues[month] = fmtAmount(totalMonthValues[month] || 0)
-  const totalDaily95 = rows.reduce((sum, row) => sum + Number(row.daily95Rate || 0), 0)
+  const totalAmountValues: Record<string, string> = {}
+  const totalDaily95Values: Record<string, string> = monthTextTemplate(months, '0.00')
+  for (const month of months) {
+    totalAmountValues[month] = fmtAmount(totalMonthValues[month] || 0)
+    totalDaily95Values[month] = fmtAmount(rows.reduce((sum, row) => sum + Number(row.monthlyDaily95Values?.[month] || 0), 0))
+  }
   rows.push({
     id: 'total',
     metric: '总和',
@@ -370,8 +403,9 @@ function buildTreeRows(months: string[], rawRows: any[], dailyRows: any[], rateU
     isTotal: true,
     stockStartAt: '-',
     incrementStartAt: '-',
-    daily95Rate: fmtAmount(totalDaily95),
-    values: totalValues,
+    values: totalAmountValues,
+    monthlyAmountValues: totalAmountValues,
+    monthlyDaily95Values: totalDaily95Values,
   })
 
   return rows
