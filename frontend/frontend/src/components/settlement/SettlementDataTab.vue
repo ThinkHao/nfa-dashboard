@@ -4,34 +4,22 @@
     <el-card class="filter-section" shadow="hover">
       <el-form :model="filterForm" inline>
         <el-form-item label="地区" class="min-w-200">
-          <el-select v-model="filterForm.region" placeholder="选择地区" clearable class="field-w-180" @change="handleRegionChange">
-            <el-option
-              v-for="region in regions"
-              :key="region"
-              :label="region"
-              :value="region"
-            />
-          </el-select>
+          <SearchSelect v-model="filterForm.region" :options="regions" placeholder="选择地区" clearable class="field-w-180" @change="handleRegionChange" />
         </el-form-item>
         <el-form-item label="CP" class="min-w-200">
-          <el-select v-model="filterForm.cp" placeholder="选择 CP" clearable class="field-w-180" @change="handleCPChange">
-            <el-option
-              v-for="cp in cps"
-              :key="cp"
-              :label="cp"
-              :value="cp"
-            />
-          </el-select>
+          <SearchSelect v-model="filterForm.cp" :options="cps" placeholder="选择 CP" clearable class="field-w-180" @change="handleCPChange" />
         </el-form-item>
         <el-form-item label="学校" class="min-w-300">
-          <el-select v-model="filterForm.school_id" placeholder="选择学校" clearable class="field-w-250" @change="handleSchoolChange">
-            <el-option
-              v-for="school in schools"
-              :key="school.school_id"
-              :label="school.school_name"
-              :value="school.school_id"
-            />
-          </el-select>
+          <SearchSelect
+            v-model="filterForm.school_id"
+            :options="schools"
+            label-key="school_name"
+            value-key="school_id"
+            placeholder="选择学校"
+            clearable
+            class="field-w-250"
+            @change="handleSchoolChange"
+          />
         </el-form-item>
         <el-form-item label="费用归属" class="min-w-300">
           <el-select v-model="ownerSelect" placeholder="选择费用归属" clearable class="field-w-250" @change="handleOwnerChange">
@@ -231,12 +219,14 @@ import type { School, PaginationParams } from '../../types/api'
 import { formatExportFilename, triggerBlobDownload } from '@/utils/export'
 import { EXPORT_FILENAME_PREFIX } from '@/utils/export-standards'
 import UnifiedDateRange from '@/components/ui/UnifiedDateRange.vue'
+import SearchSelect from '@/components/ui/SearchSelect.vue'
 import { buildSettlementDayRange, splitSettlementDayRange } from './settlement-day-range'
 import QueryActionButton from '@/components/ui/QueryActionButton.vue'
 import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import { useSystemTrafficSettings } from '@/composables/useSystemTrafficSettings'
 import { bitsPerSecondToRate, type TrafficRateUnit } from '@/utils/traffic-units'
+import { sanitizeScopeOptionValues } from '@/utils/scope-options'
 
 // 学校、地区和运营商数据
 
@@ -616,8 +606,8 @@ const loadRegionCpOptions = async () => {
       (api as any).v2.getRegions(),
       (api as any).v2.getCPs(),
     ])
-    regions.value = Array.isArray(regionResp) ? regionResp.filter((x: any) => typeof x === 'string' && x.trim()) : []
-    cps.value = Array.isArray(cpResp) ? cpResp.filter((x: any) => typeof x === 'string' && x.trim()) : []
+    regions.value = sanitizeScopeOptionValues(Array.isArray(regionResp) ? regionResp : [])
+    cps.value = sanitizeScopeOptionValues(Array.isArray(cpResp) ? cpResp : [])
   } catch (e) {
     console.warn('加载地区/运营商选项失败:', e)
     regions.value = []

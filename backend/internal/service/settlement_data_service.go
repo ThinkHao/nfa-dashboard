@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"nfa-dashboard/internal/model"
 	"nfa-dashboard/internal/repository"
@@ -24,6 +25,7 @@ type SettlementDataService interface {
 	CreateRecalculateTask(start, end time.Time) (int64, error)
 	MarkTaskRunning(taskID int64, total int64) error
 	MarkTaskProgress(taskID int64, processed int64) error
+	MarkTaskStage(taskID int64, stage string, processed int64, extras map[string]interface{}) error
 	MarkTaskFailed(taskID int64, errMsg string) error
 	MarkTaskSuccess(taskID int64, processed int64) error
 }
@@ -343,14 +345,23 @@ func (s *settlementDataService) BuildOwnerNameMaps(rows []model.SettlementCustom
 }
 
 func (s *settlementDataService) CreateRecalculateTask(start, end time.Time) (int64, error) {
+	metaBytes, _ := json.Marshal(map[string]interface{}{
+		"range": map[string]string{
+			"start": start.Format("2006-01-02"),
+			"end":   end.Format("2006-01-02"),
+		},
+		"stage": "pending",
+	})
 	task := &model.SettlementTask{
 		TaskType:       "customer_recalc",
 		TaskDate:       start,
 		Status:         "pending",
+		TaskStage:      "pending",
 		ProcessedCount: 0,
 		CreateTime:     time.Now(),
 		UpdateTime:     time.Now(),
-		ErrorMessage:   start.Format("2006-01-02") + "," + end.Format("2006-01-02"),
+		ErrorMessage:   start.Format("2006-01-02") + "," + end.Format("2006-01-02"), // 兼容历史字段
+		TaskMeta:       string(metaBytes),
 	}
 	if err := s.settlementRepo.CreateSettlementTask(task); err != nil {
 		return 0, err
@@ -365,12 +376,18 @@ func (s *settlementDataService) MarkTaskRunning(taskID int64, total int64) error
 	}
 	now := time.Now()
 	task.Status = "running"
+	task.TaskStage = "running"
 	task.StartTime = &now
 	if total > 0 {
 		task.TotalCount = int(total)
 	}
 	task.ProcessedCount = 0
 	task.UpdateTime = now
+	enrichTaskMeta(task, map[string]interface{}{
+		"stage":     "running",
+		"processed": 0,
+		"total":     total,
+	})
 	return s.settlementRepo.UpdateSettlementTask(task)
 }
 
@@ -382,6 +399,33 @@ func (s *settlementDataService) MarkTaskProgress(taskID int64, processed int64) 
 	now := time.Now()
 	task.ProcessedCount = int(processed)
 	task.UpdateTime = now
+	enrichTaskMeta(task, map[string]interface{}{
+		"processed": processed,
+	})
+	return s.settlementRepo.UpdateSettlementTask(task)
+}
+
+func (s *settlementDataService) MarkTaskStage(taskID int64, stage string, processed int64, extras map[string]interface{}) error {
+	task, err := s.settlementRepo.GetSettlementTaskByID(taskID)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	task.TaskStage = stage
+	task.UpdateTime = now
+	if processed >= 0 {
+		task.ProcessedCount = int(processed)
+	}
+	patch := map[string]interface{}{
+		"stage": stage,
+	}
+	if processed >= 0 {
+		patch["processed"] = processed
+	}
+	for k, v := range extras {
+		patch[k] = v
+	}
+	enrichTaskMeta(task, patch)
 	return s.settlementRepo.UpdateSettlementTask(task)
 }
 
@@ -392,8 +436,13 @@ func (s *settlementDataService) MarkTaskFailed(taskID int64, errMsg string) erro
 	}
 	now := time.Now()
 	task.Status = "failed"
+	task.TaskStage = "failed"
 	task.EndTime = &now
 	task.ErrorMessage = errMsg
+	enrichTaskMeta(task, map[string]interface{}{
+		"stage": "failed",
+		"error": errMsg,
+	})
 	return s.settlementRepo.UpdateSettlementTask(task)
 }
 
@@ -404,13 +453,37 @@ func (s *settlementDataService) MarkTaskSuccess(taskID int64, processed int64) e
 	}
 	now := time.Now()
 	task.Status = "success"
+	task.TaskStage = "completed"
 	task.EndTime = &now
 	task.ProcessedCount = int(processed)
 	if task.TotalCount <= 0 {
 		task.TotalCount = int(processed)
 	}
 	task.UpdateTime = now
+	enrichTaskMeta(task, map[string]interface{}{
+		"stage":     "completed",
+		"processed": processed,
+		"total":     task.TotalCount,
+	})
 	return s.settlementRepo.UpdateSettlementTask(task)
+}
+
+func enrichTaskMeta(task *model.SettlementTask, patch map[string]interface{}) {
+	if task == nil || len(patch) == 0 {
+		return
+	}
+	meta := map[string]interface{}{}
+	if strings.TrimSpace(task.TaskMeta) != "" {
+		_ = json.Unmarshal([]byte(task.TaskMeta), &meta)
+	}
+	for k, v := range patch {
+		meta[k] = v
+	}
+	b, err := json.Marshal(meta)
+	if err != nil {
+		return
+	}
+	task.TaskMeta = string(b)
 }
 
 func displayUserName(u model.User) string {

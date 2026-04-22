@@ -158,6 +158,7 @@ import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQue
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import { useSystemTrafficSettings } from '@/composables/useSystemTrafficSettings'
 import { normalizeByteUnitBase, settlementValueToRate } from '@/utils/traffic-units'
+import { sanitizeScopeOptionValues } from '@/utils/scope-options'
 
 type Granularity = 'daily' | 'monthly'
 type UserOption = { id: number; label: string }
@@ -420,12 +421,12 @@ function onUserDropdownVisible(visible: boolean) {
 async function loadRegionCpSchool() {
   try {
     const rs = await (api as any).v2.getRegions()
-    regions.value = Array.isArray(rs) ? rs.filter((x) => typeof x === 'string') : []
+    regions.value = sanitizeScopeOptionValues(Array.isArray(rs) ? rs : [])
   } catch { regions.value = [] }
 
   try {
     const cs = await (api as any).v2.getCPs()
-    cps.value = Array.isArray(cs) ? cs.filter((x) => typeof x === 'string') : []
+    cps.value = sanitizeScopeOptionValues(Array.isArray(cs) ? cs : [])
   } catch { cps.value = [] }
 
   await loadSchools()

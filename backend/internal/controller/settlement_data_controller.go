@@ -331,19 +331,51 @@ func (c *SettlementDataController) RecalculateCustomerData(ctx *gin.Context) {
 	// 异步执行
 	go func(tid int64, region, cp, school string, s, e time.Time) {
 		filter := service.SettlementCustomerFilter{Region: region, CP: cp, School: school, Start: &s, End: &e}
+		jobStart := time.Now()
+		durations := map[string]int64{}
+
+		stageStart := time.Now()
 		total, _ := c.dataSvc.EstimateRecalculateTotal(filter)
+		durations["estimate_ms"] = time.Since(stageStart).Milliseconds()
 		_ = c.dataSvc.MarkTaskRunning(tid, total)
+		_ = c.dataSvc.MarkTaskStage(tid, "recalculating", 0, map[string]interface{}{
+			"total":        total,
+			"durations_ms": durations,
+		})
+
+		stageStart = time.Now()
 		affected, recErr := c.dataSvc.RecalculateWithProgress(filter, func(processed int64) {
 			_ = c.dataSvc.MarkTaskProgress(tid, processed)
 		})
+		durations["recalculate_ms"] = time.Since(stageStart).Milliseconds()
 		if recErr != nil {
+			_ = c.dataSvc.MarkTaskStage(tid, "failed", -1, map[string]interface{}{
+				"durations_ms": durations,
+				"error_stage":  "recalculate",
+			})
 			_ = c.dataSvc.MarkTaskFailed(tid, recErr.Error())
 			return
 		}
+
+		_ = c.dataSvc.MarkTaskStage(tid, "rebuilding_monthly", affected, map[string]interface{}{
+			"durations_ms": durations,
+		})
+		stageStart = time.Now()
 		if _, snapErr := c.dataSvc.RebuildMonthlySnapshot(&s, &e); snapErr != nil {
+			durations["rebuild_monthly_ms"] = time.Since(stageStart).Milliseconds()
+			durations["total_ms"] = time.Since(jobStart).Milliseconds()
+			_ = c.dataSvc.MarkTaskStage(tid, "failed", affected, map[string]interface{}{
+				"durations_ms": durations,
+				"error_stage":  "rebuild_monthly",
+			})
 			_ = c.dataSvc.MarkTaskFailed(tid, "复算成功但月表回写失败: "+snapErr.Error())
 			return
 		}
+		durations["rebuild_monthly_ms"] = time.Since(stageStart).Milliseconds()
+		durations["total_ms"] = time.Since(jobStart).Milliseconds()
+		_ = c.dataSvc.MarkTaskStage(tid, "finalizing", affected, map[string]interface{}{
+			"durations_ms": durations,
+		})
 		_ = c.dataSvc.MarkTaskSuccess(tid, affected)
 	}(taskID, req.Region, req.CP, req.School, start, end)
 

@@ -232,6 +232,7 @@ import SearchSelect from '@/components/ui/SearchSelect.vue'
 import QueryActionButton from '@/components/ui/QueryActionButton.vue'
 import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
 import { usePageRefresh } from '@/composables/usePageRefresh'
+import { sanitizeScopeOptionValues } from '@/utils/scope-options'
 
 const auth = useAuthStore()
 const canManage = computed(() => auth.hasPermission('rates.discount_rule.manage'))
@@ -476,8 +477,8 @@ async function loadRegionsAndCPs() {
       (api as any).v2.getRegions(),
       (api as any).v2.getCPs(),
     ])
-    regionOptions.value = Array.isArray(regions) ? regions.filter((v: any) => v && v !== 'NULL') : []
-    cpOptions.value = Array.isArray(cps) ? cps.filter((v: any) => v && v !== 'NULL') : []
+    regionOptions.value = sanitizeScopeOptionValues(Array.isArray(regions) ? regions : [])
+    cpOptions.value = sanitizeScopeOptionValues(Array.isArray(cps) ? cps : [])
   } catch { regionOptions.value = []; cpOptions.value = [] }
 }
 
@@ -676,4 +677,3 @@ usePageRefresh(() => {
   }
 }
 </style>
-

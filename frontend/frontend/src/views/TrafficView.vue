@@ -14,6 +14,7 @@ import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQue
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import { useSystemTrafficSettings } from '@/composables/useSystemTrafficSettings'
 import { normalizeByteUnitBase } from '@/utils/traffic-units'
+import { sanitizeScopeOptionValues } from '@/utils/scope-options'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart } from 'echarts/charts'
@@ -535,13 +536,13 @@ function computeRegionCpOptions(forceOverwrite = false) {
 async function loadRegionCpOptions() {
   try {
     const r = await (api as any).v2.getRegions()
-    regions.value = Array.isArray(r) ? r.filter((v: any) => v && v !== 'NULL').sort() : []
+    regions.value = sanitizeScopeOptionValues(Array.isArray(r) ? r : []).sort()
   } catch {
     regions.value = []
   }
   try {
     const c = await (api as any).v2.getCPs()
-    cps.value = Array.isArray(c) ? c.filter((v: any) => v && v !== 'NULL').sort() : []
+    cps.value = sanitizeScopeOptionValues(Array.isArray(c) ? c : []).sort()
   } catch {
     cps.value = []
   }

@@ -4,34 +4,22 @@
     <el-card class="filter-section">
       <el-form :model="filterForm" inline>
         <el-form-item label="地区" class="min-w-200">
-          <el-select v-model="filterForm.region" placeholder="选择地区" clearable class="field-w-180" @change="handleRegionChange">
-            <el-option
-              v-for="region in regions"
-              :key="region"
-              :label="region"
-              :value="region"
-            />
-          </el-select>
+          <SearchSelect v-model="filterForm.region" :options="regions" placeholder="选择地区" clearable class="field-w-180" @change="handleRegionChange" />
         </el-form-item>
         <el-form-item label="CP" class="min-w-200">
-          <el-select v-model="filterForm.cp" placeholder="选择 CP" clearable class="field-w-180" @change="handleCPChange">
-            <el-option
-              v-for="cp in cps"
-              :key="cp"
-              :label="cp"
-              :value="cp"
-            />
-          </el-select>
+          <SearchSelect v-model="filterForm.cp" :options="cps" placeholder="选择 CP" clearable class="field-w-180" @change="handleCPChange" />
         </el-form-item>
         <el-form-item label="学校" class="min-w-300">
-          <el-select v-model="filterForm.school_id" placeholder="选择学校" clearable class="field-w-250" @change="handleSchoolChange">
-            <el-option
-              v-for="school in schools"
-              :key="school.school_id"
-              :label="school.school_name"
-              :value="school.school_id"
-            />
-          </el-select>
+          <SearchSelect
+            v-model="filterForm.school_id"
+            :options="schools"
+            label-key="school_name"
+            value-key="school_id"
+            placeholder="选择学校"
+            clearable
+            class="field-w-250"
+            @change="handleSchoolChange"
+          />
         </el-form-item>
         <el-form-item label="日期范围" class="min-w-400">
           <UnifiedDateRange
@@ -105,6 +93,7 @@ import type { School } from '../../types/api'
 import { useTasksStore } from '@/stores/tasks'
 import { buildCsvContent, formatExportFilename, triggerBlobDownload } from '@/utils/export'
 import { EXPORT_FILENAME_PREFIX } from '@/utils/export-standards'
+import SearchSelect from '@/components/ui/SearchSelect.vue'
 import UnifiedDateRange from '@/components/ui/UnifiedDateRange.vue'
 import { buildSettlementDayRange, splitSettlementDayRange } from './settlement-day-range'
 import QueryActionButton from '@/components/ui/QueryActionButton.vue'

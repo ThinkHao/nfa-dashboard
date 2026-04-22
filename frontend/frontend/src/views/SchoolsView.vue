@@ -8,6 +8,7 @@ import SectionCard from '@/components/ui/SectionCard.vue'
 import QueryActionButton from '@/components/ui/QueryActionButton.vue'
 import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
 import { usePageRefresh } from '@/composables/usePageRefresh'
+import { sanitizeScopeOptionValues } from '@/utils/scope-options'
 import { 
   ElTable, 
   ElTableColumn, 
@@ -162,13 +163,13 @@ function formatDate(dateStr) {
 async function loadRegionCpOptions() {
   try {
     const r = await (api as any).v2.getRegions()
-    regions.value = Array.isArray(r) ? r.filter((v: any) => v && v !== 'NULL').sort() : []
+    regions.value = sanitizeScopeOptionValues(Array.isArray(r) ? r : []).sort()
   } catch {
     regions.value = []
   }
   try {
     const c = await (api as any).v2.getCPs()
-    cps.value = Array.isArray(c) ? c.filter((v: any) => v && v !== 'NULL').sort() : []
+    cps.value = sanitizeScopeOptionValues(Array.isArray(c) ? c : []).sort()
   } catch {
     cps.value = []
   }
@@ -281,4 +282,3 @@ usePageRefresh(() => {
   width: 180px !important;
 }
 </style>
-

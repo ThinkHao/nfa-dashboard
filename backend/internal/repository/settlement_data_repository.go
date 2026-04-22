@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"math"
 	"nfa-dashboard/internal/model"
+	"sort"
 	"strings"
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type SettlementDataRepository interface {
@@ -131,7 +133,22 @@ func applySettlementCustomerFilters(qb *gorm.DB, filter map[string]interface{}) 
 	if v, ok := filter["channel_owner_user_id"]; ok && v != nil {
 		qb = qb.Where("(customer_fee_owner_id = ? OR network_line_fee_owner_id = ? OR node_deduction_fee_owner_id = ? OR channel_owner_user_id = ?)", v, v, v, v)
 	}
-	return qb
+	return applyRateFilterRulesIfEnabled(qb, "settlement_customer")
+}
+
+func shouldApplySettlementFilterRules() bool {
+	var cfg model.SystemSettings
+	if err := model.DB.Select("hide_non_settlement_schools_in_traffic").First(&cfg).Error; err != nil {
+		return false
+	}
+	return cfg.HideNonSettlementSchoolsInTraffic
+}
+
+func applyRateFilterRulesIfEnabled(qb *gorm.DB, alias string) *gorm.DB {
+	if !shouldApplySettlementFilterRules() {
+		return qb
+	}
+	return excludeFilteredCustomerRates(qb, alias)
 }
 
 func extractServiceMonthRange(filter map[string]interface{}) (string, string) {
@@ -369,7 +386,7 @@ func applyMonthlySnapshotFilters(qb *gorm.DB, filter map[string]interface{}) *go
 			qb = qb.Where("service_month <= ?", m)
 		}
 	}
-	return qb
+	return applyRateFilterRulesIfEnabled(qb, "settlement_customer_monthly")
 }
 
 func toYearMonth(v interface{}) (string, bool) {
@@ -454,11 +471,12 @@ func shouldUseDailyMonthlyAggregation(filter map[string]interface{}) bool {
 
 func (r *settlementDataRepository) RebuildSettlementCustomerMonthly(start, end time.Time) (int64, error) {
 	qb := model.DB.Model(&model.SettlementCustomer{}).Where("service_date IS NOT NULL")
+	startBound, endExclusive := normalizeDayBounds(start, end)
 	if !start.IsZero() {
-		qb = qb.Where("DATE(service_date) >= ?", start.Format("2006-01-02"))
+		qb = qb.Where("service_date >= ?", *startBound)
 	}
 	if !end.IsZero() {
-		qb = qb.Where("DATE(service_date) <= ?", end.Format("2006-01-02"))
+		qb = qb.Where("service_date < ?", *endExclusive)
 	}
 
 	base := qb.Select(`
@@ -676,37 +694,13 @@ func (r *settlementDataRepository) CountSchoolSettlementRows(region, cp, school 
 // - 以 (region, cp, school_name, service_date) 作为匹配键，存在则更新，不存在则插入
 // - markRecalc: 为 true 时表示“复算”，会设置 recalculated 与 last_recalc_time；为 false 表示“初算”，不设置上述标记
 func (r *settlementDataRepository) BackfillFromSchoolSettlement(region, cp, school string, start, end time.Time, markRecalc bool, progress func(processed int64)) (int64, error) {
-	// 查询来源数据
-	src := model.DB.Model(&model.SchoolSettlement{})
+	var (
+		affected  int64
+		processed int64
+		lastID    int64
+	)
+	const sourceChunkSize = 2000
 	startBound, endExclusive := normalizeDayBounds(start, end)
-	if startBound != nil {
-		src = src.Where("settlement_date >= ?", *startBound)
-	}
-	if endExclusive != nil {
-		src = src.Where("settlement_date < ?", *endExclusive)
-	}
-	if region != "" {
-		src = src.Where("region = ?", region)
-	}
-	if cp != "" {
-		src = src.Where("cp = ?", cp)
-	}
-	if school != "" {
-		// 完全匹配学校名（与前端筛选一致）；如需模糊可改为 LIKE
-		src = src.Where("school_name = ?", school)
-	}
-
-	var rows []model.SchoolSettlement
-	if err := src.Order("settlement_date ASC, id ASC").Find(&rows).Error; err != nil {
-		return 0, err
-	}
-
-	if len(rows) == 0 {
-		return 0, nil
-	}
-
-	var affected int64 = 0
-	const chunkSize = 500
 	settlementResultUnitBase := loadSettlementResultUnitBaseFromSystemSettings()
 	type rateLookup struct {
 		rc    model.RateCustomer
@@ -716,32 +710,44 @@ func (r *settlementDataRepository) BackfillFromSchoolSettlement(region, cp, scho
 	ruleCache := map[string]*model.RateDiscountRule{}
 	ruleItemCache := map[uint64][]model.RateDiscountRuleItem{}
 
-	for _, rng := range buildChunkRanges(len(rows), chunkSize) {
+	for {
 		tx := model.DB.Begin()
 		if tx.Error != nil {
 			return affected, tx.Error
 		}
 		now := time.Now()
-		chunkRows := rows[rng[0]:rng[1]]
 
-		// 预加载本批已存在记录，避免每条执行一次 SELECT
-		var existingRows []model.SettlementCustomer
-		if len(chunkRows) > 0 {
-			existingQ := tx.Model(&model.SettlementCustomer{})
-			for idx, it := range chunkRows {
-				day := time.Date(it.SettlementDate.Year(), it.SettlementDate.Month(), it.SettlementDate.Day(), 0, 0, 0, 0, it.SettlementDate.Location())
-				if idx == 0 {
-					existingQ = existingQ.Where("(region = ? AND cp = ? AND school_name = ? AND service_date = ?)", it.Region, it.CP, it.SchoolName, day)
-				} else {
-					existingQ = existingQ.Or("(region = ? AND cp = ? AND school_name = ? AND service_date = ?)", it.Region, it.CP, it.SchoolName, day)
-				}
-			}
-			if err := existingQ.Find(&existingRows).Error; err != nil {
-				tx.Rollback()
-				return affected, err
-			}
+		src := tx.Model(&model.SchoolSettlement{})
+		if startBound != nil {
+			src = src.Where("settlement_date >= ?", *startBound)
 		}
-		existingMap := buildExistingSettlementMap(existingRows)
+		if endExclusive != nil {
+			src = src.Where("settlement_date < ?", *endExclusive)
+		}
+		if region != "" {
+			src = src.Where("region = ?", region)
+		}
+		if cp != "" {
+			src = src.Where("cp = ?", cp)
+		}
+		if school != "" {
+			src = src.Where("school_name = ?", school)
+		}
+		if lastID > 0 {
+			src = src.Where("id > ?", lastID)
+		}
+
+		var chunkRows []model.SchoolSettlement
+		if err := src.Order("id ASC").Limit(sourceChunkSize).Find(&chunkRows).Error; err != nil {
+			tx.Rollback()
+			return affected, err
+		}
+		if len(chunkRows) == 0 {
+			tx.Rollback()
+			break
+		}
+
+		upserts := make([]model.SettlementCustomer, 0, len(chunkRows))
 		pendingRateIncrement := map[uint64]float64{}
 
 		for _, it := range chunkRows {
@@ -951,93 +957,101 @@ func (r *settlementDataRepository) BackfillFromSchoolSettlement(region, cp, scho
 					pendingRateIncrement[rc.ID] = *rec.DailyIncrementValue
 				}
 			}
-			existingID, hasExisting := existingMap[settlementCustomerKey(it.Region, it.CP, it.SchoolName, day)]
-			if !hasExisting {
-				if cerr := tx.Create(&rec).Error; cerr != nil {
-					tx.Rollback()
-					return affected, cerr
-				}
-				existingMap[settlementCustomerKey(it.Region, it.CP, it.SchoolName, day)] = rec.ID
-				affected++
-			} else {
-				// 更新基础字段与复算标记
-				upd := map[string]interface{}{
-					"settlement_value": rec.SettlementValue,
-					"settlement_time":  rec.SettlementTime,
-					"service_date":     rec.ServiceDate,
-				}
-				if markRecalc {
-					upd["recalculated"] = true
-					upd["last_recalc_time"] = now
-				}
-				// 同步费率与归属（如有）
-				if rec.CustomerFee != nil {
-					upd["customer_fee"] = rec.CustomerFee
-				}
-				if rec.NetworkLineFee != nil {
-					upd["network_line_fee"] = rec.NetworkLineFee
-				}
-				if rec.NodeDeductionFee != nil {
-					upd["node_deduction_fee"] = rec.NodeDeductionFee
-				}
-				if rec.ChannelRate != nil {
-					upd["channel_rate"] = rec.ChannelRate
-				}
-				if rec.CustomerFeeOwnerID != nil {
-					upd["customer_fee_owner_id"] = rec.CustomerFeeOwnerID
-				}
-				if rec.NetworkLineFeeOwnerID != nil {
-					upd["network_line_fee_owner_id"] = rec.NetworkLineFeeOwnerID
-				}
-				if rec.NodeDeductionFeeOwnerID != nil {
-					upd["node_deduction_fee_owner_id"] = rec.NodeDeductionFeeOwnerID
-				}
-				if rec.ChannelOwnerUserID != nil {
-					upd["channel_owner_user_id"] = rec.ChannelOwnerUserID
-				}
-				if rec.StockRatio != nil {
-					upd["stock_ratio"] = rec.StockRatio
-				}
-				if rec.IncrementRatio != nil {
-					upd["increment_ratio"] = rec.IncrementRatio
-				}
-				if rec.DailyIncrementValue != nil {
-					upd["daily_increment_value"] = rec.DailyIncrementValue
-				}
-				// 同步金额（如计算出）
-				if rec.CustomerBill != nil {
-					upd["customer_bill"] = rec.CustomerBill
-				}
-				if rec.NetworkLineBill != nil {
-					upd["network_line_bill"] = rec.NetworkLineBill
-				}
-				if rec.ChannelBill != nil {
-					upd["channel_bill"] = rec.ChannelBill
-				}
-				if rec.NodeDeductionBill != nil {
-					upd["node_deduction_bill"] = rec.NodeDeductionBill
-				}
-				if uerr := tx.Model(&model.SettlementCustomer{}).Where("id = ?", existingID).Updates(upd).Error; uerr != nil {
-					tx.Rollback()
-					return affected, uerr
-				}
-				affected++
-			}
+			rec.CreatedAt = now
+			rec.UpdatedAt = now
+			upserts = append(upserts, rec)
+			lastID = it.ID
 		}
 
-		for rateID, v := range pendingRateIncrement {
-			if err := tx.Model(&model.RateCustomer{}).Where("id = ?", rateID).Update("daily_increment_value", v).Error; err != nil {
+		if len(upserts) > 0 {
+			if err := tx.Clauses(clause.OnConflict{
+				Columns: []clause.Column{
+					{Name: "region"},
+					{Name: "cp"},
+					{Name: "school_name"},
+					{Name: "service_date"},
+				},
+				DoUpdates: clause.Assignments(buildSettlementCustomerUpsertAssignments(markRecalc)),
+			}).CreateInBatches(upserts, 500).Error; err != nil {
 				tx.Rollback()
 				return affected, err
 			}
+			affected += int64(len(upserts))
+		}
+
+		if err := updateRateCustomerIncrementBatch(tx, pendingRateIncrement); err != nil {
+			tx.Rollback()
+			return affected, err
 		}
 
 		if err := tx.Commit().Error; err != nil {
 			return affected, err
 		}
+		processed += int64(len(chunkRows))
 		if progress != nil {
-			progress(affected)
+			progress(processed)
 		}
 	}
 	return affected, nil
+}
+
+func buildSettlementCustomerUpsertAssignments(markRecalc bool) map[string]interface{} {
+	assignments := map[string]interface{}{
+		"settlement_value":            clause.Expr{SQL: "VALUES(settlement_value)"},
+		"settlement_time":             clause.Expr{SQL: "VALUES(settlement_time)"},
+		"customer_fee":                clause.Expr{SQL: "VALUES(customer_fee)"},
+		"network_line_fee":            clause.Expr{SQL: "VALUES(network_line_fee)"},
+		"node_deduction_fee":          clause.Expr{SQL: "VALUES(node_deduction_fee)"},
+		"channel_rate":                clause.Expr{SQL: "VALUES(channel_rate)"},
+		"customer_fee_owner_id":       clause.Expr{SQL: "VALUES(customer_fee_owner_id)"},
+		"network_line_fee_owner_id":   clause.Expr{SQL: "VALUES(network_line_fee_owner_id)"},
+		"node_deduction_fee_owner_id": clause.Expr{SQL: "VALUES(node_deduction_fee_owner_id)"},
+		"channel_owner_user_id":       clause.Expr{SQL: "VALUES(channel_owner_user_id)"},
+		"stock_ratio":                 clause.Expr{SQL: "VALUES(stock_ratio)"},
+		"increment_ratio":             clause.Expr{SQL: "VALUES(increment_ratio)"},
+		"daily_increment_value":       clause.Expr{SQL: "VALUES(daily_increment_value)"},
+		"discount_rule_id":            clause.Expr{SQL: "VALUES(discount_rule_id)"},
+		"service_year_index":          clause.Expr{SQL: "VALUES(service_year_index)"},
+		"customer_bill":               clause.Expr{SQL: "VALUES(customer_bill)"},
+		"network_line_bill":           clause.Expr{SQL: "VALUES(network_line_bill)"},
+		"channel_bill":                clause.Expr{SQL: "VALUES(channel_bill)"},
+		"node_deduction_bill":         clause.Expr{SQL: "VALUES(node_deduction_bill)"},
+		"updated_at":                  clause.Expr{SQL: "NOW()"},
+	}
+	if markRecalc {
+		assignments["recalculated"] = true
+		assignments["last_recalc_time"] = clause.Expr{SQL: "VALUES(last_recalc_time)"}
+	}
+	return assignments
+}
+
+func updateRateCustomerIncrementBatch(tx *gorm.DB, pending map[uint64]float64) error {
+	if len(pending) == 0 {
+		return nil
+	}
+	ids := make([]int, 0, len(pending))
+	for id := range pending {
+		ids = append(ids, int(id))
+	}
+	sort.Ints(ids)
+	var sqlBuilder strings.Builder
+	sqlBuilder.WriteString("UPDATE rate_customer SET daily_increment_value = CASE id ")
+	args := make([]interface{}, 0, len(ids)*3)
+	for _, idInt := range ids {
+		id := uint64(idInt)
+		sqlBuilder.WriteString("WHEN ? THEN ? ")
+		args = append(args, id, pending[id])
+	}
+	sqlBuilder.WriteString("ELSE daily_increment_value END WHERE id IN (")
+	for i := range ids {
+		if i > 0 {
+			sqlBuilder.WriteString(",")
+		}
+		sqlBuilder.WriteString("?")
+	}
+	sqlBuilder.WriteString(")")
+	for _, idInt := range ids {
+		args = append(args, uint64(idInt))
+	}
+	return tx.Exec(sqlBuilder.String(), args...).Error
 }

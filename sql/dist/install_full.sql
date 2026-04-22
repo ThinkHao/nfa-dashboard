@@ -725,3 +725,21 @@ PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @ddl := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='nfa_settlement_task' AND COLUMN_NAME='task_meta')=0,
   'ALTER TABLE `nfa_settlement_task` ADD COLUMN `task_meta` LONGTEXT NULL AFTER `error_message`', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 037_add_settlement_customer_unique_key.sql
+DELETE sc_old
+FROM settlement_customer sc_old
+INNER JOIN settlement_customer sc_new
+  ON sc_old.region = sc_new.region
+ AND sc_old.cp = sc_new.cp
+ AND sc_old.school_name = sc_new.school_name
+ AND sc_old.service_date = sc_new.service_date
+ AND (
+      sc_old.updated_at < sc_new.updated_at
+      OR (sc_old.updated_at = sc_new.updated_at AND sc_old.id < sc_new.id)
+ );
+
+SET @ddl := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer' AND INDEX_NAME='uk_settlement_customer_region_cp_school_date')=0,
+  'ALTER TABLE `settlement_customer` ADD UNIQUE KEY `uk_settlement_customer_region_cp_school_date` (`region`,`cp`,`school_name`,`service_date`)',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;

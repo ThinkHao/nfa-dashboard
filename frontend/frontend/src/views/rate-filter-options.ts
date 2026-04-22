@@ -1,13 +1,10 @@
 import api from '@/api'
+import { sanitizeScopeOptionValues } from '@/utils/scope-options'
 
 export type RateSchoolOption = { name: string; inRate: boolean }
 
 export function sanitizeScopeOptions(values: unknown[]): string[] {
-  return Array.isArray(values)
-    ? values
-        .map((value) => String(value || '').trim())
-        .filter((value) => value && value !== 'NULL')
-    : []
+  return sanitizeScopeOptionValues(values)
 }
 
 export function buildRateSchoolOptions(baseSchools: any[], rateSchools: any[]): RateSchoolOption[] {

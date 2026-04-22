@@ -208,6 +208,7 @@ import { mergeScopeOptions } from './settlement-rule-options'
 import QueryActionButton from '@/components/ui/QueryActionButton.vue'
 import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
 import { usePageRefresh } from '@/composables/usePageRefresh'
+import { sanitizeScopeOptionValues } from '@/utils/scope-options'
 
 type SchoolNameMatchType = '' | 'exact' | 'contains'
 
@@ -299,8 +300,8 @@ async function loadOptions() {
   optionsLoading.value = true
   try {
     const res = await api.settlementRates.filterRules.options()
-    regionOptions.value = Array.isArray(res.regions) ? res.regions : []
-    cpOptions.value = Array.isArray(res.cps) ? res.cps : []
+    regionOptions.value = sanitizeScopeOptionValues(Array.isArray(res.regions) ? res.regions : [])
+    cpOptions.value = sanitizeScopeOptionValues(Array.isArray(res.cps) ? res.cps : [])
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '加载规则选项失败')
   } finally {
