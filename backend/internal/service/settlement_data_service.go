@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/sha1"
 	"encoding/json"
 	"fmt"
 	"nfa-dashboard/internal/model"
@@ -28,6 +29,9 @@ type SettlementDataService interface {
 	MarkTaskStage(taskID int64, stage string, processed int64, extras map[string]interface{}) error
 	MarkTaskFailed(taskID int64, errMsg string) error
 	MarkTaskSuccess(taskID int64, processed int64) error
+	BuildScopeHash(filter SettlementCustomerFilter) string
+	AcquireScopeLock(scopeHash string, timeoutSec int) (bool, error)
+	ReleaseScopeLock(scopeHash string) error
 }
 
 type SettlementCustomerFilter struct {
@@ -350,13 +354,13 @@ func (s *settlementDataService) CreateRecalculateTask(start, end time.Time) (int
 			"start": start.Format("2006-01-02"),
 			"end":   end.Format("2006-01-02"),
 		},
-		"stage": "pending",
+		"stage": "queued",
 	})
 	task := &model.SettlementTask{
 		TaskType:       "customer_recalc",
 		TaskDate:       start,
 		Status:         "pending",
-		TaskStage:      "pending",
+		TaskStage:      "queued",
 		ProcessedCount: 0,
 		CreateTime:     time.Now(),
 		UpdateTime:     time.Now(),
@@ -376,7 +380,7 @@ func (s *settlementDataService) MarkTaskRunning(taskID int64, total int64) error
 	}
 	now := time.Now()
 	task.Status = "running"
-	task.TaskStage = "running"
+	task.TaskStage = "computing"
 	task.StartTime = &now
 	if total > 0 {
 		task.TotalCount = int(total)
@@ -384,7 +388,7 @@ func (s *settlementDataService) MarkTaskRunning(taskID int64, total int64) error
 	task.ProcessedCount = 0
 	task.UpdateTime = now
 	enrichTaskMeta(task, map[string]interface{}{
-		"stage":     "running",
+		"stage":     "computing",
 		"processed": 0,
 		"total":     total,
 	})
@@ -466,6 +470,43 @@ func (s *settlementDataService) MarkTaskSuccess(taskID int64, processed int64) e
 		"total":     task.TotalCount,
 	})
 	return s.settlementRepo.UpdateSettlementTask(task)
+}
+
+func (s *settlementDataService) BuildScopeHash(filter SettlementCustomerFilter) string {
+	var start, end string
+	if filter.Start != nil {
+		start = filter.Start.Format("2006-01-02")
+	}
+	if filter.End != nil {
+		end = filter.End.Format("2006-01-02")
+	}
+	payload := fmt.Sprintf("%s|%s|%s|%s|%s", filter.Region, filter.CP, filter.School, start, end)
+	sum := sha1.Sum([]byte(payload))
+	return fmt.Sprintf("%x", sum)
+}
+
+func (s *settlementDataService) AcquireScopeLock(scopeHash string, timeoutSec int) (bool, error) {
+	if strings.TrimSpace(scopeHash) == "" {
+		return false, nil
+	}
+	if timeoutSec < 0 {
+		timeoutSec = 0
+	}
+	lockName := "customer_recalc_scope_" + scopeHash
+	var got int
+	if err := model.DB.Raw("SELECT GET_LOCK(?, ?)", lockName, timeoutSec).Scan(&got).Error; err != nil {
+		return false, err
+	}
+	return got == 1, nil
+}
+
+func (s *settlementDataService) ReleaseScopeLock(scopeHash string) error {
+	if strings.TrimSpace(scopeHash) == "" {
+		return nil
+	}
+	lockName := "customer_recalc_scope_" + scopeHash
+	var released int
+	return model.DB.Raw("SELECT RELEASE_LOCK(?)", lockName).Scan(&released).Error
 }
 
 func enrichTaskMeta(task *model.SettlementTask, patch map[string]interface{}) {

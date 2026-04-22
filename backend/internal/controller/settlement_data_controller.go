@@ -18,6 +18,8 @@ type SettlementDataController struct {
 	dataSvc service.SettlementDataService
 }
 
+var customerRecalcGlobalLimiter = make(chan struct{}, 2)
+
 // ListUsedChannelOwners GET /api/v1/settlement/data/customer/channel-owners
 // 返回在结算明细中实际被使用过的“渠道归属用户”（系统用户）去重列表
 func (c *SettlementDataController) ListUsedChannelOwners(ctx *gin.Context) {
@@ -323,25 +325,82 @@ func (c *SettlementDataController) RecalculateCustomerData(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "end_service_date 格式错误，应为 YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss", "error": err.Error()})
 		return
 	}
+	select {
+	case customerRecalcGlobalLimiter <- struct{}{}:
+	default:
+		ctx.JSON(http.StatusTooManyRequests, gin.H{"code": 429, "message": "当前复算任务过多，请稍后重试"})
+		return
+	}
+
+	filter := service.SettlementCustomerFilter{Region: req.Region, CP: req.CP, School: req.School, Start: &start, End: &end}
+	scopeHash := c.dataSvc.BuildScopeHash(filter)
+
 	taskID, err := c.dataSvc.CreateRecalculateTask(start, end)
 	if err != nil {
+		<-customerRecalcGlobalLimiter
 		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "创建复算任务失败", "error": err.Error()})
 		return
 	}
+	_ = c.dataSvc.MarkTaskStage(taskID, "queued", 0, map[string]interface{}{
+		"scope_hash": scopeHash,
+		"stage_metrics": map[string]interface{}{
+			"queued_at": time.Now().Format(time.RFC3339),
+		},
+	})
+
 	// 异步执行
 	go func(tid int64, region, cp, school string, s, e time.Time) {
+		defer func() { <-customerRecalcGlobalLimiter }()
 		filter := service.SettlementCustomerFilter{Region: region, CP: cp, School: school, Start: &s, End: &e}
+		scopeHash := c.dataSvc.BuildScopeHash(filter)
+		locked, lockErr := c.dataSvc.AcquireScopeLock(scopeHash, 0)
+		if lockErr != nil {
+			_ = c.dataSvc.MarkTaskStage(tid, "failed", -1, map[string]interface{}{
+				"scope_hash":  scopeHash,
+				"error_stage": "scope_lock",
+			})
+			_ = c.dataSvc.MarkTaskFailed(tid, "scope锁获取失败: "+lockErr.Error())
+			return
+		}
+		if !locked {
+			_ = c.dataSvc.MarkTaskStage(tid, "failed", -1, map[string]interface{}{
+				"scope_hash":  scopeHash,
+				"error_stage": "scope_lock_busy",
+			})
+			_ = c.dataSvc.MarkTaskFailed(tid, "同维度复算任务正在执行，请稍后重试")
+			return
+		}
+		defer func() { _ = c.dataSvc.ReleaseScopeLock(scopeHash) }()
+
 		jobStart := time.Now()
 		durations := map[string]int64{}
+		const timeoutLimit = 15 * time.Minute
 
-		stageStart := time.Now()
-		total, _ := c.dataSvc.EstimateRecalculateTotal(filter)
-		durations["estimate_ms"] = time.Since(stageStart).Milliseconds()
-		_ = c.dataSvc.MarkTaskRunning(tid, total)
-		_ = c.dataSvc.MarkTaskStage(tid, "recalculating", 0, map[string]interface{}{
-			"total":        total,
-			"durations_ms": durations,
+		_ = c.dataSvc.MarkTaskRunning(tid, 0)
+		_ = c.dataSvc.MarkTaskStage(tid, "estimating", 0, map[string]interface{}{
+			"scope_hash":      scopeHash,
+			"estimate_status": "running",
+			"stage_metrics":   durations,
 		})
+		stageStart := time.Now()
+		total, estErr := c.dataSvc.EstimateRecalculateTotal(filter)
+		durations["estimate_ms"] = time.Since(stageStart).Milliseconds()
+		if estErr != nil {
+			_ = c.dataSvc.MarkTaskStage(tid, "estimate_failed_non_blocking", 0, map[string]interface{}{
+				"scope_hash":      scopeHash,
+				"estimate_status": "failed",
+				"estimate_error":  estErr.Error(),
+				"stage_metrics":   durations,
+			})
+		} else {
+			_ = c.dataSvc.MarkTaskRunning(tid, total)
+			_ = c.dataSvc.MarkTaskStage(tid, "preparing", 0, map[string]interface{}{
+				"total":           total,
+				"scope_hash":      scopeHash,
+				"estimate_status": "success",
+				"stage_metrics":   durations,
+			})
+		}
 
 		stageStart = time.Now()
 		affected, recErr := c.dataSvc.RecalculateWithProgress(filter, func(processed int64) {
@@ -350,23 +409,35 @@ func (c *SettlementDataController) RecalculateCustomerData(ctx *gin.Context) {
 		durations["recalculate_ms"] = time.Since(stageStart).Milliseconds()
 		if recErr != nil {
 			_ = c.dataSvc.MarkTaskStage(tid, "failed", -1, map[string]interface{}{
-				"durations_ms": durations,
-				"error_stage":  "recalculate",
+				"stage_metrics": durations,
+				"scope_hash":    scopeHash,
+				"error_stage":   "recalculate",
 			})
 			_ = c.dataSvc.MarkTaskFailed(tid, recErr.Error())
 			return
 		}
+		if time.Since(jobStart) > timeoutLimit {
+			_ = c.dataSvc.MarkTaskStage(tid, "failed", affected, map[string]interface{}{
+				"stage_metrics": durations,
+				"scope_hash":    scopeHash,
+				"error_stage":   "timeout",
+			})
+			_ = c.dataSvc.MarkTaskFailed(tid, "任务超过15分钟熔断阈值")
+			return
+		}
 
-		_ = c.dataSvc.MarkTaskStage(tid, "rebuilding_monthly", affected, map[string]interface{}{
-			"durations_ms": durations,
+		_ = c.dataSvc.MarkTaskStage(tid, "publishing", affected, map[string]interface{}{
+			"stage_metrics": durations,
+			"scope_hash":    scopeHash,
 		})
 		stageStart = time.Now()
 		if _, snapErr := c.dataSvc.RebuildMonthlySnapshot(&s, &e); snapErr != nil {
 			durations["rebuild_monthly_ms"] = time.Since(stageStart).Milliseconds()
 			durations["total_ms"] = time.Since(jobStart).Milliseconds()
 			_ = c.dataSvc.MarkTaskStage(tid, "failed", affected, map[string]interface{}{
-				"durations_ms": durations,
-				"error_stage":  "rebuild_monthly",
+				"stage_metrics": durations,
+				"scope_hash":    scopeHash,
+				"error_stage":   "rebuild_monthly",
 			})
 			_ = c.dataSvc.MarkTaskFailed(tid, "复算成功但月表回写失败: "+snapErr.Error())
 			return
@@ -374,7 +445,8 @@ func (c *SettlementDataController) RecalculateCustomerData(ctx *gin.Context) {
 		durations["rebuild_monthly_ms"] = time.Since(stageStart).Milliseconds()
 		durations["total_ms"] = time.Since(jobStart).Milliseconds()
 		_ = c.dataSvc.MarkTaskStage(tid, "finalizing", affected, map[string]interface{}{
-			"durations_ms": durations,
+			"stage_metrics": durations,
+			"scope_hash":    scopeHash,
 		})
 		_ = c.dataSvc.MarkTaskSuccess(tid, affected)
 	}(taskID, req.Region, req.CP, req.School, start, end)

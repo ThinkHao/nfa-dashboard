@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"crypto/sha1"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"nfa-dashboard/internal/model"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -26,7 +28,33 @@ type SettlementDataRepository interface {
 
 type settlementDataRepository struct{}
 
+var (
+	slotTableOnce      sync.Once
+	slotTableSupported bool
+)
+
 func NewSettlementDataRepository() SettlementDataRepository { return &settlementDataRepository{} }
+
+func isSlotTableSupported() bool {
+	slotTableOnce.Do(func() {
+		slotTableSupported = model.DB.Migrator().HasTable("settlement_customer_v") &&
+			model.DB.Migrator().HasTable("settlement_customer_monthly_v") &&
+			model.DB.Migrator().HasTable("settlement_month_slot_pointer")
+	})
+	return slotTableSupported
+}
+
+func withActiveSlot(qb *gorm.DB, alias string) *gorm.DB {
+	return qb.Joins(
+		"JOIN settlement_month_slot_pointer p ON p.service_month = " + alias + ".service_month AND p.active_slot = " + alias + ".slot",
+	)
+}
+
+func resolveScopeHash(region, cp, school string, start, end time.Time) string {
+	payload := fmt.Sprintf("%s|%s|%s|%s|%s", region, cp, school, start.Format("2006-01-02"), end.Format("2006-01-02"))
+	sum := sha1.Sum([]byte(payload))
+	return fmt.Sprintf("%x", sum)
+}
 
 func normalizeDayBounds(start, end time.Time) (*time.Time, *time.Time) {
 	var startBound *time.Time
@@ -98,42 +126,51 @@ func buildExistingSettlementMap(rows []model.SettlementCustomer) map[string]uint
 	return m
 }
 
-func applySettlementCustomerFilters(qb *gorm.DB, filter map[string]interface{}) *gorm.DB {
+func applySettlementCustomerFilters(qb *gorm.DB, filter map[string]interface{}, alias string) *gorm.DB {
+	if strings.TrimSpace(alias) == "" {
+		alias = "settlement_customer"
+	}
+	col := func(name string) string {
+		if alias == "settlement_customer" {
+			return name
+		}
+		return alias + "." + name
+	}
 	if v, ok := filter["region"]; ok && v != "" {
-		qb = qb.Where("region = ?", v)
+		qb = qb.Where(col("region")+" = ?", v)
 	}
 	if v, ok := filter["cp"]; ok && v != "" {
-		qb = qb.Where("cp = ?", v)
+		qb = qb.Where(col("cp")+" = ?", v)
 	}
 	if v, ok := filter["school_name"]; ok && v != "" {
-		qb = qb.Where("school_name LIKE ?", "%"+v.(string)+"%")
+		qb = qb.Where(col("school_name")+" LIKE ?", "%"+v.(string)+"%")
 	}
 	if v, ok := filter["start_service_date"]; ok && v != nil {
 		if t, ok2 := v.(time.Time); ok2 {
 			dayStart := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
-			qb = qb.Where("service_date >= ?", dayStart)
+			qb = qb.Where(col("service_date")+" >= ?", dayStart)
 		} else {
-			qb = qb.Where("service_date >= ?", v)
+			qb = qb.Where(col("service_date")+" >= ?", v)
 		}
 	}
 	if v, ok := filter["end_service_date"]; ok && v != nil {
 		if t, ok2 := v.(time.Time); ok2 {
 			dayEndExclusive := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location()).AddDate(0, 0, 1)
-			qb = qb.Where("service_date < ?", dayEndExclusive)
+			qb = qb.Where(col("service_date")+" < ?", dayEndExclusive)
 		} else {
-			qb = qb.Where("service_date <= ?", v)
+			qb = qb.Where(col("service_date")+" <= ?", v)
 		}
 	}
 
 	// 费用归属业务对象过滤（客户费/线路费/节点通用费 任一匹配）
 	if v, ok := filter["owner_entity_id"]; ok && v != nil {
-		qb = qb.Where("(customer_fee_owner_id = ? OR network_line_fee_owner_id = ? OR node_deduction_fee_owner_id = ?)", v, v, v)
+		qb = qb.Where("("+col("customer_fee_owner_id")+" = ? OR "+col("network_line_fee_owner_id")+" = ? OR "+col("node_deduction_fee_owner_id")+" = ?)", v, v, v)
 	}
 	// 渠道归属用户过滤（统一为用户ID后，需在四个归属字段中任一匹配）
 	if v, ok := filter["channel_owner_user_id"]; ok && v != nil {
-		qb = qb.Where("(customer_fee_owner_id = ? OR network_line_fee_owner_id = ? OR node_deduction_fee_owner_id = ? OR channel_owner_user_id = ?)", v, v, v, v)
+		qb = qb.Where("("+col("customer_fee_owner_id")+" = ? OR "+col("network_line_fee_owner_id")+" = ? OR "+col("node_deduction_fee_owner_id")+" = ? OR "+col("channel_owner_user_id")+" = ?)", v, v, v, v)
 	}
-	return applyRateFilterRulesIfEnabled(qb, "settlement_customer")
+	return applyRateFilterRulesIfEnabled(qb, alias)
 }
 
 func shouldApplySettlementFilterRules() bool {
@@ -179,7 +216,15 @@ func applyServiceMonthRangeToDailyQB(qb *gorm.DB, filter map[string]interface{})
 }
 
 func (r *settlementDataRepository) ListSettlementCustomer(ctx context.Context, filter map[string]interface{}, limit, offset int) ([]model.SettlementCustomer, int64, error) {
-	qb := applySettlementCustomerFilters(model.DB.WithContext(ctx).Model(&model.SettlementCustomer{}), filter)
+	qb := model.DB.WithContext(ctx).Model(&model.SettlementCustomer{})
+	if isSlotTableSupported() {
+		qb = withActiveSlot(model.DB.WithContext(ctx).Table("settlement_customer_v scv"), "scv")
+	}
+	alias := "settlement_customer"
+	if isSlotTableSupported() {
+		alias = "scv"
+	}
+	qb = applySettlementCustomerFilters(qb, filter, alias)
 
 	var total int64
 	if err := qb.Count(&total).Error; err != nil {
@@ -200,7 +245,15 @@ func (r *settlementDataRepository) ListSettlementCustomer(ctx context.Context, f
 }
 
 func (r *settlementDataRepository) listSettlementCustomerMonthlyFromDaily(ctx context.Context, filter map[string]interface{}, limit, offset int) ([]model.SettlementCustomerMonthly, int64, error) {
-	base := applySettlementCustomerFilters(model.DB.WithContext(ctx).Model(&model.SettlementCustomer{}), filter).Where("service_date IS NOT NULL")
+	base := model.DB.WithContext(ctx).Model(&model.SettlementCustomer{})
+	if isSlotTableSupported() {
+		base = withActiveSlot(model.DB.WithContext(ctx).Table("settlement_customer_v scv"), "scv")
+	}
+	alias := "settlement_customer"
+	if isSlotTableSupported() {
+		alias = "scv"
+	}
+	base = applySettlementCustomerFilters(base, filter, alias).Where(alias + ".service_date IS NOT NULL")
 	base = applyServiceMonthRangeToDailyQB(base, filter)
 
 	// 统计分组后的总条数
@@ -319,7 +372,15 @@ func (r *settlementDataRepository) ListSettlementCustomerMonthly(ctx context.Con
 		offset = 0
 	}
 
-	qb := applyMonthlySnapshotFilters(model.DB.WithContext(ctx).Table("settlement_customer_monthly"), filter)
+	snapshotTable := "settlement_customer_monthly"
+	snapshotAlias := "settlement_customer_monthly"
+	baseQB := model.DB.WithContext(ctx).Table(snapshotTable)
+	if isSlotTableSupported() {
+		snapshotTable = "settlement_customer_monthly_v scmv"
+		snapshotAlias = "scmv"
+		baseQB = withActiveSlot(model.DB.WithContext(ctx).Table(snapshotTable), "scmv")
+	}
+	qb := applyMonthlySnapshotFilters(baseQB, filter, snapshotAlias)
 
 	var total int64
 	if err := qb.Count(&total).Error; err != nil {
@@ -366,27 +427,31 @@ func (r *settlementDataRepository) ListSettlementCustomerMonthly(ctx context.Con
 	return rows, total, nil
 }
 
-func applyMonthlySnapshotFilters(qb *gorm.DB, filter map[string]interface{}) *gorm.DB {
+func applyMonthlySnapshotFilters(qb *gorm.DB, filter map[string]interface{}, alias string) *gorm.DB {
+	if strings.TrimSpace(alias) == "" {
+		alias = "settlement_customer_monthly"
+	}
+	col := func(name string) string { return alias + "." + name }
 	if v, ok := filter["region"]; ok && v != "" {
-		qb = qb.Where("region = ?", v)
+		qb = qb.Where(col("region")+" = ?", v)
 	}
 	if v, ok := filter["cp"]; ok && v != "" {
-		qb = qb.Where("cp = ?", v)
+		qb = qb.Where(col("cp")+" = ?", v)
 	}
 	if v, ok := filter["school_name"]; ok && v != "" {
-		qb = qb.Where("school_name LIKE ?", "%"+v.(string)+"%")
+		qb = qb.Where(col("school_name")+" LIKE ?", "%"+v.(string)+"%")
 	}
 	if v, ok := filter["start_service_date"]; ok && v != nil {
 		if m, ok2 := toYearMonth(v); ok2 {
-			qb = qb.Where("service_month >= ?", m)
+			qb = qb.Where(col("service_month")+" >= ?", m)
 		}
 	}
 	if v, ok := filter["end_service_date"]; ok && v != nil {
 		if m, ok2 := toYearMonth(v); ok2 {
-			qb = qb.Where("service_month <= ?", m)
+			qb = qb.Where(col("service_month")+" <= ?", m)
 		}
 	}
-	return applyRateFilterRulesIfEnabled(qb, "settlement_customer_monthly")
+	return applyRateFilterRulesIfEnabled(qb, alias)
 }
 
 func toYearMonth(v interface{}) (string, bool) {
@@ -403,24 +468,35 @@ func toYearMonth(v interface{}) (string, bool) {
 }
 
 func isMonthlySnapshotStale(ctx context.Context, filter map[string]interface{}) (bool, error) {
+	dailyAlias := "settlement_customer"
 	dailyQB := model.DB.WithContext(ctx).Model(&model.SettlementCustomer{}).Where("service_date IS NOT NULL")
+	if isSlotTableSupported() {
+		dailyAlias = "scv"
+		dailyQB = withActiveSlot(model.DB.WithContext(ctx).Table("settlement_customer_v scv"), "scv").Where("scv.service_date IS NOT NULL")
+	}
+	col := func(name string) string {
+		if dailyAlias == "settlement_customer" {
+			return name
+		}
+		return dailyAlias + "." + name
+	}
 	if v, ok := filter["region"]; ok && v != "" {
-		dailyQB = dailyQB.Where("region = ?", v)
+		dailyQB = dailyQB.Where(col("region")+" = ?", v)
 	}
 	if v, ok := filter["cp"]; ok && v != "" {
-		dailyQB = dailyQB.Where("cp = ?", v)
+		dailyQB = dailyQB.Where(col("cp")+" = ?", v)
 	}
 	if v, ok := filter["school_name"]; ok && v != "" {
-		dailyQB = dailyQB.Where("school_name LIKE ?", "%"+v.(string)+"%")
+		dailyQB = dailyQB.Where(col("school_name")+" LIKE ?", "%"+v.(string)+"%")
 	}
 	if v, ok := filter["start_service_date"]; ok && v != nil {
 		if t, ok2 := v.(time.Time); ok2 {
-			dailyQB = dailyQB.Where("DATE(service_date) >= ?", t.Format("2006-01-02"))
+			dailyQB = dailyQB.Where("DATE("+col("service_date")+") >= ?", t.Format("2006-01-02"))
 		}
 	}
 	if v, ok := filter["end_service_date"]; ok && v != nil {
 		if t, ok2 := v.(time.Time); ok2 {
-			dailyQB = dailyQB.Where("DATE(service_date) <= ?", t.Format("2006-01-02"))
+			dailyQB = dailyQB.Where("DATE("+col("service_date")+") <= ?", t.Format("2006-01-02"))
 		}
 	}
 	dailyQB = applyServiceMonthRangeToDailyQB(dailyQB, filter)
@@ -432,7 +508,16 @@ func isMonthlySnapshotStale(ctx context.Context, filter map[string]interface{}) 
 		return false, nil
 	}
 
-	snapQB := applyMonthlySnapshotFilters(model.DB.WithContext(ctx).Table("settlement_customer_monthly"), filter)
+	snapQB := model.DB.WithContext(ctx).Table("settlement_customer_monthly")
+	if isSlotTableSupported() {
+		snapQB = withActiveSlot(model.DB.WithContext(ctx).Table("settlement_customer_monthly_v scmv"), "scmv")
+	}
+	snapQB = applyMonthlySnapshotFilters(snapQB, filter, func() string {
+		if isSlotTableSupported() {
+			return "scmv"
+		}
+		return "settlement_customer_monthly"
+	}())
 	var maxSnapUpdatedAt *time.Time
 	if err := snapQB.Select("MAX(updated_at)").Scan(&maxSnapUpdatedAt).Error; err != nil {
 		return true, err
@@ -470,6 +555,77 @@ func shouldUseDailyMonthlyAggregation(filter map[string]interface{}) bool {
 }
 
 func (r *settlementDataRepository) RebuildSettlementCustomerMonthly(start, end time.Time) (int64, error) {
+	if isSlotTableSupported() {
+		months := buildMonthList(start, end)
+		if len(months) == 0 {
+			var pointerMonths []string
+			if err := model.DB.Table("settlement_month_slot_pointer").Pluck("service_month", &pointerMonths).Error; err != nil {
+				return 0, err
+			}
+			months = pointerMonths
+		}
+		var total int64
+		for _, month := range months {
+			tx := model.DB.Begin()
+			if tx.Error != nil {
+				return total, tx.Error
+			}
+			activeSlot, err := activeSlotForMonth(tx, month, 0)
+			if err != nil {
+				tx.Rollback()
+				return total, err
+			}
+			if err := tx.Exec("DELETE FROM settlement_customer_monthly_v WHERE service_month = ? AND slot = ?", month, activeSlot).Error; err != nil {
+				tx.Rollback()
+				return total, err
+			}
+			res := tx.Exec(`
+				INSERT INTO settlement_customer_monthly_v (
+					region, cp, school_name, service_month, slot,
+					settlement_value, stock_ratio, increment_ratio, daily_increment_value,
+					customer_fee, customer_bill, customer_fee_owner_id,
+					network_line_fee, network_line_bill, network_line_fee_owner_id,
+					node_deduction_fee, node_deduction_bill, node_deduction_fee_owner_id,
+					channel_rate, channel_bill, channel_owner_user_id,
+					recalculated, last_recalc_time, created_at, updated_at
+				)
+				SELECT
+					region, cp, school_name, service_month, ?,
+					ROUND(AVG(settlement_value), 6),
+					ROUND(AVG(stock_ratio), 6),
+					ROUND(AVG(increment_ratio), 6),
+					ROUND(AVG(daily_increment_value), 6),
+					ROUND(AVG(customer_fee), 6),
+					ROUND(SUM(customer_bill), 2),
+					CASE WHEN COUNT(DISTINCT customer_fee_owner_id) = 1 THEN MAX(customer_fee_owner_id) ELSE NULL END,
+					ROUND(AVG(network_line_fee), 6),
+					ROUND(SUM(network_line_bill), 2),
+					CASE WHEN COUNT(DISTINCT network_line_fee_owner_id) = 1 THEN MAX(network_line_fee_owner_id) ELSE NULL END,
+					ROUND(AVG(node_deduction_fee), 6),
+					ROUND(SUM(node_deduction_bill), 2),
+					CASE WHEN COUNT(DISTINCT node_deduction_fee_owner_id) = 1 THEN MAX(node_deduction_fee_owner_id) ELSE NULL END,
+					ROUND(AVG(channel_rate), 6),
+					ROUND(SUM(channel_bill), 2),
+					CASE WHEN COUNT(DISTINCT channel_owner_user_id) = 1 THEN MAX(channel_owner_user_id) ELSE NULL END,
+					CASE WHEN SUM(CASE WHEN recalculated = 1 THEN 1 ELSE 0 END) > 0 THEN 1 ELSE 0 END,
+					MAX(last_recalc_time),
+					NOW(), NOW()
+				FROM settlement_customer_v
+				WHERE service_month = ? AND slot = ?
+				GROUP BY region, cp, school_name, service_month
+			`, activeSlot, month, activeSlot)
+			if res.Error != nil {
+				tx.Rollback()
+				return total, res.Error
+			}
+			total += res.RowsAffected
+			if err := tx.Commit().Error; err != nil {
+				return total, err
+			}
+		}
+		return total, nil
+	}
+
 	qb := model.DB.Model(&model.SettlementCustomer{}).Where("service_date IS NOT NULL")
 	startBound, endExclusive := normalizeDayBounds(start, end)
 	if !start.IsZero() {
@@ -694,6 +850,10 @@ func (r *settlementDataRepository) CountSchoolSettlementRows(region, cp, school 
 // - 以 (region, cp, school_name, service_date) 作为匹配键，存在则更新，不存在则插入
 // - markRecalc: 为 true 时表示“复算”，会设置 recalculated 与 last_recalc_time；为 false 表示“初算”，不设置上述标记
 func (r *settlementDataRepository) BackfillFromSchoolSettlement(region, cp, school string, start, end time.Time, markRecalc bool, progress func(processed int64)) (int64, error) {
+	if isSlotTableSupported() {
+		return r.backfillFromSchoolSettlementWithSlot(region, cp, school, start, end, markRecalc, progress)
+	}
+
 	var (
 		affected  int64
 		processed int64
@@ -1054,4 +1214,573 @@ func updateRateCustomerIncrementBatch(tx *gorm.DB, pending map[uint64]float64) e
 		args = append(args, uint64(idInt))
 	}
 	return tx.Exec(sqlBuilder.String(), args...).Error
+}
+
+func buildMonthList(start, end time.Time) []string {
+	if start.IsZero() || end.IsZero() {
+		return nil
+	}
+	from := time.Date(start.Year(), start.Month(), 1, 0, 0, 0, 0, start.Location())
+	to := time.Date(end.Year(), end.Month(), 1, 0, 0, 0, 0, end.Location())
+	if to.Before(from) {
+		return nil
+	}
+	months := make([]string, 0, 6)
+	for cur := from; !cur.After(to); cur = cur.AddDate(0, 1, 0) {
+		months = append(months, cur.Format("2006-01"))
+	}
+	return months
+}
+
+func activeSlotForMonth(tx *gorm.DB, serviceMonth string, taskID int64) (int8, error) {
+	var pointer model.SettlementMonthSlotPointer
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("service_month = ?", serviceMonth).First(&pointer).Error
+	if err == nil {
+		return pointer.ActiveSlot, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, err
+	}
+	pointer = model.SettlementMonthSlotPointer{
+		ServiceMonth: serviceMonth,
+		ActiveSlot:   0,
+		TaskID:       &taskID,
+		UpdatedAt:    time.Now(),
+	}
+	if cerr := tx.Create(&pointer).Error; cerr != nil {
+		return 0, cerr
+	}
+	return 0, nil
+}
+
+func publishSlotForMonth(tx *gorm.DB, serviceMonth string, slot int8, taskID int64) error {
+	now := time.Now()
+	return tx.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "service_month"}},
+		DoUpdates: clause.Assignments(map[string]interface{}{
+			"active_slot": slot,
+			"task_id":     taskID,
+			"updated_at":  now,
+		}),
+	}).Create(&model.SettlementMonthSlotPointer{
+		ServiceMonth: serviceMonth,
+		ActiveSlot:   slot,
+		TaskID:       &taskID,
+		UpdatedAt:    now,
+	}).Error
+}
+
+func buildTmpSourceWhere(region, cp, school string) (string, []interface{}) {
+	parts := []string{"settlement_date >= ?", "settlement_date < ?"}
+	args := make([]interface{}, 0, 5)
+	if strings.TrimSpace(region) != "" {
+		parts = append(parts, "region = ?")
+	}
+	if strings.TrimSpace(cp) != "" {
+		parts = append(parts, "cp = ?")
+	}
+	if strings.TrimSpace(school) != "" {
+		parts = append(parts, "school_name = ?")
+	}
+	if strings.TrimSpace(region) != "" {
+		args = append(args, region)
+	}
+	if strings.TrimSpace(cp) != "" {
+		args = append(args, cp)
+	}
+	if strings.TrimSpace(school) != "" {
+		args = append(args, school)
+	}
+	return strings.Join(parts, " AND "), args
+}
+
+func prepareTmpTables(tx *gorm.DB) error {
+	stmts := []string{
+		"DROP TEMPORARY TABLE IF EXISTS tmp_source",
+		"DROP TEMPORARY TABLE IF EXISTS tmp_key",
+		"DROP TEMPORARY TABLE IF EXISTS tmp_rate",
+		"DROP TEMPORARY TABLE IF EXISTS tmp_rule_applied",
+		"DROP TEMPORARY TABLE IF EXISTS tmp_result",
+	}
+	for _, sql := range stmts {
+		if err := tx.Exec(sql).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func countTempRows(tx *gorm.DB, table string) (int64, error) {
+	var cnt int64
+	if err := tx.Table(table).Count(&cnt).Error; err != nil {
+		return 0, err
+	}
+	return cnt, nil
+}
+
+func runTempPipelineForMonth(
+	tx *gorm.DB,
+	month string,
+	monthStart, monthEnd time.Time,
+	region, cp, school string,
+	inactiveSlot int8,
+	markRecalc bool,
+) (rowsSource, rowsKey, rowsRate, rowsUpsert int64, err error) {
+	if err = prepareTmpTables(tx); err != nil {
+		return
+	}
+
+	settlementResultUnitBase := loadSettlementResultUnitBaseFromSystemSettings()
+	unitDiv := float64(settlementResultUnitBase * settlementResultUnitBase * settlementResultUnitBase)
+	whereClause, dynamicArgs := buildTmpSourceWhere(region, cp, school)
+	args := make([]interface{}, 0, 2+len(dynamicArgs))
+	args = append(args, monthStart, monthEnd.AddDate(0, 0, 1))
+	args = append(args, dynamicArgs...)
+
+	if err = tx.Exec(`
+		CREATE TEMPORARY TABLE tmp_source AS
+		SELECT
+			region,
+			cp,
+			school_name,
+			DATE(settlement_date) AS service_date,
+			settlement_value,
+			settlement_time
+		FROM nfa_school_settlement
+		WHERE `+whereClause, args...).Error; err != nil {
+		return
+	}
+	if rowsSource, err = countTempRows(tx, "tmp_source"); err != nil {
+		return
+	}
+	if rowsSource == 0 {
+		return
+	}
+
+	if err = tx.Exec(`
+		CREATE TEMPORARY TABLE tmp_key AS
+		SELECT DISTINCT region, cp, school_name, service_date
+		FROM tmp_source
+	`).Error; err != nil {
+		return
+	}
+	if rowsKey, err = countTempRows(tx, "tmp_key"); err != nil {
+		return
+	}
+
+	if err = tx.Exec(`
+		CREATE TEMPORARY TABLE tmp_rate AS
+		SELECT *
+		FROM (
+			SELECT
+				k.region,
+				k.cp,
+				k.school_name,
+				k.service_date,
+				rc.id AS rate_customer_id,
+				rc.customer_fee,
+				rc.network_line_fee,
+				rc.general_fee,
+				rc.channel_rate,
+				rc.customer_fee_owner_id,
+				rc.network_line_fee_owner_id,
+				rc.general_fee_owner_id,
+				rc.channel_owner_user_id,
+				rc.start_at,
+				rc.increment_start_at,
+				rc.stock_ratio,
+				rc.increment_ratio,
+				ROW_NUMBER() OVER (
+					PARTITION BY k.region, k.cp, k.school_name, k.service_date
+					ORDER BY rc.start_at DESC, rc.id DESC
+				) AS rn
+			FROM tmp_key k
+			LEFT JOIN rate_customer rc
+				ON rc.region = k.region
+				AND rc.cp = k.cp
+				AND rc.school_name = k.school_name
+				AND (rc.start_at IS NULL OR DATE(rc.start_at) <= k.service_date)
+		) t
+		WHERE t.rn = 1
+	`).Error; err != nil {
+		return
+	}
+	if rowsRate, err = countTempRows(tx, "tmp_rate"); err != nil {
+		return
+	}
+
+	if err = tx.Exec(`
+		CREATE TEMPORARY TABLE tmp_rule_applied AS
+		SELECT
+			tr.*,
+			(
+				SELECT r.id
+				FROM rate_discount_rule r
+				WHERE r.enabled = 1
+				  AND (
+					(r.scope_type = 'school' AND r.scope_key = CONVERT(tr.school_name USING utf8mb4) COLLATE utf8mb4_unicode_ci)
+					OR (r.scope_type = 'cp' AND r.scope_key = CONVERT(tr.cp USING utf8mb4) COLLATE utf8mb4_unicode_ci)
+					OR (r.scope_type = 'region' AND r.scope_key = CONVERT(tr.region USING utf8mb4) COLLATE utf8mb4_unicode_ci)
+					OR (r.scope_type = 'global')
+				  )
+				ORDER BY
+				  CASE r.scope_type
+					WHEN 'school' THEN 1
+					WHEN 'cp' THEN 2
+					WHEN 'region' THEN 3
+					WHEN 'global' THEN 4
+					ELSE 5
+				  END ASC,
+				  r.priority ASC,
+				  r.updated_at DESC,
+				  r.id DESC
+				LIMIT 1
+			) AS discount_rule_id,
+			(
+				SELECT r.fields
+				FROM rate_discount_rule r
+				WHERE r.enabled = 1
+				  AND (
+					(r.scope_type = 'school' AND r.scope_key = CONVERT(tr.school_name USING utf8mb4) COLLATE utf8mb4_unicode_ci)
+					OR (r.scope_type = 'cp' AND r.scope_key = CONVERT(tr.cp USING utf8mb4) COLLATE utf8mb4_unicode_ci)
+					OR (r.scope_type = 'region' AND r.scope_key = CONVERT(tr.region USING utf8mb4) COLLATE utf8mb4_unicode_ci)
+					OR (r.scope_type = 'global')
+				  )
+				ORDER BY
+				  CASE r.scope_type
+					WHEN 'school' THEN 1
+					WHEN 'cp' THEN 2
+					WHEN 'region' THEN 3
+					WHEN 'global' THEN 4
+					ELSE 5
+				  END ASC,
+				  r.priority ASC,
+				  r.updated_at DESC,
+				  r.id DESC
+				LIMIT 1
+			) AS discount_fields,
+			CASE
+				WHEN tr.start_at IS NULL THEN NULL
+				ELSE GREATEST(1, TIMESTAMPDIFF(YEAR, DATE(tr.start_at), tr.service_date) + 1)
+			END AS stock_year_idx,
+			CASE
+				WHEN tr.increment_start_at IS NULL THEN NULL
+				ELSE GREATEST(1, TIMESTAMPDIFF(YEAR, DATE(tr.increment_start_at), tr.service_date) + 1)
+			END AS increment_year_idx,
+			CASE
+				WHEN tr.rate_customer_id IS NULL THEN NULL
+				WHEN tr.increment_start_at IS NULL OR tr.service_date < DATE(tr.increment_start_at) THEN 1
+				ELSE COALESCE(tr.stock_ratio, 1)
+			END AS stock_ratio_eff,
+			CASE
+				WHEN tr.rate_customer_id IS NULL THEN NULL
+				WHEN tr.increment_start_at IS NULL OR tr.service_date < DATE(tr.increment_start_at) THEN 0
+				ELSE COALESCE(tr.increment_ratio, 0)
+			END AS increment_ratio_eff
+		FROM tmp_rate tr
+	`).Error; err != nil {
+		return
+	}
+	if err = tx.Exec(`ALTER TABLE tmp_rule_applied ADD COLUMN stock_discount_ratio DECIMAL(10,6) NULL, ADD COLUMN increment_discount_ratio DECIMAL(10,6) NULL`).Error; err != nil {
+		return
+	}
+	if err = tx.Exec(`
+		UPDATE tmp_rule_applied t
+		SET
+			t.stock_discount_ratio = CASE
+				WHEN t.discount_rule_id IS NULL OR t.stock_year_idx IS NULL THEN 1
+				ELSE COALESCE((
+					SELECT i.discount_rate
+					FROM rate_discount_rule_item i
+					WHERE i.rule_id = t.discount_rule_id
+					  AND t.stock_year_idx >= i.from_year
+					  AND (i.to_year IS NULL OR t.stock_year_idx <= i.to_year)
+					  AND i.discount_rate > 0
+					ORDER BY i.from_year ASC
+					LIMIT 1
+				), 1)
+			END,
+			t.increment_discount_ratio = CASE
+				WHEN t.discount_rule_id IS NULL OR t.increment_year_idx IS NULL THEN 1
+				ELSE COALESCE((
+					SELECT i.discount_rate
+					FROM rate_discount_rule_item i
+					WHERE i.rule_id = t.discount_rule_id
+					  AND t.increment_year_idx >= i.from_year
+					  AND (i.to_year IS NULL OR t.increment_year_idx <= i.to_year)
+					  AND i.discount_rate > 0
+					ORDER BY i.from_year ASC
+					LIMIT 1
+				), 1)
+			END
+	`).Error; err != nil {
+		return
+	}
+
+	if err = tx.Exec(`
+		CREATE TEMPORARY TABLE tmp_result AS
+		SELECT
+			s.region,
+			s.cp,
+			s.school_name,
+			s.service_date,
+			s.settlement_value,
+			s.settlement_time,
+			r.rate_customer_id,
+			r.customer_fee_owner_id,
+			r.network_line_fee_owner_id,
+			r.general_fee_owner_id AS node_deduction_fee_owner_id,
+			r.channel_owner_user_id,
+			r.discount_rule_id,
+			r.stock_year_idx AS service_year_index,
+			r.stock_ratio_eff AS stock_ratio,
+			r.increment_ratio_eff AS increment_ratio,
+			ROUND(s.settlement_value * COALESCE(r.increment_ratio_eff, 0), 6) AS daily_increment_value,
+			CASE
+				WHEN r.customer_fee IS NULL THEN NULL
+				WHEN r.discount_rule_id IS NULL THEN r.customer_fee
+				WHEN (r.discount_fields IS NULL OR JSON_LENGTH(r.discount_fields) = 0 OR JSON_CONTAINS(r.discount_fields, JSON_QUOTE('customer_fee')))
+					THEN (r.customer_fee * COALESCE(r.stock_ratio_eff, 1) * COALESCE(r.stock_discount_ratio, 1))
+					   + (r.customer_fee * COALESCE(r.increment_ratio_eff, 0) * COALESCE(r.increment_discount_ratio, 1))
+				ELSE r.customer_fee
+			END AS customer_fee,
+			CASE
+				WHEN r.network_line_fee IS NULL THEN NULL
+				WHEN r.discount_rule_id IS NOT NULL AND JSON_CONTAINS(COALESCE(r.discount_fields, JSON_ARRAY()), JSON_QUOTE('network_line_fee'))
+					THEN (r.network_line_fee * COALESCE(r.stock_ratio_eff, 1) * COALESCE(r.stock_discount_ratio, 1))
+					   + (r.network_line_fee * COALESCE(r.increment_ratio_eff, 0) * COALESCE(r.increment_discount_ratio, 1))
+				ELSE r.network_line_fee
+			END AS network_line_fee,
+			CASE
+				WHEN r.general_fee IS NULL THEN NULL
+				WHEN r.discount_rule_id IS NOT NULL AND JSON_CONTAINS(COALESCE(r.discount_fields, JSON_ARRAY()), JSON_QUOTE('general_fee'))
+					THEN (r.general_fee * COALESCE(r.stock_ratio_eff, 1) * COALESCE(r.stock_discount_ratio, 1))
+					   + (r.general_fee * COALESCE(r.increment_ratio_eff, 0) * COALESCE(r.increment_discount_ratio, 1))
+				ELSE r.general_fee
+			END AS node_deduction_fee,
+			CASE
+				WHEN r.channel_rate IS NULL THEN NULL
+				WHEN r.discount_rule_id IS NOT NULL AND JSON_CONTAINS(COALESCE(r.discount_fields, JSON_ARRAY()), JSON_QUOTE('channel_rate'))
+					THEN (r.channel_rate * COALESCE(r.stock_ratio_eff, 1) * COALESCE(r.stock_discount_ratio, 1))
+					   + (r.channel_rate * COALESCE(r.increment_ratio_eff, 0) * COALESCE(r.increment_discount_ratio, 1))
+				ELSE r.channel_rate
+			END AS channel_rate
+		FROM tmp_source s
+		LEFT JOIN tmp_rule_applied r
+		  ON r.region = s.region
+		 AND r.cp = s.cp
+		 AND r.school_name = s.school_name
+		 AND r.service_date = s.service_date
+	`).Error; err != nil {
+		return
+	}
+
+	now := time.Now()
+	recalcFlag := 0
+	if markRecalc {
+		recalcFlag = 1
+	}
+	lastRecalc := interface{}(nil)
+	if markRecalc {
+		lastRecalc = now
+	}
+	res := tx.Exec(`
+		INSERT INTO settlement_customer_v (
+			region, cp, school_name, service_month, slot,
+			settlement_value, settlement_time, service_date,
+			recalculated, last_recalc_time,
+			customer_fee, customer_bill, customer_fee_owner_id,
+			network_line_fee, network_line_bill, network_line_fee_owner_id,
+			node_deduction_fee, node_deduction_bill, node_deduction_fee_owner_id,
+			channel_rate, channel_bill, channel_owner_user_id,
+			stock_ratio, increment_ratio, daily_increment_value, discount_rule_id, service_year_index,
+			created_at, updated_at
+		)
+		SELECT
+			r.region, r.cp, r.school_name, ?, ?,
+			r.settlement_value, r.settlement_time, r.service_date,
+			?, ?,
+			r.customer_fee,
+			CASE WHEN r.customer_fee IS NULL THEN NULL ELSE ROUND((((r.settlement_value * 8.0 / 60.0) / ?) * r.customer_fee) / DAY(LAST_DAY(r.service_date)), 2) END,
+			r.customer_fee_owner_id,
+			r.network_line_fee,
+			CASE WHEN r.network_line_fee IS NULL THEN NULL ELSE ROUND((((r.settlement_value * 8.0 / 60.0) / ?) * r.network_line_fee) / DAY(LAST_DAY(r.service_date)), 2) END,
+			r.network_line_fee_owner_id,
+			r.node_deduction_fee,
+			CASE WHEN r.node_deduction_fee IS NULL THEN NULL ELSE ROUND((((r.settlement_value * 8.0 / 60.0) / ?) * r.node_deduction_fee) / DAY(LAST_DAY(r.service_date)), 2) END,
+			r.node_deduction_fee_owner_id,
+			r.channel_rate,
+			CASE WHEN r.channel_rate IS NULL THEN NULL ELSE ROUND((((r.settlement_value * 8.0 / 60.0) / ?) * r.channel_rate) / DAY(LAST_DAY(r.service_date)), 2) END,
+			r.channel_owner_user_id,
+			r.stock_ratio, r.increment_ratio, r.daily_increment_value, r.discount_rule_id, r.service_year_index,
+			NOW(), NOW()
+		FROM tmp_result r
+		ON DUPLICATE KEY UPDATE
+			settlement_value = VALUES(settlement_value),
+			settlement_time = VALUES(settlement_time),
+			customer_fee = VALUES(customer_fee),
+			network_line_fee = VALUES(network_line_fee),
+			node_deduction_fee = VALUES(node_deduction_fee),
+			channel_rate = VALUES(channel_rate),
+			customer_fee_owner_id = VALUES(customer_fee_owner_id),
+			network_line_fee_owner_id = VALUES(network_line_fee_owner_id),
+			node_deduction_fee_owner_id = VALUES(node_deduction_fee_owner_id),
+			channel_owner_user_id = VALUES(channel_owner_user_id),
+			stock_ratio = VALUES(stock_ratio),
+			increment_ratio = VALUES(increment_ratio),
+			daily_increment_value = VALUES(daily_increment_value),
+			discount_rule_id = VALUES(discount_rule_id),
+			service_year_index = VALUES(service_year_index),
+			customer_bill = VALUES(customer_bill),
+			network_line_bill = VALUES(network_line_bill),
+			channel_bill = VALUES(channel_bill),
+			node_deduction_bill = VALUES(node_deduction_bill),
+			recalculated = IF(? = 1, 1, recalculated),
+			last_recalc_time = IF(? = 1, VALUES(last_recalc_time), last_recalc_time),
+			updated_at = NOW()
+	`, month, inactiveSlot, recalcFlag, lastRecalc, unitDiv, unitDiv, unitDiv, unitDiv, recalcFlag, recalcFlag)
+	if res.Error != nil {
+		err = res.Error
+		return
+	}
+	rowsUpsert = res.RowsAffected
+
+	if err = tx.Exec(`
+		UPDATE rate_customer rc
+		JOIN (
+			SELECT rate_customer_id, ROUND(AVG(daily_increment_value), 6) AS new_increment_value
+			FROM tmp_result
+			WHERE rate_customer_id IS NOT NULL
+			GROUP BY rate_customer_id
+		) x ON x.rate_customer_id = rc.id
+		SET rc.daily_increment_value = x.new_increment_value
+	`).Error; err != nil {
+		return
+	}
+	return
+}
+
+func (r *settlementDataRepository) backfillFromSchoolSettlementWithSlot(region, cp, school string, start, end time.Time, markRecalc bool, progress func(processed int64)) (int64, error) {
+	months := buildMonthList(start, end)
+	if len(months) == 0 {
+		return 0, nil
+	}
+	var totalAffected int64
+	var processed int64
+	var taskID int64
+	if markRecalc {
+		taskID = int64(time.Now().Unix())
+	}
+	for _, month := range months {
+		monthStart, _ := time.ParseInLocation("2006-01-02", month+"-01", start.Location())
+		monthEnd := monthStart.AddDate(0, 1, -1)
+		if monthStart.Before(start) {
+			monthStart = start
+		}
+		if monthEnd.After(end) {
+			monthEnd = end
+		}
+		tx := model.DB.Begin()
+		if tx.Error != nil {
+			return totalAffected, tx.Error
+		}
+
+		activeSlot, err := activeSlotForMonth(tx, month, taskID)
+		if err != nil {
+			tx.Rollback()
+			return totalAffected, err
+		}
+		inactiveSlot := int8(1 - activeSlot)
+
+		if err := tx.Exec("DELETE FROM settlement_customer_v WHERE service_month = ? AND slot = ?", month, inactiveSlot).Error; err != nil {
+			tx.Rollback()
+			return totalAffected, err
+		}
+		if err := tx.Exec(`
+			INSERT INTO settlement_customer_v (
+				region,cp,school_name,service_month,slot,settlement_value,settlement_time,service_date,
+				recalculated,last_recalc_time,customer_fee,customer_bill,customer_fee_owner_id,
+				network_line_fee,network_line_bill,network_line_fee_owner_id,node_deduction_fee,node_deduction_bill,node_deduction_fee_owner_id,
+				channel_rate,channel_bill,channel_owner_user_id,stock_ratio,increment_ratio,daily_increment_value,discount_rule_id,service_year_index,
+				created_at,updated_at
+			)
+			SELECT
+				region,cp,school_name,service_month,?,settlement_value,settlement_time,service_date,
+				recalculated,last_recalc_time,customer_fee,customer_bill,customer_fee_owner_id,
+				network_line_fee,network_line_bill,network_line_fee_owner_id,node_deduction_fee,node_deduction_bill,node_deduction_fee_owner_id,
+				channel_rate,channel_bill,channel_owner_user_id,stock_ratio,increment_ratio,daily_increment_value,discount_rule_id,service_year_index,
+				created_at,updated_at
+			FROM settlement_customer_v
+			WHERE service_month = ? AND slot = ?`, inactiveSlot, month, activeSlot).Error; err != nil {
+			tx.Rollback()
+			return totalAffected, err
+		}
+
+		rowsSource, rowsKey, rowsRate, rowsUpsert, err := runTempPipelineForMonth(tx, month, monthStart, monthEnd, region, cp, school, inactiveSlot, markRecalc)
+		if err != nil {
+			tx.Rollback()
+			return totalAffected, err
+		}
+		_ = rowsKey
+		_ = rowsRate
+		if rowsUpsert > 0 {
+			totalAffected += rowsUpsert
+		}
+		processed += rowsSource
+		if progress != nil {
+			progress(processed)
+		}
+
+		if err := tx.Exec("DELETE FROM settlement_customer_monthly_v WHERE service_month = ? AND slot = ?", month, inactiveSlot).Error; err != nil {
+			tx.Rollback()
+			return totalAffected, err
+		}
+		if err := tx.Exec(`
+			INSERT INTO settlement_customer_monthly_v (
+				region, cp, school_name, service_month, slot,
+				settlement_value, stock_ratio, increment_ratio, daily_increment_value,
+				customer_fee, customer_bill, customer_fee_owner_id,
+				network_line_fee, network_line_bill, network_line_fee_owner_id,
+				node_deduction_fee, node_deduction_bill, node_deduction_fee_owner_id,
+				channel_rate, channel_bill, channel_owner_user_id,
+				recalculated, last_recalc_time, created_at, updated_at
+			)
+			SELECT
+				region, cp, school_name, service_month, ?,
+				ROUND(AVG(settlement_value), 6),
+				ROUND(AVG(stock_ratio), 6),
+				ROUND(AVG(increment_ratio), 6),
+				ROUND(AVG(daily_increment_value), 6),
+				ROUND(AVG(customer_fee), 6),
+				ROUND(SUM(customer_bill), 2),
+				CASE WHEN COUNT(DISTINCT customer_fee_owner_id) = 1 THEN MAX(customer_fee_owner_id) ELSE NULL END,
+				ROUND(AVG(network_line_fee), 6),
+				ROUND(SUM(network_line_bill), 2),
+				CASE WHEN COUNT(DISTINCT network_line_fee_owner_id) = 1 THEN MAX(network_line_fee_owner_id) ELSE NULL END,
+				ROUND(AVG(node_deduction_fee), 6),
+				ROUND(SUM(node_deduction_bill), 2),
+				CASE WHEN COUNT(DISTINCT node_deduction_fee_owner_id) = 1 THEN MAX(node_deduction_fee_owner_id) ELSE NULL END,
+				ROUND(AVG(channel_rate), 6),
+				ROUND(SUM(channel_bill), 2),
+				CASE WHEN COUNT(DISTINCT channel_owner_user_id) = 1 THEN MAX(channel_owner_user_id) ELSE NULL END,
+				CASE WHEN SUM(CASE WHEN recalculated = 1 THEN 1 ELSE 0 END) > 0 THEN 1 ELSE 0 END,
+				MAX(last_recalc_time),
+				NOW(),
+				NOW()
+			FROM settlement_customer_v
+			WHERE service_month = ? AND slot = ?
+			GROUP BY region, cp, school_name, service_month
+		`, inactiveSlot, month, inactiveSlot).Error; err != nil {
+			tx.Rollback()
+			return totalAffected, err
+		}
+		if err := publishSlotForMonth(tx, month, inactiveSlot, taskID); err != nil {
+			tx.Rollback()
+			return totalAffected, err
+		}
+		if err := tx.Commit().Error; err != nil {
+			return totalAffected, err
+		}
+	}
+	return totalAffected, nil
 }

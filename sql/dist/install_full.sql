@@ -726,6 +726,87 @@ SET @ddl := IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHE
   'ALTER TABLE `nfa_settlement_task` ADD COLUMN `task_meta` LONGTEXT NULL AFTER `error_message`', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- 038_create_settlement_slot_tables.sql
+CREATE TABLE IF NOT EXISTS `settlement_customer_v` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `region` VARCHAR(32) NOT NULL,
+  `cp` VARCHAR(32) NOT NULL,
+  `school_name` VARCHAR(128) NOT NULL,
+  `service_month` VARCHAR(7) NOT NULL,
+  `slot` TINYINT NOT NULL DEFAULT 0,
+  `settlement_value` DECIMAL(18,6) NOT NULL,
+  `settlement_time` DATETIME NOT NULL,
+  `service_date` DATE NULL,
+  `recalculated` TINYINT(1) NOT NULL DEFAULT 0,
+  `last_recalc_time` DATETIME NULL,
+  `customer_fee` DECIMAL(18,6) NULL,
+  `customer_bill` DECIMAL(18,2) NULL,
+  `customer_fee_owner_id` BIGINT UNSIGNED NULL,
+  `network_line_fee` DECIMAL(18,6) NULL,
+  `network_line_bill` DECIMAL(18,2) NULL,
+  `network_line_fee_owner_id` BIGINT UNSIGNED NULL,
+  `node_deduction_fee` DECIMAL(18,6) NULL,
+  `node_deduction_bill` DECIMAL(18,2) NULL,
+  `node_deduction_fee_owner_id` BIGINT UNSIGNED NULL,
+  `channel_rate` DECIMAL(18,6) NULL,
+  `channel_bill` DECIMAL(18,2) NULL,
+  `channel_owner_user_id` BIGINT UNSIGNED NULL,
+  `stock_ratio` DECIMAL(10,6) NULL,
+  `increment_ratio` DECIMAL(10,6) NULL,
+  `daily_increment_value` DECIMAL(20,6) NULL,
+  `discount_rule_id` BIGINT UNSIGNED NULL,
+  `service_year_index` INT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_scv_month_slot_region_cp_school_date` (`service_month`,`slot`,`region`,`cp`,`school_name`,`service_date`),
+  KEY `idx_scv_month_slot_service_date_id` (`service_month`,`slot`,`service_date`,`id`),
+  KEY `idx_scv_region` (`region`),
+  KEY `idx_scv_cp` (`cp`),
+  KEY `idx_scv_school` (`school_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='客户结算明细双槽位表';
+
+CREATE TABLE IF NOT EXISTS `settlement_customer_monthly_v` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `region` VARCHAR(32) NOT NULL,
+  `cp` VARCHAR(32) NOT NULL,
+  `school_name` VARCHAR(128) NOT NULL,
+  `service_month` VARCHAR(7) NOT NULL,
+  `slot` TINYINT NOT NULL DEFAULT 0,
+  `settlement_value` DECIMAL(18,6) NOT NULL DEFAULT 0,
+  `stock_ratio` DECIMAL(10,6) NULL,
+  `increment_ratio` DECIMAL(10,6) NULL,
+  `daily_increment_value` DECIMAL(20,6) NULL,
+  `customer_fee` DECIMAL(18,6) NULL,
+  `customer_bill` DECIMAL(18,2) NULL,
+  `customer_fee_owner_id` BIGINT UNSIGNED NULL,
+  `network_line_fee` DECIMAL(18,6) NULL,
+  `network_line_bill` DECIMAL(18,2) NULL,
+  `network_line_fee_owner_id` BIGINT UNSIGNED NULL,
+  `node_deduction_fee` DECIMAL(18,6) NULL,
+  `node_deduction_bill` DECIMAL(18,2) NULL,
+  `node_deduction_fee_owner_id` BIGINT UNSIGNED NULL,
+  `channel_rate` DECIMAL(18,6) NULL,
+  `channel_bill` DECIMAL(18,2) NULL,
+  `channel_owner_user_id` BIGINT UNSIGNED NULL,
+  `recalculated` TINYINT(1) NOT NULL DEFAULT 0,
+  `last_recalc_time` DATETIME NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_scmv_month_slot_region_cp_school` (`service_month`,`slot`,`region`,`cp`,`school_name`),
+  KEY `idx_scmv_month_slot` (`service_month`,`slot`),
+  KEY `idx_scmv_region_cp` (`region`,`cp`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='客户结算月快照双槽位表';
+
+CREATE TABLE IF NOT EXISTS `settlement_month_slot_pointer` (
+  `service_month` VARCHAR(7) NOT NULL,
+  `active_slot` TINYINT NOT NULL DEFAULT 0,
+  `task_id` BIGINT NULL,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`service_month`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='客户结算月槽位发布指针';
+
 -- 037_add_settlement_customer_unique_key.sql
 DELETE sc_old
 FROM settlement_customer sc_old

@@ -131,6 +131,42 @@ type SettlementCustomer struct {
 
 func (SettlementCustomer) TableName() string { return "settlement_customer" }
 
+// SettlementCustomerV 对应 settlement_customer_v 表（双槽位）
+type SettlementCustomerV struct {
+	ID                      uint64     `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+	Region                  string     `gorm:"column:region;size:32;not null" json:"region"`
+	CP                      string     `gorm:"column:cp;size:32;not null" json:"cp"`
+	SchoolName              string     `gorm:"column:school_name;size:128;not null" json:"school_name"`
+	ServiceMonth            string     `gorm:"column:service_month;size:7;not null" json:"service_month"`
+	Slot                    int8       `gorm:"column:slot;not null" json:"slot"`
+	SettlementValue         float64    `gorm:"column:settlement_value;not null" json:"settlement_value"`
+	SettlementTime          time.Time  `gorm:"column:settlement_time;not null" json:"settlement_time"`
+	ServiceDate             *time.Time `gorm:"column:service_date" json:"service_date,omitempty"`
+	Recalculated            bool       `gorm:"column:recalculated" json:"recalculated"`
+	LastRecalcTime          *time.Time `gorm:"column:last_recalc_time" json:"last_recalc_time,omitempty"`
+	CustomerFee             *float64   `gorm:"column:customer_fee" json:"customer_fee,omitempty"`
+	CustomerBill            *float64   `gorm:"column:customer_bill" json:"customer_bill,omitempty"`
+	CustomerFeeOwnerID      *uint64    `gorm:"column:customer_fee_owner_id" json:"customer_fee_owner_id,omitempty"`
+	NetworkLineFee          *float64   `gorm:"column:network_line_fee" json:"network_line_fee,omitempty"`
+	NetworkLineBill         *float64   `gorm:"column:network_line_bill" json:"network_line_bill,omitempty"`
+	NetworkLineFeeOwnerID   *uint64    `gorm:"column:network_line_fee_owner_id" json:"network_line_fee_owner_id,omitempty"`
+	NodeDeductionFee        *float64   `gorm:"column:node_deduction_fee" json:"node_deduction_fee,omitempty"`
+	NodeDeductionBill       *float64   `gorm:"column:node_deduction_bill" json:"node_deduction_bill,omitempty"`
+	NodeDeductionFeeOwnerID *uint64    `gorm:"column:node_deduction_fee_owner_id" json:"node_deduction_fee_owner_id,omitempty"`
+	ChannelRate             *float64   `gorm:"column:channel_rate" json:"channel_rate,omitempty"`
+	ChannelBill             *float64   `gorm:"column:channel_bill" json:"channel_bill,omitempty"`
+	ChannelOwnerUserID      *uint64    `gorm:"column:channel_owner_user_id" json:"channel_owner_user_id,omitempty"`
+	StockRatio              *float64   `gorm:"column:stock_ratio" json:"stock_ratio,omitempty"`
+	IncrementRatio          *float64   `gorm:"column:increment_ratio" json:"increment_ratio,omitempty"`
+	DailyIncrementValue     *float64   `gorm:"column:daily_increment_value" json:"daily_increment_value,omitempty"`
+	DiscountRuleID          *uint64    `gorm:"column:discount_rule_id" json:"discount_rule_id,omitempty"`
+	ServiceYearIndex        *int       `gorm:"column:service_year_index" json:"service_year_index,omitempty"`
+	CreatedAt               time.Time  `gorm:"column:created_at;autoCreateTime" json:"created_at"`
+	UpdatedAt               time.Time  `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
+}
+
+func (SettlementCustomerV) TableName() string { return "settlement_customer_v" }
+
 // SettlementCustomerMonthly 客户结算月度聚合视图（按 region/cp/school_name/月 汇总）
 type SettlementCustomerMonthly struct {
 	Region                  string   `json:"region"`
@@ -157,6 +193,16 @@ type SettlementCustomerMonthly struct {
 	Recalculated            bool     `json:"recalculated"`
 	LastRecalcTime          *string  `json:"last_recalc_time,omitempty"`
 }
+
+// SettlementMonthSlotPointer 对应 settlement_month_slot_pointer 表（每月活跃槽位指针）
+type SettlementMonthSlotPointer struct {
+	ServiceMonth string    `gorm:"column:service_month;size:7;primaryKey" json:"service_month"`
+	ActiveSlot   int8      `gorm:"column:active_slot;not null" json:"active_slot"`
+	TaskID       *int64    `gorm:"column:task_id" json:"task_id,omitempty"`
+	UpdatedAt    time.Time `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
+}
+
+func (SettlementMonthSlotPointer) TableName() string { return "settlement_month_slot_pointer" }
 
 // SettlementNodeDaily95 对应 settlement_node_daily95 表
 // 节点日95结算金额
