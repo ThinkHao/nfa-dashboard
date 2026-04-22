@@ -1483,38 +1483,44 @@ func runTempPipelineForMonth(
 
 	if err = tx.Exec(`
 		CREATE TEMPORARY TABLE tmp_rate AS
-		SELECT *
-		FROM (
-			SELECT
-				k.region,
-				k.cp,
-				k.school_name,
-				k.service_date,
-				rc.id AS rate_customer_id,
-				rc.customer_fee,
-				rc.network_line_fee,
-				rc.general_fee,
-				rc.channel_rate,
-				rc.customer_fee_owner_id,
-				rc.network_line_fee_owner_id,
-				rc.general_fee_owner_id,
-				rc.channel_owner_user_id,
-				rc.start_at,
-				rc.increment_start_at,
-				rc.stock_ratio,
-				rc.increment_ratio,
-				ROW_NUMBER() OVER (
-					PARTITION BY k.region, k.cp, k.school_name, k.service_date
-					ORDER BY rc.start_at DESC, rc.id DESC
-				) AS rn
-			FROM tmp_key k
-			LEFT JOIN rate_customer rc
-				ON rc.region = k.region
-				AND rc.cp = k.cp
-				AND rc.school_name = k.school_name
-				AND (rc.start_at IS NULL OR DATE(rc.start_at) <= k.service_date)
-		) t
-		WHERE t.rn = 1
+		SELECT
+			k.region,
+			k.cp,
+			k.school_name,
+			k.service_date,
+			rc.id AS rate_customer_id,
+			rc.customer_fee,
+			rc.network_line_fee,
+			rc.general_fee,
+			rc.channel_rate,
+			rc.customer_fee_owner_id,
+			rc.network_line_fee_owner_id,
+			rc.general_fee_owner_id,
+			rc.channel_owner_user_id,
+			rc.start_at,
+			rc.increment_start_at,
+			rc.stock_ratio,
+			rc.increment_ratio
+		FROM tmp_key k
+		LEFT JOIN rate_customer rc
+			ON rc.region = k.region
+			AND rc.cp = k.cp
+			AND rc.school_name = k.school_name
+			AND (rc.start_at IS NULL OR DATE(rc.start_at) <= k.service_date)
+		LEFT JOIN rate_customer rc2
+			ON rc.id IS NOT NULL
+			AND rc2.region = k.region
+			AND rc2.cp = k.cp
+			AND rc2.school_name = k.school_name
+			AND (rc2.start_at IS NULL OR DATE(rc2.start_at) <= k.service_date)
+			AND (
+				COALESCE(rc2.start_at, '1000-01-01 00:00:00') > COALESCE(rc.start_at, '1000-01-01 00:00:00')
+				OR (
+					COALESCE(rc2.start_at, '1000-01-01 00:00:00') = COALESCE(rc.start_at, '1000-01-01 00:00:00')
+					AND rc2.id > rc.id
+				)
+			)
+		WHERE rc2.id IS NULL
 	`).Error; err != nil {
 		return
 	}
