@@ -192,6 +192,9 @@ assert_db_schema() {
   log "执行关键 schema 预检"
   local checks=(
     "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer_monthly';|settlement_customer_monthly 表缺失"
+    "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer_v';|settlement_customer_v 表缺失"
+    "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer_monthly_v';|settlement_customer_monthly_v 表缺失"
+    "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_month_slot_pointer';|settlement_month_slot_pointer 表缺失"
     "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='traffic_scope_rules';|traffic_scope_rules 表缺失"
     "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='traffic_scope_rule_groups';|traffic_scope_rule_groups 表缺失"
     "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='traffic_scope_rule_conditions';|traffic_scope_rule_conditions 表缺失"
