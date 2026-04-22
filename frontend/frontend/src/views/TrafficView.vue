@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed, watch } from 'vue'
+import { ref, reactive, onMounted, onActivated, nextTick, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import api from '../api'
 import PageHeader from '@/components/ui/PageHeader.vue'
@@ -186,6 +186,7 @@ const currentGranularity = ref('5m') // 当前使用的时间粒度
 const queryCtl = useCancelableQuery()
 const trafficSettings = useSystemTrafficSettings()
 const trafficByteUnitBase = computed(() => normalizeByteUnitBase(trafficSettings.settings.value.traffic_byte_unit_base, 1024))
+const chartRef = ref<InstanceType<typeof VChart> | null>(null)
 
 const pagedTrafficData = computed(() => {
   const list = trafficData.value as any[]
@@ -451,6 +452,42 @@ const chartOption = computed(() => {
   }
 })
 
+function isTrafficRouteActive() {
+  return route.name === 'traffic' || route.path === '/traffic'
+}
+
+type RouteQueryLike = Record<string, unknown>
+
+function applyRouteQueryFilters(q: RouteQueryLike, options: { autoQuery?: boolean } = {}) {
+  if (!isTrafficRouteActive()) return
+
+  const hasSchool = Object.prototype.hasOwnProperty.call(q, 'school_name')
+  const hasRegion = Object.prototype.hasOwnProperty.call(q, 'region')
+  const hasCp = Object.prototype.hasOwnProperty.call(q, 'cp')
+  const hasExplicitFilterKeys = hasSchool || hasRegion || hasCp
+
+  if (hasSchool) queryForm.school_name = typeof q.school_name === 'string' ? q.school_name : ''
+  if (hasRegion) queryForm.region = typeof q.region === 'string' ? q.region : ''
+  if (hasCp) queryForm.cp = typeof q.cp === 'string' ? q.cp : ''
+
+  if (options.autoQuery && hasExplicitFilterKeys && hasFilter.value) {
+    currentPage.value = 1
+    queryCtl.run((signal) => loadTrafficData(signal), { showCancelMessage: false })
+  }
+}
+
+function resizeTrafficChart() {
+  const doResize = () => {
+    try { chartRef.value?.resize() } catch {}
+  }
+  nextTick(() => {
+    doResize()
+    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(() => doResize())
+    }
+  })
+}
+
 // 初始化数据
 onMounted(async () => {
   try {
@@ -461,16 +498,8 @@ onMounted(async () => {
     queryForm.end_time = initialRange?.[1] || ''
     
     // 读取路由查询参数作为默认过滤
-    const q: any = route.query || {}
-    if (typeof q.school_name === 'string' && q.school_name) {
-      queryForm.school_name = q.school_name
-    }
-    if (typeof q.region === 'string' && q.region) {
-      queryForm.region = q.region
-    }
-    if (typeof q.cp === 'string' && q.cp) {
-      queryForm.cp = q.cp
-    }
+    const q = (route.query || {}) as RouteQueryLike
+    applyRouteQueryFilters(q, { autoQuery: false })
     
     // 先加载地区/运营商（v2，按用户可见范围）
     await loadRegionCpOptions()
@@ -488,6 +517,10 @@ onMounted(async () => {
   }
 })
 
+onActivated(() => {
+  resizeTrafficChart()
+})
+
 // 监听分页变化
 watch(currentPage, () => {
   queryCtl.run((signal) => loadTrafficData(signal), { showCancelMessage: false })
@@ -499,10 +532,7 @@ watch(
   (q: any) => {
     try {
       if (q && typeof q === 'object') {
-        queryForm.school_name = typeof q.school_name === 'string' ? q.school_name : ''
-        queryForm.region = typeof q.region === 'string' ? q.region : ''
-        queryForm.cp = typeof q.cp === 'string' ? q.cp : ''
-        queryCtl.run((signal) => loadTrafficData(signal), { showCancelMessage: false })
+        applyRouteQueryFilters(q as RouteQueryLike, { autoQuery: true })
       }
     } catch {}
   }
@@ -812,8 +842,6 @@ async function loadTrafficData(signal?: AbortSignal) {
       }
   } catch (error) {
     if (isAbortError(error)) {
-      trafficData.value = []
-      total.value = 0
       return
     }
     console.error('加载流量数据失败:', error)
@@ -1062,7 +1090,7 @@ usePageRefresh(() => {
     
     <!-- 流量图表 -->
     <SectionCard title="趋势图" v-loading="chartLoading">
-      <v-chart class="traffic-chart" :option="chartOption" autoresize />
+      <v-chart ref="chartRef" class="traffic-chart" :option="chartOption" autoresize />
     </SectionCard>
     
     <!-- 流量数据表格 -->

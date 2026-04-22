@@ -54,13 +54,13 @@ const canBusinessTypes = computed(() => auth.hasPermission('business_types.read'
 
       <el-main class="content">
         <RouterView v-slot="{ Component, route }">
-          <template v-if="route.meta && (route.meta as any).cache">
-            <keep-alive>
-              <component :is="Component" />
-            </keep-alive>
+          <template v-if="route.meta && (route.meta as any).noCache">
+            <component :is="Component" :key="route.path" />
           </template>
           <template v-else>
-            <component :is="Component" />
+            <keep-alive :max="20">
+              <component :is="Component" :key="route.path" />
+            </keep-alive>
           </template>
         </RouterView>
       </el-main>
@@ -205,5 +205,3 @@ const canBusinessTypes = computed(() => auth.hasPermission('business_types.read'
   }
 }
 </style>
-
-
