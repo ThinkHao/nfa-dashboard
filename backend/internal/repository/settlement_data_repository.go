@@ -1331,9 +1331,9 @@ func createTmpSourceAndKeys(
 	if err = tx.Exec(`
 		CREATE TEMPORARY TABLE tmp_source AS
 		SELECT
-			region,
-			cp,
-			school_name,
+			CONVERT(region USING utf8mb4) COLLATE utf8mb4_unicode_ci AS region,
+			CONVERT(cp USING utf8mb4) COLLATE utf8mb4_unicode_ci AS cp,
+			CONVERT(school_name USING utf8mb4) COLLATE utf8mb4_unicode_ci AS school_name,
 			DATE(settlement_date) AS service_date,
 			settlement_value,
 			settlement_time
