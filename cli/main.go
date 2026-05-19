@@ -555,6 +555,7 @@ func typedRoutes() map[string]route {
 		"settlement channel-results list":          {http.MethodGet, "/api/v1/settlement/results/channels"},
 		"settlement data customer":                 {http.MethodGet, "/api/v1/settlement/data/customer"},
 		"settlement data monthly":                  {http.MethodGet, "/api/v1/settlement/data/customer/monthly"},
+		"settlement owner-subjects":                {http.MethodGet, "/api/v1/settlement/data/customer/owner-subjects"},
 		"settlement data recalculate":              {http.MethodPost, "/api/v1/settlement/data/customer/recalculate"},
 		"settlement data rebuild-monthly":          {http.MethodPost, "/api/v1/settlement/data/customer/monthly/rebuild"},
 		"settlement formulas list":                 {http.MethodGet, "/api/v1/settlement/formulas"},
@@ -1635,6 +1636,7 @@ func printHelp(w io.Writer, args []string) {
 			return
 		}
 		printTypedHelp(w, "settlement", []string{
+			"settlement owner-subjects --query region=北京市 --query cp=bilibili --query start_service_date=\"2026-04-01 00:00:00\" --query end_service_date=\"2026-04-30 23:59:59\"",
 			"settlement user-panel --query channel_owner_user_id=9 --query region=北京市 --query cp=bilibili --query start_service_date=\"2026-04-01 00:00:00\" --query end_service_date=\"2026-04-30 23:59:59\"",
 			"settlement tasks list --query limit=20",
 			"settlement data rebuild-monthly --body \"{}\" --dry-run",
@@ -1833,7 +1835,7 @@ Usage:
   nfa-dashboard-cli [global flags] settlement user-panel --query KEY=VALUE...
 
 Common query keys:
-  channel_owner_user_id   user id from system users list
+  channel_owner_user_id   owner subject id from settlement owner-subjects
   region                  region filter, for example 北京市
   cp                      business filter, for example bilibili
   school_name             optional school filter
@@ -1847,7 +1849,7 @@ Flags:
   --dry-run                       show the three backend requests
 
 Examples:
-  nfa-dashboard-cli system users list --query username=liuxy
+  nfa-dashboard-cli settlement owner-subjects --query region=北京市 --query cp=bilibili --query start_service_date="2026-04-01 00:00:00" --query end_service_date="2026-04-30 23:59:59"
   nfa-dashboard-cli settlement user-panel --query channel_owner_user_id=9 --query region=北京市 --query cp=bilibili --query start_service_date="2026-04-01 00:00:00" --query end_service_date="2026-04-30 23:59:59"
   nfa-dashboard-cli settlement user-panel --query channel_owner_user_id=9 --query cp=bilibili --dry-run`)
 }

@@ -51,7 +51,11 @@ After obtaining a binary, run `nfa-dashboard-cli version` and `nfa-dashboard-cli
 - Traffic trend: use `traffic data` with `--query region=...`, `--query school_name=...`, `--query cp=...`, `--query start_time=...`, `--query end_time=...`, and `--svg` when a human-readable chart is needed.
 - Traffic units: NFA raw points convert to Mbps with `raw_bytes * 8 / 60 / 1_000_000`; bit-rate units are decimal 1000, matching the web traffic page.
 - Single-user settlement page: use `settlement user-panel`. Do not reconstruct the result manually from channel/monthly/daily endpoints unless the user explicitly asks for investigation.
-- User lookup before settlement: use `system users list --query username=...` or another precise user filter, then pass `channel_owner_user_id`.
+- Owner lookup before single-user settlement: do not use `system users list` to infer `channel_owner_user_id`. Query the settlement owner dropdown source instead:
+  - `settlement owner-subjects --query region=... --query cp=... --query start_service_date="YYYY-MM-DD 00:00:00" --query end_service_date="YYYY-MM-DD 23:59:59"`
+  - If using an older CLI without that typed command, use `api get --path /api/v1/settlement/data/customer/owner-subjects` with the same query filters.
+  - Match the returned user subject by `label` such as `刘旭阳`, then pass its `id` as `channel_owner_user_id`.
+  - Do not stop to ask the user for an ID until this endpoint has been tried with the same filters.
 - Permission and scope checks: use `system permissions`, `system roles`, and `system traffic-scopes` commands.
 - Audit verification: use `logs list` or `logs export` to check whether backend operation logs captured a CLI action.
 
