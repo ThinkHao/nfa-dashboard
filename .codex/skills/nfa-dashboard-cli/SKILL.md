@@ -32,6 +32,25 @@ Release assets should use these names:
 
 After obtaining a binary, run `nfa-dashboard-cli version` and `nfa-dashboard-cli --help` before using it. On Linux/macOS, mark the file executable if needed.
 
+## Authentication And Permissions
+
+Before querying protected data, confirm authentication:
+
+1. If `NFA_DASHBOARD_BASE_URL` and `NFA_DASHBOARD_TOKEN` are already set, run `auth profile`.
+2. If a saved CLI config may exist, run `auth profile` without printing tokens.
+3. If there is no base URL or token, ask for the target base URL and a safe password source, then login with:
+   - `auth login --base-url URL --username USER --password-env ENV_NAME`
+   - add `--insecure-skip-verify` only for self-signed HTTPS targets.
+4. After login, run `auth profile` again to confirm the account and visible permissions.
+
+Handle auth and permission failures this way:
+
+- `base URL is required`: ask for or set `NFA_DASHBOARD_BASE_URL` / `--base-url`.
+- `password is required`: do not ask for a password in chat if an environment-variable route is possible; request an env var such as `NFA_DASHBOARD_PASSWORD`, then use `--password-env`.
+- `401`: token is missing, expired, or credentials are wrong. Try refresh if a refresh token exists; otherwise run the login flow.
+- `403`: the backend denied the operation. Preserve the HTTP status and backend message. If a `missing` field is present, report it; if not, say the backend did not expose the exact permission code and do not invent one.
+- When permission is unclear, gather evidence with `auth profile`, the exact command, and optional `logs list`; then report that the current account lacks permission for that backend operation.
+
 ## Discovery Workflow
 
 1. Start with the built-in help:
@@ -50,6 +69,7 @@ After obtaining a binary, run `nfa-dashboard-cli version` and `nfa-dashboard-cli
 
 - Traffic trend: use `traffic data` with `--query region=...`, `--query school_name=...`, `--query cp=...`, `--query start_time=...`, `--query end_time=...`, and `--svg` when a human-readable chart is needed.
 - Traffic units: NFA raw points convert to Mbps with `raw_bytes * 8 / 60 / 1_000_000`; bit-rate units are decimal 1000, matching the web traffic page.
+- Traffic chart/report wording: the SVG chart plots blue `服务流速` from `total_recv` and green `回源流速` from `total_send`; it does not plot `total`. CLI traffic summaries may include total/recv/send metrics. When reporting average, P95, or max values, always name the basis explicitly as `总流速`, `服务流速`, or `回源流速` so readers do not confuse total values with the blue chart line.
 - Single-user settlement page: use `settlement user-panel`. Do not reconstruct the result manually from channel/monthly/daily endpoints unless the user explicitly asks for investigation.
 - Owner lookup before single-user settlement: do not use `system users list` to infer `channel_owner_user_id`. Query the settlement owner dropdown source instead:
   - `settlement owner-subjects --query region=... --query cp=... --query start_service_date="YYYY-MM-DD 00:00:00" --query end_service_date="YYYY-MM-DD 23:59:59"`
