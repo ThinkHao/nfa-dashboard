@@ -1,0 +1,115 @@
+name: CLI Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'CLI version label, for example v1.0.0 or dev-20260519'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build-cli:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: windows
+            goarch: amd64
+            ext: .exe
+          - goos: linux
+            goarch: amd64
+            ext: ''
+          - goos: linux
+            goarch: arm64
+            ext: ''
+          - goos: darwin
+            goarch: arm64
+            ext: ''
+          - goos: darwin
+            goarch: amd64
+            ext: ''
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: './cli/go.mod'
+          cache: true
+
+      - name: Resolve version metadata
+        id: meta
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          elif [[ -n "${{ github.event.inputs.version }}" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "commit=${GITHUB_SHA}" >> "${GITHUB_OUTPUT}"
+          echo "date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "${GITHUB_OUTPUT}"
+
+      - name: Test CLI
+        working-directory: ./cli
+        run: go test ./...
+
+      - name: Build CLI
+        working-directory: ./cli
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          mkdir -p ../dist-cli
+          OUT="nfa-dashboard-cli-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}"
+          go build \
+            -trimpath \
+            -ldflags "-s -w -X main.version=${{ steps.meta.outputs.version }} -X main.commit=${{ steps.meta.outputs.commit }} -X main.date=${{ steps.meta.outputs.date }}" \
+            -o "../dist-cli/${OUT}" .
+
+      - name: Upload platform artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nfa-dashboard-cli-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist-cli/*
+          retention-days: 7
+
+  publish-cli:
+    needs: build-cli
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: nfa-dashboard-cli-*
+          path: dist-cli
+          merge-multiple: true
+
+      - name: Generate checksums
+        working-directory: ./dist-cli
+        run: sha256sum nfa-dashboard-cli-* > checksums.txt
+
+      - name: Upload combined artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nfa-dashboard-cli-release
+          path: dist-cli/*
+          retention-days: 30
+
+      - name: Publish GitHub Release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-cli/*
+          generate_release_notes: true

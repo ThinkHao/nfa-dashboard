@@ -1,0 +1,4 @@
+interface:
+  display_name: "nfa-dashboard CLI"
+  short_description: "Operate nfa-dashboard safely through its HTTP CLI"
+  default_prompt: "Use $nfa-dashboard-cli to query nfa-dashboard data through the project CLI while preserving backend permissions and audit logs."
