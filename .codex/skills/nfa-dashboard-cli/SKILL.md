@@ -69,7 +69,8 @@ Handle auth and permission failures this way:
 
 - Traffic trend: use `traffic data` with `--query region=...`, `--query school_name=...`, `--query cp=...`, `--query start_time=...`, `--query end_time=...`, and `--svg` when a human-readable chart is needed.
 - Traffic units: NFA raw points convert to Mbps with `raw_bytes * 8 / 60 / 1_000_000`; bit-rate units are decimal 1000, matching the web traffic page.
-- Traffic chart/report wording: the SVG chart plots blue `服务流速` from `total_recv` and green `回源流速` from `total_send`; it does not plot `total`. CLI traffic summaries may include total/recv/send metrics. When reporting average, P95, or max values, always name the basis explicitly as `总流速`, `服务流速`, or `回源流速` so readers do not confuse total values with the blue chart line.
+- Traffic chart/report wording: the SVG chart plots blue `服务流速` from `total_recv` and green `回源流速` from `total_send`; it does not plot `total`. Unless the user explicitly asks for `总流速` or `回源流速`, traffic reports and P95 values should use `服务流速` (`total_recv`) only.
+- Traffic 95 defaults: unless the user explicitly asks for a different 95th-percentile mode, treat "95值" as `服务流速日95值`, meaning compute one P95 from `total_recv` per natural day in the requested range. If the user asks for `月95值`, compute P95 over all `total_recv` points in the specified time range as a single sorted population; do not split by calendar month unless the user explicitly asks for each month separately. For example, "4到5月的月95值" means sort all service-flow points from April 1 through May 31 together and take one P95. In concise summaries, report only the relevant service-flow P95 values and omit total/backflow, average, and peak/max values unless the user explicitly asks for them. Do not print daily detail rows by default; save daily details to JSON/CSV and show the file path unless the user asks for daily details, a per-day list, or a full table.
 - Single-user settlement page: use `settlement user-panel`. Do not reconstruct the result manually from channel/monthly/daily endpoints unless the user explicitly asks for investigation.
 - Owner lookup before single-user settlement: do not use `system users list` to infer `channel_owner_user_id`. Query the settlement owner dropdown source instead:
   - `settlement owner-subjects --query region=... --query cp=... --query start_service_date="YYYY-MM-DD 00:00:00" --query end_service_date="YYYY-MM-DD 23:59:59"`
@@ -81,4 +82,4 @@ Handle auth and permission failures this way:
 
 ## Reporting
 
-When reporting results, include the command intent, target environment, key summary values, and saved JSON/SVG/download paths. If a command fails, preserve the HTTP status, backend message, and `missing` permission value if present.
+When reporting results, include the command intent, target environment, key `服务流速` P95 values, and saved JSON/SVG/download paths. Do not include `总流速`, `回源流速`, average, peak/max values, or long daily detail tables in the default summary unless requested. If a command fails, preserve the HTTP status, backend message, and `missing` permission value if present.
