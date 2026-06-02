@@ -29,6 +29,10 @@ type RatesService interface {
 	// 最终客户费率
 	ListFinalCustomerRates(region, cp, schoolName, feeType string, page, pageSize int) ([]model.RateFinalCustomer, int64, error)
 	UpsertFinalCustomerRate(rate *model.RateFinalCustomer) error
+	ListFinalNodeRates(region, cp, displayName, settlementMode string, unitBase int, page, pageSize int) ([]model.RateFinalNode, int64, error)
+	UpsertFinalNodeRate(rate *model.RateFinalNode) error
+	InitFinalNodeRatesFromNode() (int64, error)
+	RefreshFinalNodeRates() (int64, error)
 
 	// 按服务日期返回折损后的最终客户费率视图（基于 rate_customer + 折损规则动态计算）
 	ListFinalCustomerRatesDiscounted(region, cp, schoolName, feeType string, serviceDate time.Time, page, pageSize int) ([]DiscountedFinalCustomerRate, int64, error)
@@ -196,7 +200,7 @@ func (s *ratesService) ListNodeRates(region, cp, settlementType string, page, pa
 		filter["cp"] = cp
 	}
 	if settlementType != "" {
-		filter["settlement_type"] = settlementType
+		filter["settlement_mode"] = normalizeEDCSettlementMode(settlementType)
 	}
 	if page <= 0 {
 		page = 1
@@ -209,7 +213,68 @@ func (s *ratesService) ListNodeRates(region, cp, settlementType string, page, pa
 	return s.repo.ListNodeRates(filter, limit, offset)
 }
 
-func (s *ratesService) UpsertNodeRate(rate *model.RateNode) error { return s.repo.UpsertNodeRate(rate) }
+func (s *ratesService) UpsertNodeRate(rate *model.RateNode) error {
+	if rate == nil {
+		return NewBadRequest("rate is required")
+	}
+	rate.SettlementMode = normalizeEDCSettlementMode(rate.SettlementMode)
+	rate.SettlementType = rate.SettlementMode
+	rate.UnitBase = normalizeEDCUnitBase(rate.UnitBase)
+	if (rate.Enabled == nil || *rate.Enabled) && rate.NodeConstructionFee == nil {
+		return NewBadRequest("节点建设费（流量单价）为必填")
+	}
+	if err := s.repo.UpsertNodeRate(rate); err != nil {
+		return err
+	}
+	_, err := s.repo.SyncFinalNodeRateFromNode(rate)
+	return err
+}
+
+func (s *ratesService) ListFinalNodeRates(region, cp, displayName, settlementMode string, unitBase int, page, pageSize int) ([]model.RateFinalNode, int64, error) {
+	filter := map[string]interface{}{}
+	if region != "" {
+		filter["region"] = region
+	}
+	if cp != "" {
+		filter["cp"] = cp
+	}
+	if displayName != "" {
+		filter["display_name"] = displayName
+	}
+	if settlementMode != "" {
+		filter["settlement_mode"] = normalizeEDCSettlementMode(settlementMode)
+	}
+	if unitBase == 1000 || unitBase == 1024 {
+		filter["unit_base"] = unitBase
+	}
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 10
+	}
+	return s.repo.ListFinalNodeRates(filter, pageSize, (page-1)*pageSize)
+}
+
+func (s *ratesService) UpsertFinalNodeRate(rate *model.RateFinalNode) error {
+	if rate == nil {
+		return NewBadRequest("rate is required")
+	}
+	rate.SettlementMode = normalizeEDCSettlementMode(rate.SettlementMode)
+	rate.UnitBase = normalizeEDCUnitBase(rate.UnitBase)
+	if rate.FeeType == "" {
+		rate.FeeType = "config"
+	}
+	return s.repo.UpsertFinalNodeRate(rate)
+}
+
+func (s *ratesService) InitFinalNodeRatesFromNode() (int64, error) {
+	return s.repo.InitFinalNodeRatesFromNode()
+}
+
+func (s *ratesService) RefreshFinalNodeRates() (int64, error) {
+	return s.repo.RefreshFinalNodeRates()
+}
 
 func (s *ratesService) ListFinalCustomerRates(region, cp, schoolName, feeType string, page, pageSize int) ([]model.RateFinalCustomer, int64, error) {
 	filter := map[string]interface{}{}

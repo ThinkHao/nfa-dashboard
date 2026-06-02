@@ -61,6 +61,20 @@ func NewSettlementRepository() SettlementRepository {
 	return &settlementRepository{}
 }
 
+func defaultTimeString(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
+}
+
+func defaultPositiveInt(value, fallback int) int {
+	if value <= 0 {
+		return fallback
+	}
+	return value
+}
+
 // GetSettlementConfig 获取结算配置
 func (r *settlementRepository) GetSettlementConfig() (*model.SettlementConfig, error) {
 	var config model.SettlementConfig
@@ -70,16 +84,21 @@ func (r *settlementRepository) GetSettlementConfig() (*model.SettlementConfig, e
 			// 创建一条默认配置并返回
 			now := time.Now()
 			def := model.SettlementConfig{
-				DailyTime:         "02:00",
-				WeeklyDay:         1,
-				WeeklyTime:        "02:00",
-				Enabled:           true,
-				DailyEnabled:      true,
-				WeeklyEnabled:     true,
-				RecalcAfterDaily:  true,
-				RecalcAfterWeekly: true,
-				LastExecuteTime:   time.Time{},
-				UpdateTime:        now,
+				DailyTime:          "02:00",
+				WeeklyDay:          1,
+				WeeklyTime:         "02:00",
+				Enabled:            true,
+				DailyEnabled:       true,
+				WeeklyEnabled:      true,
+				NodeDailyEnabled:   false,
+				NodeDailyTime:      "03:00",
+				NodeMonthlyEnabled: false,
+				NodeMonthlyDay:     1,
+				NodeMonthlyTime:    "04:00",
+				RecalcAfterDaily:   true,
+				RecalcAfterWeekly:  true,
+				LastExecuteTime:    time.Time{},
+				UpdateTime:         now,
 			}
 			if err := model.DB.Create(&def).Error; err != nil {
 				return nil, err
@@ -100,14 +119,19 @@ func (r *settlementRepository) UpdateSettlementConfig(config *model.SettlementCo
 			if err == gorm.ErrRecordNotFound {
 				// 如果不存在记录，则创建一条新配置
 				toCreate := model.SettlementConfig{
-					DailyTime:         config.DailyTime,
-					WeeklyDay:         config.WeeklyDay,
-					WeeklyTime:        config.WeeklyTime,
-					Enabled:           config.Enabled,
-					DailyEnabled:      config.DailyEnabled,
-					WeeklyEnabled:     config.WeeklyEnabled,
-					RecalcAfterDaily:  config.RecalcAfterDaily,
-					RecalcAfterWeekly: config.RecalcAfterWeekly,
+					DailyTime:          config.DailyTime,
+					WeeklyDay:          config.WeeklyDay,
+					WeeklyTime:         config.WeeklyTime,
+					Enabled:            config.Enabled,
+					DailyEnabled:       config.DailyEnabled,
+					WeeklyEnabled:      config.WeeklyEnabled,
+					NodeDailyEnabled:   config.NodeDailyEnabled,
+					NodeDailyTime:      defaultTimeString(config.NodeDailyTime, "03:00"),
+					NodeMonthlyEnabled: config.NodeMonthlyEnabled,
+					NodeMonthlyDay:     defaultPositiveInt(config.NodeMonthlyDay, 1),
+					NodeMonthlyTime:    defaultTimeString(config.NodeMonthlyTime, "04:00"),
+					RecalcAfterDaily:   config.RecalcAfterDaily,
+					RecalcAfterWeekly:  config.RecalcAfterWeekly,
 				}
 				if !config.LastExecuteTime.IsZero() {
 					toCreate.LastExecuteTime = config.LastExecuteTime
@@ -124,14 +148,19 @@ func (r *settlementRepository) UpdateSettlementConfig(config *model.SettlementCo
 			if err == gorm.ErrRecordNotFound {
 				// 如果不存在记录，则创建一条新配置
 				toCreate := model.SettlementConfig{
-					DailyTime:         config.DailyTime,
-					WeeklyDay:         config.WeeklyDay,
-					WeeklyTime:        config.WeeklyTime,
-					Enabled:           config.Enabled,
-					DailyEnabled:      config.DailyEnabled,
-					WeeklyEnabled:     config.WeeklyEnabled,
-					RecalcAfterDaily:  config.RecalcAfterDaily,
-					RecalcAfterWeekly: config.RecalcAfterWeekly,
+					DailyTime:          config.DailyTime,
+					WeeklyDay:          config.WeeklyDay,
+					WeeklyTime:         config.WeeklyTime,
+					Enabled:            config.Enabled,
+					DailyEnabled:       config.DailyEnabled,
+					WeeklyEnabled:      config.WeeklyEnabled,
+					NodeDailyEnabled:   config.NodeDailyEnabled,
+					NodeDailyTime:      defaultTimeString(config.NodeDailyTime, "03:00"),
+					NodeMonthlyEnabled: config.NodeMonthlyEnabled,
+					NodeMonthlyDay:     defaultPositiveInt(config.NodeMonthlyDay, 1),
+					NodeMonthlyTime:    defaultTimeString(config.NodeMonthlyTime, "04:00"),
+					RecalcAfterDaily:   config.RecalcAfterDaily,
+					RecalcAfterWeekly:  config.RecalcAfterWeekly,
 				}
 				if !config.LastExecuteTime.IsZero() {
 					toCreate.LastExecuteTime = config.LastExecuteTime
@@ -145,14 +174,19 @@ func (r *settlementRepository) UpdateSettlementConfig(config *model.SettlementCo
 
 	// 只更新业务字段；若 LastExecuteTime 为零值则跳过更新该列，避免写入非法时间
 	updates := map[string]interface{}{
-		"daily_time":          config.DailyTime,
-		"weekly_day":          config.WeeklyDay,
-		"weekly_time":         config.WeeklyTime,
-		"enabled":             config.Enabled,
-		"daily_enabled":       config.DailyEnabled,
-		"weekly_enabled":      config.WeeklyEnabled,
-		"recalc_after_daily":  config.RecalcAfterDaily,
-		"recalc_after_weekly": config.RecalcAfterWeekly,
+		"daily_time":           config.DailyTime,
+		"weekly_day":           config.WeeklyDay,
+		"weekly_time":          config.WeeklyTime,
+		"enabled":              config.Enabled,
+		"daily_enabled":        config.DailyEnabled,
+		"weekly_enabled":       config.WeeklyEnabled,
+		"node_daily_enabled":   config.NodeDailyEnabled,
+		"node_daily_time":      defaultTimeString(config.NodeDailyTime, "03:00"),
+		"node_monthly_enabled": config.NodeMonthlyEnabled,
+		"node_monthly_day":     defaultPositiveInt(config.NodeMonthlyDay, 1),
+		"node_monthly_time":    defaultTimeString(config.NodeMonthlyTime, "04:00"),
+		"recalc_after_daily":   config.RecalcAfterDaily,
+		"recalc_after_weekly":  config.RecalcAfterWeekly,
 	}
 
 	if !config.LastExecuteTime.IsZero() {

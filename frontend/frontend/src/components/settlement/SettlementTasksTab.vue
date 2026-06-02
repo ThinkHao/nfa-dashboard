@@ -7,6 +7,8 @@
           <el-select v-model="filterForm.task_type" placeholder="选择任务类型" clearable class="field-w-180">
             <el-option label="日结算" value="daily" />
             <el-option label="周结算" value="weekly" />
+            <el-option label="节点日95" value="node_daily95" />
+            <el-option label="节点月95" value="node_monthly95" />
             <el-option label="初算" value="customer_init" />
             <el-option label="复算" value="customer_recalc" />
           </el-select>
@@ -38,6 +40,8 @@
     <div class="action-section">
       <el-button type="primary" @click="createDailyTask">创建日结算任务</el-button>
       <el-button type="success" @click="createWeeklyTask">创建周结算任务</el-button>
+      <el-button type="warning" @click="createNodeDailyTask">创建节点日95任务</el-button>
+      <el-button type="info" @click="createNodeMonthlyTask">创建节点月95任务</el-button>
     </div>
 
     <!-- 任务表格区域 -->
@@ -57,7 +61,7 @@
         <el-table-column prop="id" label="任务ID" width="80" />
         <el-table-column prop="task_type" label="任务类型" width="120">
           <template #default="scope">
-            {{ scope.row.task_type === 'daily' ? '日结算' : (scope.row.task_type === 'weekly' ? '周结算' : (scope.row.task_type === 'customer_init' ? '初算' : (scope.row.task_type === 'customer_recalc' ? '复算' : scope.row.task_type))) }}
+            {{ taskTypeLabel(scope.row.task_type) }}
           </template>
         </el-table-column>
         <el-table-column prop="task_date" label="任务日期" width="180">
@@ -137,7 +141,7 @@
         </div>
         <div class="detail-item">
           <span class="label">任务类型:</span>
-          <span class="value">{{ currentTask.task_type === 'daily' ? '日结算' : (currentTask.task_type === 'weekly' ? '周结算' : (currentTask.task_type === 'customer_init' ? '初算' : (currentTask.task_type === 'customer_recalc' ? '复算' : currentTask.task_type))) }}</span>
+          <span class="value">{{ taskTypeLabel(currentTask.task_type) }}</span>
         </div>
         <div class="detail-item">
           <span class="label">任务日期:</span>
@@ -186,7 +190,7 @@
     >
       <el-form :model="taskForm" label-width="100px">
         <!-- 日结算任务显示单日选择器 -->
-        <el-form-item v-if="taskForm.type === 'daily'" label="任务日期">
+        <el-form-item v-if="taskForm.type === 'daily' || taskForm.type === 'node_daily95'" label="任务日期">
           <el-date-picker
             v-model="taskForm.date"
             type="date"
@@ -197,13 +201,16 @@
         </el-form-item>
         
         <!-- 周结算任务显示日期范围选择器 -->
-        <el-form-item v-else label="周日期范围">
+        <el-form-item v-else-if="taskForm.type === 'weekly'" label="周日期范围">
           <UnifiedDateRange
             v-model="taskForm.dateRange"
             type="daterange"
             format="YYYY-MM-DD"
             value-format="YYYY-MM-DD HH:mm:ss"
           />
+        </el-form-item>
+        <el-form-item v-else label="服务月份">
+          <el-date-picker v-model="taskForm.month" type="month" placeholder="选择月份" format="YYYY-MM" value-format="YYYY-MM" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -302,8 +309,21 @@ const taskDialogTitle = ref('创建结算任务')
 const taskForm = reactive({
   type: 'daily',
   date: '',
+  month: '',
   dateRange: null as [string, string] | null
 })
+
+function taskTypeLabel(type: string) {
+  switch (type) {
+    case 'daily': return '院校日结算'
+    case 'weekly': return '院校周结算'
+    case 'node_daily95': return '节点日95'
+    case 'node_monthly95': return '节点月95'
+    case 'customer_init': return '初算'
+    case 'customer_recalc': return '复算'
+    default: return type
+  }
+}
 
 // 获取任务列表
 const syncDateRangeFromFilter = () => {
@@ -473,9 +493,27 @@ const createWeeklyTask = () => {
   createTaskVisible.value = true
 }
 
+const createNodeDailyTask = () => {
+  taskForm.type = 'node_daily95'
+  taskDialogTitle.value = '创建节点日95任务'
+  taskForm.date = formatDateToYYYYMMDD(new Date())
+  taskForm.dateRange = null
+  taskForm.month = ''
+  createTaskVisible.value = true
+}
+
+const createNodeMonthlyTask = () => {
+  taskForm.type = 'node_monthly95'
+  taskDialogTitle.value = '创建节点月95任务'
+  const today = new Date()
+  taskForm.month = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
+  taskForm.dateRange = null
+  createTaskVisible.value = true
+}
+
 // 提交创建任务
 const submitTaskCreate = async () => {
-  if (taskForm.type === 'daily' && !taskForm.date) {
+  if ((taskForm.type === 'daily' || taskForm.type === 'node_daily95') && !taskForm.date) {
     ElMessage.warning('请选择任务日期')
     return
   }
@@ -493,16 +531,20 @@ const submitTaskCreate = async () => {
       // 日结算任务使用单个日期
       const params = { date: taskForm.date }
       response = await api.settlement.createDailyTask(params)
-    } else {
+    } else if (taskForm.type === 'weekly') {
       // 周结算任务使用日期范围
       const params = { 
         start_date: taskForm.dateRange[0],
         end_date: taskForm.dateRange[1]
       }
       response = await api.settlement.createWeeklyTask(params)
+    } else if (taskForm.type === 'node_daily95') {
+      response = await api.settlement.createNodeDailyTask({ date: taskForm.date })
+    } else {
+      response = await api.settlement.createNodeMonthlyTask({ month: taskForm.month })
     }
     
-    ElMessage.success(`创建${taskForm.type === 'daily' ? '日' : '周'}结算任务成功`)
+    ElMessage.success(`创建${taskTypeLabel(taskForm.type)}任务成功`)
     createTaskVisible.value = false
     queryCtl.run((signal) => fetchTasks(signal), { showCancelMessage: false }) // 刷新任务列表
     
@@ -674,4 +716,8 @@ onUnmounted(() => {
   word-break: break-all;
 }
 </style>
+  if (taskForm.type === 'node_monthly95' && !taskForm.month) {
+    ElMessage.warning('请选择服务月份')
+    return
+  }
 

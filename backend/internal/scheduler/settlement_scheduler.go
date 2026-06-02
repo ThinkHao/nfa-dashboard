@@ -11,14 +11,16 @@ import (
 // SettlementScheduler 结算调度器
 type SettlementScheduler struct {
 	settlementService service.SettlementService
+	nodeService       service.EDCNodeSettlementService
 	running           bool
 	stopChan          chan struct{}
 }
 
 // NewSettlementScheduler 创建结算调度器实例
-func NewSettlementScheduler(settlementService service.SettlementService) *SettlementScheduler {
+func NewSettlementScheduler(settlementService service.SettlementService, nodeService service.EDCNodeSettlementService) *SettlementScheduler {
 	return &SettlementScheduler{
 		settlementService: settlementService,
+		nodeService:       nodeService,
 		running:           false,
 		stopChan:          make(chan struct{}),
 	}
@@ -162,6 +164,76 @@ func (s *SettlementScheduler) checkAndExecuteTasks() {
 			log.Printf("更新结算配置失败: %v", err)
 		}
 	}
+
+	if s.nodeService == nil {
+		return
+	}
+
+	if config.NodeDailyEnabled {
+		nodeDailyHour, nodeDailyMinute, err := parseTimeString(defaultScheduleTime(config.NodeDailyTime, "03:00"))
+		if err != nil {
+			log.Printf("解析EDC节点每日结算时间失败: %v", err)
+			return
+		}
+		if currentHour == nodeDailyHour && currentMinute == nodeDailyMinute {
+			yesterday := now.AddDate(0, 0, -1)
+			date := time.Date(yesterday.Year(), yesterday.Month(), yesterday.Day(), 0, 0, 0, 0, now.Location())
+			log.Printf("开始执行EDC节点每日结算任务，计算日期: %s", date.Format("2006-01-02"))
+			task, err := s.settlementService.CreateSettlementTask("node_daily95", date)
+			if err != nil {
+				log.Printf("创建EDC节点每日结算任务失败: %v", err)
+				return
+			}
+			go func() {
+				if err := s.nodeService.ExecuteDailyTask(task.ID, date); err != nil {
+					log.Printf("执行EDC节点每日结算任务失败: %v", err)
+				}
+			}()
+			config.LastExecuteTime = now
+			if err := s.settlementService.UpdateSettlementConfig(config); err != nil {
+				log.Printf("更新结算配置失败: %v", err)
+			}
+		}
+	}
+
+	if config.NodeMonthlyEnabled {
+		nodeMonthlyHour, nodeMonthlyMinute, err := parseTimeString(defaultScheduleTime(config.NodeMonthlyTime, "04:00"))
+		if err != nil {
+			log.Printf("解析EDC节点月结算时间失败: %v", err)
+			return
+		}
+		monthlyDay := config.NodeMonthlyDay
+		if monthlyDay <= 0 {
+			monthlyDay = 1
+		}
+		if now.Day() != monthlyDay || currentHour != nodeMonthlyHour || currentMinute != nodeMonthlyMinute {
+			return
+		}
+		lastMonth := now.AddDate(0, -1, 0)
+		month := time.Date(lastMonth.Year(), lastMonth.Month(), 1, 0, 0, 0, 0, now.Location())
+		log.Printf("开始执行EDC节点月结算任务，计算月份: %s", month.Format("2006-01"))
+		task, err := s.settlementService.CreateSettlementTask("node_monthly95", month)
+		if err != nil {
+			log.Printf("创建EDC节点月结算任务失败: %v", err)
+			return
+		}
+		go func() {
+			if err := s.nodeService.ExecuteMonthlyTask(task.ID, month); err != nil {
+				log.Printf("执行EDC节点月结算任务失败: %v", err)
+			}
+		}()
+		config.LastExecuteTime = now
+		if err := s.settlementService.UpdateSettlementConfig(config); err != nil {
+			log.Printf("更新结算配置失败: %v", err)
+		}
+	}
+}
+
+func defaultScheduleTime(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 // parseTimeString 解析时间字符串（格式：HH:MM）

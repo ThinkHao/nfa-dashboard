@@ -19,8 +19,15 @@
         <el-form
           ref="configForm"
           :model="config"
-          label-width="120px"
+          class="config-form"
+          label-width="160px"
         >
+          <el-form-item label="" class="section-form-item">
+            <div class="section-heading">
+              <span>NFA院校结算</span>
+            </div>
+          </el-form-item>
+
           <el-form-item label="每日自动结算">
             <el-switch v-model="config.daily_enabled" :disabled="!isEditing" />
             <div class="time-description">开启后，将在“日结算时间”每日触发日结算任务（计算前一天）。</div>
@@ -76,6 +83,47 @@
             <div class="time-description">开启后，周结算任务完成将自动创建并执行“初算任务”（仅回填/计算，不标记复算）。</div>
           </el-form-item>
 
+          <el-form-item label="" class="section-form-item">
+            <div class="section-heading">
+              <span>EDC节点结算</span>
+            </div>
+          </el-form-item>
+
+          <el-form-item label="节点每日自动结算">
+            <el-switch v-model="config.node_daily_enabled" :disabled="!isEditing" />
+            <div class="time-description">开启后，将按“节点日结算时间”每日触发节点日95任务（计算前一天）。</div>
+          </el-form-item>
+
+          <el-form-item label="节点日结算时间">
+            <el-time-picker
+              v-model="config.node_daily_time"
+              format="HH:mm"
+              value-format="HH:mm"
+              placeholder="选择时间"
+              :disabled="!isEditing || !config.node_daily_enabled"
+            />
+          </el-form-item>
+
+          <el-form-item label="节点每月自动结算">
+            <el-switch v-model="config.node_monthly_enabled" :disabled="!isEditing" />
+            <div class="time-description">开启后，将按“节点月结算日/时间”每月触发节点月95任务（计算上一个自然月）。</div>
+          </el-form-item>
+
+          <el-form-item label="节点月结算日">
+            <el-input-number v-model="config.node_monthly_day" :min="1" :max="31" :disabled="!isEditing || !config.node_monthly_enabled" />
+            <div class="time-description">每月几号触发；建议设为 1 号，用于计算上一个自然月。</div>
+          </el-form-item>
+
+          <el-form-item label="节点月结算时间">
+            <el-time-picker
+              v-model="config.node_monthly_time"
+              format="HH:mm"
+              value-format="HH:mm"
+              placeholder="选择时间"
+              :disabled="!isEditing || !config.node_monthly_enabled"
+            />
+          </el-form-item>
+
           <el-form-item label="上次执行时间">
             <div>{{ formatDateTime(config.last_execute_time) }}</div>
           </el-form-item>
@@ -104,7 +152,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, watch } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import api from '../../api'
 import { ElMessage } from 'element-plus'
 import type { SettlementConfig } from '../../types/settlement'
@@ -125,6 +173,11 @@ const config = reactive<SettlementConfig>({
   enabled: true,
   daily_enabled: true,
   weekly_enabled: true,
+  node_daily_enabled: false,
+  node_daily_time: '03:00',
+  node_monthly_enabled: false,
+  node_monthly_day: 1,
+  node_monthly_time: '04:00',
   recalc_after_daily: true,
   recalc_after_weekly: true,
   last_execute_time: '',
@@ -220,18 +273,74 @@ onMounted(() => {
   padding: 10px;
 }
 
-
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
+.config-form {
+  padding-top: 8px;
+}
+
+.config-form :deep(.el-form-item) {
+  align-items: flex-start;
+  margin-bottom: 24px;
+}
+
+.config-form :deep(.el-form-item__label) {
+  color: var(--text-primary);
+  font-weight: 600;
+  line-height: 32px;
+  white-space: nowrap;
+}
+
+.config-form :deep(.el-form-item__content) {
+  align-items: center;
+  column-gap: 12px;
+  line-height: 32px;
+  min-width: 0;
+  row-gap: 6px;
+}
+
+.section-form-item {
+  margin-bottom: 18px;
+}
+
+.section-heading {
+  align-items: center;
+  color: var(--text-primary);
+  display: flex;
+  font-size: 14px;
+  font-weight: 600;
+  gap: 12px;
+  line-height: 24px;
+  width: 100%;
+}
+
+.section-heading::after {
+  background: var(--border-color);
+  content: "";
+  flex: 1;
+  height: 1px;
+}
+
 .time-description {
+  flex-basis: 100%;
   font-size: 12px;
+  line-height: 1.5;
   color: var(--text-muted);
-  margin-top: 5px;
+  margin-top: 2px;
+}
+
+@media (max-width: 900px) {
+  .config-form :deep(.el-form-item__label) {
+    justify-content: flex-start;
+    width: auto !important;
+  }
+
+  .config-form :deep(.el-form-item__content) {
+    margin-left: 0 !important;
+  }
 }
 </style>
-
-

@@ -27,6 +27,8 @@ func BuildEngine() *gin.Engine {
 	schoolService := service.NewSchoolService(schoolRepo)
 	trafficScopeRuleRepo := repository.NewTrafficScopeRuleRepository()
 	trafficScopeSchoolRepo := repository.NewTrafficScopeSchoolRepository()
+	edcRepo := repository.NewEDCRepository()
+	edcScopeRepo := repository.NewEDCTrafficScopeRepository()
 
 	settlementRepo := repository.NewSettlementRepository()
 	settlementService := service.NewSettlementService(settlementRepo)
@@ -50,6 +52,9 @@ func BuildEngine() *gin.Engine {
 	rateDiscountRepo := repository.NewRateDiscountRepository()
 	ratesSvc := service.NewRatesService(ratesRepo, rateDiscountRepo, userRepo)
 	ratesController := controller.NewSettlementRatesController(ratesSvc, settlementRepo)
+	edcNodeSettlementRepo := repository.NewEDCNodeSettlementRepository()
+	edcNodeSettlementSvc := service.NewEDCNodeSettlementService(edcNodeSettlementRepo, ratesRepo, settlementRepo)
+	edcNodeSettlementController := controller.NewEDCNodeSettlementController(settlementService, edcNodeSettlementSvc)
 
 	customerFieldsRepo := repository.NewCustomerFieldsRepository()
 	customerFieldsSvc := service.NewCustomerFieldsService(customerFieldsRepo)
@@ -99,15 +104,19 @@ func BuildEngine() *gin.Engine {
 	userSchoolService := service.NewUserSchoolService(userRepo, schoolRepo, userSchoolRepo)
 	userSchoolController := controller.NewSystemUserSchoolController(userSchoolService)
 	trafficScopeService := service.NewTrafficScopeService(trafficScopeRuleRepo, trafficScopeSchoolRepo, userSchoolRepo, userRepo)
+	edcScopeService := service.NewEDCTrafficScopeService(edcScopeRepo, userRepo)
+	edcService := service.NewEDCService(edcRepo)
 	schoolController := controller.NewSchoolController(schoolService, trafficScopeService, systemSettingsSvc, settlementParticipationSvc)
+	edcController := controller.NewEDCController(edcService, edcScopeService)
 	trafficScopeController := controller.NewSystemTrafficScopeController(trafficScopeService, userService, schoolService)
+	edcTrafficScopeController := controller.NewSystemEDCTrafficScopeController(edcScopeService, userService)
 	systemSettingsController := controller.NewSystemSettingsController(systemSettingsSvc)
 
 	opLogRepo := repository.NewOperationLogRepository()
 	opLogService := service.NewOperationLogService(opLogRepo)
 	opLogController := controller.NewOperationLogController(opLogService)
 
-	settlementScheduler := scheduler.NewSettlementScheduler(settlementService)
+	settlementScheduler := scheduler.NewSettlementScheduler(settlementService, edcNodeSettlementSvc)
 	settlementScheduler.Start()
 
 	api := r.Group("/api/v1")
@@ -127,6 +136,11 @@ func BuildEngine() *gin.Engine {
 			v2.GET("/cps", authMW.AuthRequired(), authMW.PermissionRequired("school.read"), schoolController.GetAllCPsV2)
 			v2.GET("/traffic", authMW.AuthRequired(), authMW.PermissionRequired("traffic.read"), schoolController.GetTrafficDataV2)
 			v2.GET("/traffic/summary", authMW.AuthRequired(), authMW.PermissionRequired("traffic.read"), schoolController.GetTrafficSummaryV2)
+			v2.GET("/edc/entities", authMW.AuthRequired(), authMW.PermissionRequired("traffic.read"), edcController.ListEntities)
+			v2.GET("/edc/regions", authMW.AuthRequired(), authMW.PermissionRequired("traffic.read"), edcController.ListRegions)
+			v2.GET("/edc/cps", authMW.AuthRequired(), authMW.PermissionRequired("traffic.read"), edcController.ListCPs)
+			v2.GET("/edc/traffic", authMW.AuthRequired(), authMW.PermissionRequired("traffic.read"), edcController.GetTrafficData)
+			v2.GET("/edc/traffic/summary", authMW.AuthRequired(), authMW.PermissionRequired("traffic.read"), edcController.GetTrafficSummary)
 
 			settlementV2 := v2.Group("/settlement", authMW.AuthRequired())
 			{
@@ -150,6 +164,8 @@ func BuildEngine() *gin.Engine {
 			settlement.GET("/tasks/:id", authMW.PermissionRequired("settlement.read"), settlementController.GetSettlementTaskByID)
 			settlement.POST("/tasks/daily", authMW.PermissionRequired("settlement.calculate"), settlementController.CreateDailySettlementTask)
 			settlement.POST("/tasks/weekly", authMW.PermissionRequired("settlement.calculate"), settlementController.CreateWeeklySettlementTask)
+			settlement.POST("/tasks/node-daily95", authMW.PermissionRequired("settlement.calculate"), edcNodeSettlementController.CreateNodeDailyTask)
+			settlement.POST("/tasks/node-monthly95", authMW.PermissionRequired("settlement.calculate"), edcNodeSettlementController.CreateNodeMonthlyTask)
 			settlement.DELETE("/tasks/:id", authMW.PermissionRequired("settlement.calculate"), settlementController.DeleteSettlementTask)
 
 			settlement.GET("/data", authMW.PermissionRequired("settlement.read"), settlementController.GetSettlements)
@@ -165,6 +181,10 @@ func BuildEngine() *gin.Engine {
 			settlement.GET("/data/customer/owners", authMW.PermissionRequired("settlement.data.read"), settlementDataController.ListUsedOwnerEntities)
 			settlement.GET("/data/customer/channel-owners", authMW.PermissionRequired("settlement.data.read"), settlementDataController.ListUsedChannelOwners)
 			settlement.GET("/data/customer/owner-subjects", authMW.PermissionRequired("settlement.data.read"), settlementDataController.ListUsedOwnerSubjects)
+			settlement.GET("/data/node", authMW.PermissionRequired("settlement.data.read"), edcNodeSettlementController.ListNodeDaily)
+			settlement.GET("/data/node/monthly", authMW.PermissionRequired("settlement.data.read"), edcNodeSettlementController.ListNodeMonthly)
+			settlement.GET("/node-daily-details", authMW.PermissionRequired("settlement.read"), edcNodeSettlementController.ListNodeDaily)
+			settlement.GET("/node-monthly-details", authMW.PermissionRequired("settlement.read"), edcNodeSettlementController.ListNodeMonthly)
 
 			formulas := settlement.Group("/formulas")
 			{
@@ -190,6 +210,10 @@ func BuildEngine() *gin.Engine {
 				rates.GET("/customer/import/tasks/:id/created-users.csv", authMW.PermissionRequired("rates.customer.import"), ratesController.DownloadCustomerImportTaskCreatedUsersCSV)
 				rates.GET("/node", authMW.PermissionRequired("rates.node.read"), ratesController.ListNodeRates)
 				rates.POST("/node", authMW.PermissionRequired("rates.node.write"), ratesController.UpsertNodeRate)
+				rates.GET("/final-node", authMW.PermissionRequired("rates.node.read"), ratesController.ListFinalNodeRates)
+				rates.POST("/final-node", authMW.PermissionRequired("rates.node.write"), ratesController.UpsertFinalNodeRate)
+				rates.POST("/final-node/init-from-node", authMW.PermissionRequired("rates.node.write"), ratesController.InitFinalNodeRatesFromNode)
+				rates.POST("/final-node/refresh", authMW.PermissionRequired("rates.node.write"), ratesController.RefreshFinalNodeRates)
 				rates.GET("/final", authMW.PermissionRequired("rates.final.read"), ratesController.ListFinalCustomerRates)
 				rates.GET("/final-discounted", authMW.PermissionRequired("rates.final.read"), ratesController.ListFinalCustomerRatesDiscounted)
 				rates.POST("/final", authMW.PermissionRequired("rates.final.write"), ratesController.UpsertFinalCustomerRate)
@@ -295,6 +319,8 @@ func BuildEngine() *gin.Engine {
 			system.GET("/traffic-scopes/:user_id", authMW.PermissionRequired("traffic.scope.manage"), trafficScopeController.ListRules)
 			system.PUT("/traffic-scopes/:user_id", authMW.PermissionRequired("traffic.scope.manage"), trafficScopeController.ReplaceRules)
 			system.GET("/traffic-scopes/:user_id/preview", authMW.PermissionRequired("traffic.scope.manage"), trafficScopeController.Preview)
+			system.GET("/edc-traffic-scopes/:user_id", authMW.PermissionRequired("traffic.scope.manage"), edcTrafficScopeController.ListRules)
+			system.PUT("/edc-traffic-scopes/:user_id", authMW.PermissionRequired("traffic.scope.manage"), edcTrafficScopeController.ReplaceRules)
 			system.GET("/settings/traffic", authMW.PermissionRequired("system.user.manage"), systemSettingsController.GetTrafficSettings)
 			system.PUT("/settings/traffic", authMW.PermissionRequired("system.user.manage"), systemSettingsController.UpdateTrafficSettings)
 			system.GET("/operation-logs", authMW.PermissionRequired("operation_logs.read"), opLogController.List)

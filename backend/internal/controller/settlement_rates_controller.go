@@ -753,9 +753,14 @@ func (ctl *SettlementRatesController) ListFinalCustomerRatesDiscounted(c *gin.Co
 
 func (ctl *SettlementRatesController) UpsertNodeRate(c *gin.Context) {
 	type reqT struct {
+		Enabled                    *bool    `json:"enabled"`
+		EntityID                   *uint64  `json:"entity_id"`
+		DisplayName                *string  `json:"display_name"`
 		Region                     string   `json:"region" binding:"required"`
 		CP                         string   `json:"cp" binding:"required"`
-		SettlementType             string   `json:"settlement_type" binding:"required"`
+		SettlementType             string   `json:"settlement_type"`
+		SettlementMode             string   `json:"settlement_mode"`
+		UnitBase                   int      `json:"unit_base"`
 		CPFee                      *float64 `json:"cp_fee"`
 		CPFeeOwnerID               *uint64  `json:"cp_fee_owner_id"`
 		NodeConstructionFee        *float64 `json:"node_construction_fee"`
@@ -771,9 +776,14 @@ func (ctl *SettlementRatesController) UpsertNodeRate(c *gin.Context) {
 		return
 	}
 	rate := &model.RateNode{
+		Enabled:                    req.Enabled,
+		EntityID:                   req.EntityID,
+		DisplayName:                req.DisplayName,
 		Region:                     req.Region,
 		CP:                         req.CP,
 		SettlementType:             req.SettlementType,
+		SettlementMode:             req.SettlementMode,
+		UnitBase:                   req.UnitBase,
 		CPFee:                      req.CPFee,
 		CPFeeOwnerID:               req.CPFeeOwnerID,
 		NodeConstructionFee:        req.NodeConstructionFee,
@@ -792,6 +802,93 @@ func (ctl *SettlementRatesController) UpsertNodeRate(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+func (ctl *SettlementRatesController) ListFinalNodeRates(c *gin.Context) {
+	page := parseIntDefault(c.Query("page"), 1)
+	pageSize := parseIntDefault(c.Query("page_size"), 10)
+	region := c.Query("region")
+	cp := c.Query("cp")
+	displayName := c.Query("display_name")
+	settlementMode := c.Query("settlement_mode")
+	unitBase := parseIntDefault(c.Query("unit_base"), 0)
+	items, total, err := ctl.svc.ListFinalNodeRates(region, cp, displayName, settlementMode, unitBase, page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items, "total": total})
+}
+
+func (ctl *SettlementRatesController) UpsertFinalNodeRate(c *gin.Context) {
+	type reqT struct {
+		EntityID                   *uint64  `json:"entity_id"`
+		DisplayName                string   `json:"display_name"`
+		Region                     string   `json:"region" binding:"required"`
+		CP                         string   `json:"cp" binding:"required"`
+		SettlementMode             string   `json:"settlement_mode" binding:"required"`
+		UnitBase                   int      `json:"unit_base"`
+		FinalFee                   *float64 `json:"final_fee"`
+		FeeType                    string   `json:"fee_type"`
+		CPFee                      *float64 `json:"cp_fee"`
+		CPFeeOwnerID               *uint64  `json:"cp_fee_owner_id"`
+		NodeConstructionFee        *float64 `json:"node_construction_fee"`
+		NodeConstructionFeeOwnerID *uint64  `json:"node_construction_fee_owner_id"`
+		RackFee                    *float64 `json:"rack_fee"`
+		RackFeeOwnerID             *uint64  `json:"rack_fee_owner_id"`
+		OtherFee                   *float64 `json:"other_fee"`
+		OtherFeeOwnerID            *uint64  `json:"other_fee_owner_id"`
+	}
+	var req reqT
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid request"})
+		return
+	}
+	rate := &model.RateFinalNode{
+		EntityID:                   req.EntityID,
+		DisplayName:                req.DisplayName,
+		Region:                     req.Region,
+		CP:                         req.CP,
+		SettlementMode:             req.SettlementMode,
+		UnitBase:                   req.UnitBase,
+		FinalFee:                   req.FinalFee,
+		FeeType:                    req.FeeType,
+		CPFee:                      req.CPFee,
+		CPFeeOwnerID:               req.CPFeeOwnerID,
+		NodeConstructionFee:        req.NodeConstructionFee,
+		NodeConstructionFeeOwnerID: req.NodeConstructionFeeOwnerID,
+		RackFee:                    req.RackFee,
+		RackFeeOwnerID:             req.RackFeeOwnerID,
+		OtherFee:                   req.OtherFee,
+		OtherFeeOwnerID:            req.OtherFeeOwnerID,
+	}
+	if err := ctl.svc.UpsertFinalNodeRate(rate); err != nil {
+		if service.IsBadRequest(err) {
+			c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (ctl *SettlementRatesController) InitFinalNodeRatesFromNode(c *gin.Context) {
+	affected, err := ctl.svc.InitFinalNodeRatesFromNode()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"affected": affected})
+}
+
+func (ctl *SettlementRatesController) RefreshFinalNodeRates(c *gin.Context) {
+	affected, err := ctl.svc.RefreshFinalNodeRates()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"affected": affected})
 }
 
 // Final customer rates

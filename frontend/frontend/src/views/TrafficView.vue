@@ -199,6 +199,7 @@ const pagedTrafficData = computed(() => {
 
 // 查询表单
 const queryForm = reactive({
+  data_source: 'nfa' as 'nfa' | 'edc',
   school_name: '',
   region: '',
   cp: '',
@@ -224,6 +225,9 @@ const hasFilter = computed(() => {
   return !!(queryForm.school_name || queryForm.region || queryForm.cp)
 })
 
+const entityLabel = computed(() => queryForm.data_source === 'edc' ? 'EDC名称' : '学校名称')
+const dataSourceTitle = computed(() => queryForm.data_source === 'edc' ? 'EDC流量监控' : '学校流量监控')
+
 // 预设时间范围选项
 const timeRangeOptions = [
   { label: '过去1小时', value: 'last1h' },
@@ -242,7 +246,7 @@ const chartOption = computed(() => {
   // 无筛选时，不显示图表数据
   if (!hasFilter.value) {
     return {
-      title: { text: '流量监控', left: 'center', subtext: '请选择任一筛选条件后再查询' },
+      title: { text: dataSourceTitle.value, left: 'center', subtext: '请选择任一筛选条件后再查询' },
       xAxis: { type: 'time' },
       yAxis: { type: 'value', name: '流速 (bits/s)' },
       series: []
@@ -253,7 +257,7 @@ const chartOption = computed(() => {
   if (trafficData.value.length === 0) {
     return {
       title: {
-        text: '流量监控',
+        text: dataSourceTitle.value,
         left: 'center'
       },
       xAxis: { type: 'time' },
@@ -272,8 +276,8 @@ const chartOption = computed(() => {
     return {
       t: ms,
       cp: String((item as any).cp || ''),
-      recv: (item as any).recv_bps != null ? Number((item as any).recv_bps) : convertToBitsPerSecond((item as any).total_recv),
-      send: (item as any).send_bps != null ? Number((item as any).send_bps) : convertToBitsPerSecond((item as any).total_send),
+      recv: (item as any).recv_bps != null ? Number((item as any).recv_bps) : convertToBitsPerSecond(Number((item as any).total_recv ?? (item as any).service_size) || 0),
+      send: (item as any).send_bps != null ? Number((item as any).send_bps) : convertToBitsPerSecond(Number((item as any).total_send ?? (item as any).cache_size) || 0),
     }
   }).filter(p => !isNaN(p.t))
 
@@ -377,7 +381,7 @@ const chartOption = computed(() => {
 
   return {
     title: {
-      text: `学校流量监控 (bits/s) - ${formatGranularity(currentGranularity.value)}`,
+      text: `${dataSourceTitle.value} (bits/s) - ${formatGranularity(currentGranularity.value)}`,
       left: 'center'
     },
     tooltip: {
@@ -464,8 +468,10 @@ function applyRouteQueryFilters(q: RouteQueryLike, options: { autoQuery?: boolea
   const hasSchool = Object.prototype.hasOwnProperty.call(q, 'school_name')
   const hasRegion = Object.prototype.hasOwnProperty.call(q, 'region')
   const hasCp = Object.prototype.hasOwnProperty.call(q, 'cp')
+  const hasDataSource = Object.prototype.hasOwnProperty.call(q, 'data_source')
   const hasExplicitFilterKeys = hasSchool || hasRegion || hasCp
 
+  if (hasDataSource && (q.data_source === 'nfa' || q.data_source === 'edc')) queryForm.data_source = q.data_source
   if (hasSchool) queryForm.school_name = typeof q.school_name === 'string' ? q.school_name : ''
   if (hasRegion) queryForm.region = typeof q.region === 'string' ? q.region : ''
   if (hasCp) queryForm.cp = typeof q.cp === 'string' ? q.cp : ''
@@ -565,13 +571,17 @@ function computeRegionCpOptions(forceOverwrite = false) {
 // 通过 v2 接口加载地区/运营商选项（按用户可见范围过滤）
 async function loadRegionCpOptions() {
   try {
-    const r = await (api as any).v2.getRegions()
+    const r = queryForm.data_source === 'edc'
+      ? await (api as any).v2.edc.getRegions()
+      : await (api as any).v2.getRegions()
     regions.value = sanitizeScopeOptionValues(Array.isArray(r) ? r : []).sort()
   } catch {
     regions.value = []
   }
   try {
-    const c = await (api as any).v2.getCPs()
+    const c = queryForm.data_source === 'edc'
+      ? await (api as any).v2.edc.getCPs()
+      : await (api as any).v2.getCPs()
     cps.value = sanitizeScopeOptionValues(Array.isArray(c) ? c : []).sort()
   } catch {
     cps.value = []
@@ -589,9 +599,11 @@ async function loadSchools(region = '', cp = '') {
     if (region) params.region = region
     if (cp) params.cp = cp
 
-    console.log('请求学校数据参数:', params)
-    const res = await (api as any).v2.getSchools(params) as any
-    console.log('学校数据原始响应:', res)
+    console.log('请求实体数据参数:', params)
+    const res = queryForm.data_source === 'edc'
+      ? await (api as any).v2.edc.getEntities(params)
+      : await (api as any).v2.getSchools(params)
+    console.log('实体数据原始响应:', res)
 
     let schoolsList: any[] = []
     if (Array.isArray(res)) {
@@ -619,28 +631,31 @@ async function loadSchools(region = '', cp = '') {
       }
     }
 
-    // 学校下拉按 school_name 去重（不区分 CP）
+    // 下拉按展示名去重（不区分 CP）
     const uniqueSchools: Record<string, any> = {}
     schoolsList.forEach((school: any) => {
-      const name = String(school?.school_name || '').trim()
+      const name = String(queryForm.data_source === 'edc' ? school?.display_name : school?.school_name || '').trim()
       if (!name) return
       if (!uniqueSchools[name]) {
-        uniqueSchools[name] = school
+        uniqueSchools[name] = {
+          ...school,
+          school_name: name,
+        }
       }
     })
     schools.value = Object.values(uniqueSchools)
-    console.log('去重后的学校数据:', schools.value.length, '所学校')
+    console.log('去重后的实体数据:', schools.value.length)
 
     // 仅在接口未返回地区/运营商时，才基于学校数据兜底填充
     computeRegionCpOptions()
 
     if (schools.value.length === 0) {
-      console.warn('未获取到学校数据')
-      ElMessage.warning('未能加载学校数据，请检查网络连接')
+      console.warn('未获取到实体数据')
+      ElMessage.warning('未能加载实体数据，请检查网络连接')
     }
   } catch (error) {
-    console.error('加载学校数据失败:', error)
-    ElMessage.error('加载学校数据失败')
+    console.error('加载实体数据失败:', error)
+    ElMessage.error('加载实体数据失败')
     schools.value = []
   }
 }
@@ -686,17 +701,17 @@ async function loadTrafficData(signal?: AbortSignal) {
       granularity: granularity // 指定时间粒度
     }
     
-    // 处理学校和内容方的过滤逻辑
+    // 处理实体和内容方的过滤逻辑
     if (queryForm.region) {
       params.region = queryForm.region
     }
     
-    // 如果选择了学校名称但没有选择内容方，则使用学校名称过滤
     if (queryForm.school_name) {
-      params.school_name = queryForm.school_name
-      
-      // 如果没有选择内容方，则不添加内容方过滤条件
-      // 这样后端会返回该学校所有内容方的数据
+      if (queryForm.data_source === 'edc') {
+        params.display_name = queryForm.school_name
+      } else {
+        params.school_name = queryForm.school_name
+      }
       if (queryForm.cp) {
         params.cp = queryForm.cp
       }
@@ -734,7 +749,9 @@ async function loadTrafficData(signal?: AbortSignal) {
         }
         console.log(`分片请求[${++idx}]`, chunkParams)
         if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
-        const res = await (api as any).v2.getTrafficData(chunkParams, { signal }) as any
+        const res = queryForm.data_source === 'edc'
+          ? await (api as any).v2.edc.getTrafficData(chunkParams, { signal })
+          : await (api as any).v2.getTrafficData(chunkParams, { signal })
         let list: any[] = []
         if (Array.isArray(res)) { list = res }
         else if (res && Array.isArray(res.items)) { list = res.items }
@@ -746,7 +763,9 @@ async function loadTrafficData(signal?: AbortSignal) {
     } else {
       // 小范围直接一次性请求
       if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
-      const res = await (api as any).v2.getTrafficData(params, { signal }) as any
+      const res = queryForm.data_source === 'edc'
+        ? await (api as any).v2.edc.getTrafficData(params, { signal })
+        : await (api as any).v2.getTrafficData(params, { signal })
       if (Array.isArray(res)) { rawList = res }
       else if (res && Array.isArray(res.items)) { rawList = res.items }
       else { rawList = [] }
@@ -791,10 +810,12 @@ async function loadTrafficData(signal?: AbortSignal) {
           const key = toMinuteKeyStr(item.time_str || item.create_time)
           if (!key) return
           if (!dataByTimeAll[key]) {
-            dataByTimeAll[key] = { create_time: key, total_recv: 0, total_send: 0, time_str: key }
+            dataByTimeAll[key] = { create_time: key, total_recv: 0, total_send: 0, service_size: 0, cache_size: 0, time_str: key }
           }
-          dataByTimeAll[key].total_recv += Number(item.total_recv) || 0
-          dataByTimeAll[key].total_send += Number(item.total_send) || 0
+          dataByTimeAll[key].total_recv += Number(item.total_recv ?? item.service_size) || 0
+          dataByTimeAll[key].total_send += Number(item.total_send ?? item.cache_size) || 0
+          dataByTimeAll[key].service_size = dataByTimeAll[key].total_recv
+          dataByTimeAll[key].cache_size = dataByTimeAll[key].total_send
         })
         finalData = Object.values(dataByTimeAll).sort((a: any, b: any) => (a.create_time as string).localeCompare(b.create_time as string))
       } else if (queryForm.school_name && queryForm.cp) {
@@ -806,15 +827,20 @@ async function loadTrafficData(signal?: AbortSignal) {
             dataByTime[key] = {
               create_time: key,
               school_name: queryForm.school_name,
+              display_name: queryForm.school_name,
               region: item.region || '',
               cp: queryForm.cp,
               total_recv: 0,
               total_send: 0,
+              service_size: 0,
+              cache_size: 0,
               time_str: key,
             }
           }
-          dataByTime[key].total_recv += Number(item.total_recv) || 0
-          dataByTime[key].total_send += Number(item.total_send) || 0
+          dataByTime[key].total_recv += Number(item.total_recv ?? item.service_size) || 0
+          dataByTime[key].total_send += Number(item.total_send ?? item.cache_size) || 0
+          dataByTime[key].service_size = dataByTime[key].total_recv
+          dataByTime[key].cache_size = dataByTime[key].total_send
         })
         finalData = Object.values(dataByTime).sort((a: any, b: any) => (a.create_time as string).localeCompare(b.create_time as string))
       }
@@ -822,8 +848,11 @@ async function loadTrafficData(signal?: AbortSignal) {
       // 预计算 bps，减少渲染与 tooltip 阶段的重复换算
       const withBps = finalData.map((it: any) => ({
         ...it,
-        recv_bps: it && it.recv_bps != null ? Number(it.recv_bps) : convertToBitsPerSecond(it.total_recv),
-        send_bps: it && it.send_bps != null ? Number(it.send_bps) : convertToBitsPerSecond(it.total_send),
+        school_name: it.school_name || it.display_name || '',
+        total_recv: Number(it.total_recv ?? it.service_size) || 0,
+        total_send: Number(it.total_send ?? it.cache_size) || 0,
+        recv_bps: it && it.recv_bps != null ? Number(it.recv_bps) : convertToBitsPerSecond(Number(it.total_recv ?? it.service_size) || 0),
+        send_bps: it && it.send_bps != null ? Number(it.send_bps) : convertToBitsPerSecond(Number(it.total_send ?? it.cache_size) || 0),
       }))
       trafficData.value = withBps
       total.value = withBps.length
@@ -903,6 +932,17 @@ async function handleCPChange(cp) {
   console.log('基于运营商筛选学校:', queryForm.region, cp)
 }
 
+async function handleDataSourceChange() {
+  queryForm.school_name = ''
+  queryForm.region = ''
+  queryForm.cp = ''
+  trafficData.value = []
+  total.value = 0
+  currentPage.value = 1
+  await loadRegionCpOptions()
+  await loadSchools('', '')
+}
+
 // 处理预设时间范围变化
 function handleTimeRangeChange(value: TrafficTimeRangeOption) {
   if (value === 'custom') {
@@ -959,11 +999,9 @@ function formatTraffic(bytes, withUnit = true) {
 
 // 将原始数据转换为 bits/s
 function convertToBitsPerSecond(bytes) {
-  // 原始数据需要 *8/60 转换为 bits/s
+  // NFA 原始点按 60 秒口径；EDC 原始点是 5 分钟聚合，按 300 秒口径。
   // *8 是将字节转换为比特
-  // /60 是将每分钟的数据转换为每秒的数据
-  // 我们始终使用原始5分钟粒度，所以因子始终是60
-  const factor = 60
+  const factor = queryForm.data_source === 'edc' ? 300 : 60
   
   // 将字节转换为比特，然后除以时间因子
   return (bytes * 8) / factor
@@ -1046,6 +1084,17 @@ usePageRefresh(() => {
     <!-- 查询表单 -->
     <FilterPanel>
       <ElForm :model="queryForm" label-width="80px" inline class="filter-form">
+        <ElFormItem label="数据源">
+          <ElSegmented
+            v-model="queryForm.data_source"
+            :options="[
+              { label: 'NFA', value: 'nfa' },
+              { label: 'EDC', value: 'edc' },
+            ]"
+            @change="handleDataSourceChange"
+          />
+        </ElFormItem>
+
         <ElFormItem label="地区">
           <SearchSelect v-model="queryForm.region" :options="regions" placeholder="选择地区" clearable @change="handleRegionChange" class="field-sm" />
         </ElFormItem>
@@ -1054,8 +1103,8 @@ usePageRefresh(() => {
           <SearchSelect v-model="queryForm.cp" :options="cps" placeholder="选择 CP" clearable @change="handleCPChange" class="field-sm" />
         </ElFormItem>
         
-        <ElFormItem label="学校名称">
-          <SearchSelect v-model="queryForm.school_name" :options="schools" label-key="school_name" value-key="school_name" placeholder="选择学校" clearable class="field-lg" />
+        <ElFormItem :label="entityLabel">
+          <SearchSelect v-model="queryForm.school_name" :options="schools" label-key="school_name" value-key="school_name" :placeholder="`选择${entityLabel}`" clearable class="field-lg" />
         </ElFormItem>
         
         <ElFormItem label="时间范围">
@@ -1103,7 +1152,7 @@ usePageRefresh(() => {
               : (scope.row.time_str || scope.row.create_time) }}
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="school_name" label="学校名称" />
+        <ElTableColumn prop="school_name" :label="entityLabel" />
         <ElTableColumn prop="region" label="地区" />
         <ElTableColumn prop="cp" label="内容方" />
         <ElTableColumn prop="total_recv" label="服务流速">

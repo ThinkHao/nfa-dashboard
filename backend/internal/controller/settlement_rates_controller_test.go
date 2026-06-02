@@ -129,6 +129,22 @@ func (s *settlementRatesServiceStub) UpsertFinalCustomerRate(rate *model.RateFin
 	return nil
 }
 
+func (s *settlementRatesServiceStub) ListFinalNodeRates(region, cp, displayName, settlementMode string, unitBase int, page, pageSize int) ([]model.RateFinalNode, int64, error) {
+	return nil, 0, nil
+}
+
+func (s *settlementRatesServiceStub) UpsertFinalNodeRate(rate *model.RateFinalNode) error {
+	return nil
+}
+
+func (s *settlementRatesServiceStub) InitFinalNodeRatesFromNode() (int64, error) {
+	return 0, nil
+}
+
+func (s *settlementRatesServiceStub) RefreshFinalNodeRates() (int64, error) {
+	return 0, nil
+}
+
 func (s *settlementRatesServiceStub) ListFinalCustomerRatesDiscounted(region, cp, schoolName, feeType string, serviceDate time.Time, page, pageSize int) ([]service.DiscountedFinalCustomerRate, int64, error) {
 	return nil, 0, nil
 }

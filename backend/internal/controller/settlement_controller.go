@@ -303,7 +303,17 @@ func (c *SettlementController) UpdateSettlementConfig(ctx *gin.Context) {
 		return
 	}
 
-	if len(config.DailyTime) != 5 || len(config.WeeklyTime) != 5 {
+	if config.NodeDailyTime == "" {
+		config.NodeDailyTime = "03:00"
+	}
+	if config.NodeMonthlyTime == "" {
+		config.NodeMonthlyTime = "04:00"
+	}
+	if config.NodeMonthlyDay == 0 {
+		config.NodeMonthlyDay = 1
+	}
+
+	if len(config.DailyTime) != 5 || len(config.WeeklyTime) != 5 || len(config.NodeDailyTime) != 5 || len(config.NodeMonthlyTime) != 5 {
 		ctx.JSON(http.StatusBadRequest, gin.H{
 			"code":    400,
 			"message": "时间格式错误，应为HH:MM格式",
@@ -315,6 +325,14 @@ func (c *SettlementController) UpdateSettlementConfig(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, gin.H{
 			"code":    400,
 			"message": "周几的值应为1-7",
+		})
+		return
+	}
+
+	if config.NodeMonthlyDay < 1 || config.NodeMonthlyDay > 31 {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"code":    400,
+			"message": "节点月结算触发日应为1-31",
 		})
 		return
 	}

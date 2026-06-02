@@ -3,6 +3,7 @@ package repository
 import (
 	"nfa-dashboard/internal/model"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -12,7 +13,9 @@ import (
 type RatesRepository interface {
 	// 客户业务费率
 	ListCustomerRates(filter map[string]interface{}, limit, offset int) ([]model.RateCustomer, int64, error)
+	ListCustomerRateKeys(filter map[string]interface{}) (map[string]struct{}, error)
 	UpsertCustomerRate(rate *model.RateCustomer) error
+	CreateCustomerRateIfMissing(rate *model.RateCustomer) (bool, error)
 	UpdateCustomerByID(id uint64, updates map[string]interface{}) error
 
 	// 节点业务费率
@@ -22,6 +25,14 @@ type RatesRepository interface {
 	// 最终客户费率
 	ListFinalCustomerRates(filter map[string]interface{}, limit, offset int) ([]model.RateFinalCustomer, int64, error)
 	UpsertFinalCustomerRate(rate *model.RateFinalCustomer) error
+
+	// 最终节点费率
+	ListFinalNodeRates(filter map[string]interface{}, limit, offset int) ([]model.RateFinalNode, int64, error)
+	UpsertFinalNodeRate(rate *model.RateFinalNode) error
+	SyncFinalNodeRateFromNode(rate *model.RateNode) (bool, error)
+	InitFinalNodeRatesFromNode() (int64, error)
+	RefreshFinalNodeRates() (int64, error)
+	ListAllFinalNodeRates() ([]model.RateFinalNode, error)
 
 	// 初始化最终客户费率（从 rate_customer 同步，保护 config 记录）
 	InitFinalCustomerRatesFromCustomer() (int64, error)
@@ -134,6 +145,33 @@ func (r *ratesRepository) ListCustomerRates(filter map[string]interface{}, limit
 	return items, count, nil
 }
 
+func (r *ratesRepository) ListCustomerRateKeys(filter map[string]interface{}) (map[string]struct{}, error) {
+	type rateKeyRow struct {
+		Region     string
+		CP         string
+		SchoolName *string
+	}
+	var rows []rateKeyRow
+	q := model.DB.Model(&model.RateCustomer{}).Select("region, cp, school_name")
+	if v, ok := filter["region"]; ok && v != "" {
+		q = q.Where("region = ?", v)
+	}
+	if v, ok := filter["cp"]; ok && v != "" {
+		q = q.Where("cp = ?", v)
+	}
+	if v, ok := filter["school_name"]; ok && v != "" {
+		q = q.Where("school_name = ?", v)
+	}
+	if err := q.Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		out[rateCustomerKey(row.Region, row.CP, derefRateCustomerSchool(row.SchoolName))] = struct{}{}
+	}
+	return out, nil
+}
+
 // UpsertCustomerRate 基于唯一键(region,cp,school_name)进行插入或更新
 func (r *ratesRepository) UpsertCustomerRate(rate *model.RateCustomer) error {
 	updates := map[string]interface{}{
@@ -165,6 +203,20 @@ func (r *ratesRepository) UpsertCustomerRate(rate *model.RateCustomer) error {
 	}).Create(rate).Error
 }
 
+func (r *ratesRepository) CreateCustomerRateIfMissing(rate *model.RateCustomer) (bool, error) {
+	if rate == nil {
+		return false, gorm.ErrInvalidData
+	}
+	if rate.FeeMode == "" {
+		rate.FeeMode = "auto"
+	}
+	res := model.DB.Clauses(clause.Insert{Modifier: "IGNORE"}).Create(rate)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected > 0, nil
+}
+
 // UpdateCustomerByID 基于主键进行局部字段更新
 func (r *ratesRepository) UpdateCustomerByID(id uint64, updates map[string]interface{}) error {
 	if id == 0 {
@@ -174,6 +226,17 @@ func (r *ratesRepository) UpdateCustomerByID(id uint64, updates map[string]inter
 		return nil
 	}
 	return model.DB.Model(&model.RateCustomer{}).Where("id = ?", id).Updates(updates).Error
+}
+
+func rateCustomerKey(region, cp, schoolName string) string {
+	return region + "\x00" + cp + "\x00" + schoolName
+}
+
+func derefRateCustomerSchool(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 // ListNodeRates 列表查询节点业务费率
@@ -188,7 +251,16 @@ func (r *ratesRepository) ListNodeRates(filter map[string]interface{}, limit, of
 		q = q.Where("cp = ?", v)
 	}
 	if v, ok := filter["settlement_type"]; ok && v != "" {
-		q = q.Where("settlement_type = ?", v)
+		q = q.Where("settlement_type = ? OR settlement_mode = ?", v, v)
+	}
+	if v, ok := filter["settlement_mode"]; ok && v != "" {
+		q = q.Where("settlement_mode = ?", v)
+	}
+	if v, ok := filter["unit_base"]; ok && v != "" {
+		q = q.Where("unit_base = ?", v)
+	}
+	if v, ok := filter["entity_id"]; ok && v != "" {
+		q = q.Where("entity_id = ?", v)
 	}
 	if err := q.Count(&count).Error; err != nil {
 		return nil, 0, err
@@ -202,12 +274,250 @@ func (r *ratesRepository) ListNodeRates(filter map[string]interface{}, limit, of
 	return items, count, nil
 }
 
-// UpsertNodeRate 基于唯一键(region,cp,settlement_type)进行插入或更新
+// UpsertNodeRate 基于 entity_id 或 region/cp/settlement_mode/unit_base 进行插入或更新
 func (r *ratesRepository) UpsertNodeRate(rate *model.RateNode) error {
-	return model.DB.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "region"}, {Name: "cp"}, {Name: "settlement_type"}},
-		DoUpdates: clause.AssignmentColumns([]string{"cp_fee", "cp_fee_owner_id", "node_construction_fee", "node_construction_fee_owner_id", "rack_fee", "rack_fee_owner_id", "other_fee", "other_fee_owner_id", "updated_at"}),
-	}).Create(rate).Error
+	if rate.SettlementMode == "" {
+		rate.SettlementMode = rate.SettlementType
+	}
+	if rate.SettlementMode == "" {
+		rate.SettlementMode = "daily_95_avg"
+	}
+	if rate.SettlementType == "" {
+		rate.SettlementType = rate.SettlementMode
+	}
+	if rate.UnitBase == 0 {
+		rate.UnitBase = 1000
+	}
+	updates := map[string]interface{}{
+		"display_name":                   rate.DisplayName,
+		"region":                         rate.Region,
+		"cp":                             rate.CP,
+		"settlement_type":                rate.SettlementType,
+		"settlement_mode":                rate.SettlementMode,
+		"unit_base":                      rate.UnitBase,
+		"cp_fee":                         rate.CPFee,
+		"cp_fee_owner_id":                rate.CPFeeOwnerID,
+		"node_construction_fee":          rate.NodeConstructionFee,
+		"node_construction_fee_owner_id": rate.NodeConstructionFeeOwnerID,
+		"rack_fee":                       rate.RackFee,
+		"rack_fee_owner_id":              rate.RackFeeOwnerID,
+		"other_fee":                      rate.OtherFee,
+		"other_fee_owner_id":             rate.OtherFeeOwnerID,
+		"updated_at":                     gorm.Expr("NOW()"),
+	}
+	q := model.DB.Model(&model.RateNode{})
+	if rate.EntityID != nil && *rate.EntityID > 0 {
+		q = q.Where("entity_id = ? AND settlement_mode = ? AND unit_base = ?", *rate.EntityID, rate.SettlementMode, rate.UnitBase)
+	} else {
+		q = q.Where("entity_id IS NULL AND region = ? AND cp = ? AND settlement_mode = ? AND unit_base = ?", rate.Region, rate.CP, rate.SettlementMode, rate.UnitBase)
+	}
+	var existing model.RateNode
+	if err := q.Limit(1).Find(&existing).Error; err != nil {
+		return err
+	}
+	if existing.ID > 0 {
+		return model.DB.Model(&model.RateNode{}).Where("id = ?", existing.ID).Updates(updates).Error
+	}
+	return model.DB.Create(rate).Error
+}
+
+func (r *ratesRepository) ListFinalNodeRates(filter map[string]interface{}, limit, offset int) ([]model.RateFinalNode, int64, error) {
+	var items []model.RateFinalNode
+	var count int64
+	q := model.DB.Model(&model.RateFinalNode{})
+	if v, ok := filter["region"]; ok && v != "" {
+		q = q.Where("region = ?", v)
+	}
+	if v, ok := filter["cp"]; ok && v != "" {
+		q = q.Where("cp = ?", v)
+	}
+	if v, ok := filter["display_name"]; ok && v != "" {
+		q = q.Where("display_name LIKE ?", "%"+v.(string)+"%")
+	}
+	if v, ok := filter["settlement_mode"]; ok && v != "" {
+		q = q.Where("settlement_mode = ?", v)
+	}
+	if v, ok := filter["unit_base"]; ok && v != "" {
+		q = q.Where("unit_base = ?", v)
+	}
+	if err := q.Count(&count).Error; err != nil {
+		return nil, 0, err
+	}
+	if count == 0 {
+		return []model.RateFinalNode{}, 0, nil
+	}
+	if err := q.Order("updated_at DESC").Limit(limit).Offset(offset).Find(&items).Error; err != nil {
+		return nil, 0, err
+	}
+	return items, count, nil
+}
+
+func (r *ratesRepository) ListAllFinalNodeRates() ([]model.RateFinalNode, error) {
+	var items []model.RateFinalNode
+	err := model.DB.Order("entity_id DESC, region ASC, cp ASC").Find(&items).Error
+	return items, err
+}
+
+func (r *ratesRepository) UpsertFinalNodeRate(rate *model.RateFinalNode) error {
+	if rate.SettlementMode == "" {
+		rate.SettlementMode = "daily_95_avg"
+	}
+	if rate.UnitBase == 0 {
+		rate.UnitBase = 1000
+	}
+	if rate.FeeType == "" {
+		rate.FeeType = "config"
+	}
+	updates := map[string]interface{}{
+		"display_name":                   rate.DisplayName,
+		"region":                         rate.Region,
+		"cp":                             rate.CP,
+		"settlement_mode":                rate.SettlementMode,
+		"unit_base":                      rate.UnitBase,
+		"final_fee":                      rate.FinalFee,
+		"fee_type":                       rate.FeeType,
+		"cp_fee":                         rate.CPFee,
+		"cp_fee_owner_id":                rate.CPFeeOwnerID,
+		"node_construction_fee":          rate.NodeConstructionFee,
+		"node_construction_fee_owner_id": rate.NodeConstructionFeeOwnerID,
+		"rack_fee":                       rate.RackFee,
+		"rack_fee_owner_id":              rate.RackFeeOwnerID,
+		"other_fee":                      rate.OtherFee,
+		"other_fee_owner_id":             rate.OtherFeeOwnerID,
+		"updated_at":                     gorm.Expr("NOW()"),
+	}
+	q := model.DB.Model(&model.RateFinalNode{})
+	if rate.EntityID != nil && *rate.EntityID > 0 {
+		q = q.Where("entity_id = ? AND settlement_mode = ? AND unit_base = ?", *rate.EntityID, rate.SettlementMode, rate.UnitBase)
+	} else {
+		q = q.Where("entity_id IS NULL AND region = ? AND cp = ? AND settlement_mode = ? AND unit_base = ?", rate.Region, rate.CP, rate.SettlementMode, rate.UnitBase)
+	}
+	var existing model.RateFinalNode
+	if err := q.Limit(1).Find(&existing).Error; err != nil {
+		return err
+	}
+	if existing.ID > 0 {
+		return model.DB.Model(&model.RateFinalNode{}).Where("id = ?", existing.ID).Updates(updates).Error
+	}
+	return model.DB.Create(rate).Error
+}
+
+func (r *ratesRepository) SyncFinalNodeRateFromNode(rate *model.RateNode) (bool, error) {
+	if rate == nil {
+		return false, gorm.ErrInvalidData
+	}
+	mode := rate.SettlementMode
+	if mode == "" {
+		mode = rate.SettlementType
+	}
+	if mode == "" {
+		mode = "daily_95_avg"
+	}
+	base := rate.UnitBase
+	if base == 0 {
+		base = 1000
+	}
+	displayName := ""
+	if rate.DisplayName != nil {
+		displayName = *rate.DisplayName
+	}
+	item := &model.RateFinalNode{
+		EntityID:                   rate.EntityID,
+		DisplayName:                displayName,
+		Region:                     rate.Region,
+		CP:                         rate.CP,
+		SettlementMode:             mode,
+		UnitBase:                   base,
+		FinalFee:                   rate.NodeConstructionFee,
+		FeeType:                    "auto",
+		CPFee:                      rate.CPFee,
+		CPFeeOwnerID:               rate.CPFeeOwnerID,
+		NodeConstructionFee:        rate.NodeConstructionFee,
+		NodeConstructionFeeOwnerID: rate.NodeConstructionFeeOwnerID,
+		RackFee:                    rate.RackFee,
+		RackFeeOwnerID:             rate.RackFeeOwnerID,
+		OtherFee:                   rate.OtherFee,
+		OtherFeeOwnerID:            rate.OtherFeeOwnerID,
+		LastSyncTime:               ptrTime(time.Now()),
+	}
+	q := model.DB.Model(&model.RateFinalNode{})
+	if item.EntityID != nil && *item.EntityID > 0 {
+		q = q.Where("entity_id = ? AND settlement_mode = ? AND unit_base = ?", *item.EntityID, item.SettlementMode, item.UnitBase)
+	} else {
+		q = q.Where("entity_id IS NULL AND region = ? AND cp = ? AND settlement_mode = ? AND unit_base = ?", item.Region, item.CP, item.SettlementMode, item.UnitBase)
+	}
+	var existing model.RateFinalNode
+	if err := q.Limit(1).Find(&existing).Error; err != nil {
+		return false, err
+	}
+	if existing.ID > 0 {
+		if existing.FeeType != "" && existing.FeeType != "auto" {
+			return false, nil
+		}
+		updates := map[string]interface{}{
+			"display_name":                   item.DisplayName,
+			"region":                         item.Region,
+			"cp":                             item.CP,
+			"final_fee":                      item.FinalFee,
+			"fee_type":                       "auto",
+			"cp_fee":                         item.CPFee,
+			"cp_fee_owner_id":                item.CPFeeOwnerID,
+			"node_construction_fee":          item.NodeConstructionFee,
+			"node_construction_fee_owner_id": item.NodeConstructionFeeOwnerID,
+			"rack_fee":                       item.RackFee,
+			"rack_fee_owner_id":              item.RackFeeOwnerID,
+			"other_fee":                      item.OtherFee,
+			"other_fee_owner_id":             item.OtherFeeOwnerID,
+			"last_sync_time":                 gorm.Expr("NOW()"),
+			"updated_at":                     gorm.Expr("NOW()"),
+		}
+		res := model.DB.Model(&model.RateFinalNode{}).Where("id = ?", existing.ID).Updates(updates)
+		return res.RowsAffected > 0, res.Error
+	}
+	if err := model.DB.Create(item).Error; err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (r *ratesRepository) InitFinalNodeRatesFromNode() (int64, error) {
+	var rates []model.RateNode
+	if err := model.DB.Order("entity_id DESC, region ASC, cp ASC").Find(&rates).Error; err != nil {
+		return 0, err
+	}
+	var affected int64
+	for _, rn := range rates {
+		ok, err := r.SyncFinalNodeRateFromNode(&rn)
+		if err != nil {
+			return affected, err
+		}
+		if ok {
+			affected++
+		}
+	}
+	return affected, nil
+}
+
+func (r *ratesRepository) RefreshFinalNodeRates() (int64, error) {
+	var rates []model.RateNode
+	if err := model.DB.Find(&rates).Error; err != nil {
+		return 0, err
+	}
+	var affected int64
+	for _, rn := range rates {
+		ok, err := r.SyncFinalNodeRateFromNode(&rn)
+		if err != nil {
+			return affected, err
+		}
+		if ok {
+			affected++
+		}
+	}
+	return affected, nil
+}
+
+func ptrTime(t time.Time) *time.Time {
+	return &t
 }
 
 // ListFinalCustomerRates 列表查询最终客户费率

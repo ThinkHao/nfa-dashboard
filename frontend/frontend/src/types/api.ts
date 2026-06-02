@@ -393,9 +393,13 @@ export interface CustomerRateImportTask {
 // 节点业务费率（rate_node）
 export interface RateNode {
   id: number;
+  entity_id?: number | null;
+  display_name?: string | null;
   region: string;
   cp: string;
-  settlement_type: string; // IDC/...
+  settlement_type: string;
+  settlement_mode?: string;
+  unit_base?: number;
   cp_fee?: number | null;
   cp_fee_owner_id?: number | null;
   node_construction_fee?: number | null;
@@ -409,9 +413,55 @@ export interface RateNode {
 }
 
 export interface UpsertRateNodeRequest {
+  entity_id?: number | null;
+  display_name?: string | null;
   region: string;
   cp: string;
-  settlement_type: string;
+  enabled?: boolean;
+  settlement_type?: string;
+  settlement_mode?: string;
+  unit_base?: number;
+  cp_fee?: number | null;
+  cp_fee_owner_id?: number | null;
+  node_construction_fee?: number | null;
+  node_construction_fee_owner_id?: number | null;
+  rack_fee?: number | null;
+  rack_fee_owner_id?: number | null;
+  other_fee?: number | null;
+  other_fee_owner_id?: number | null;
+}
+
+export interface RateFinalNode {
+  id: number;
+  entity_id?: number | null;
+  display_name: string;
+  region: string;
+  cp: string;
+  settlement_mode: string;
+  unit_base: number;
+  final_fee?: number | null;
+  fee_type: string;
+  cp_fee?: number | null;
+  cp_fee_owner_id?: number | null;
+  node_construction_fee?: number | null;
+  node_construction_fee_owner_id?: number | null;
+  rack_fee?: number | null;
+  rack_fee_owner_id?: number | null;
+  other_fee?: number | null;
+  other_fee_owner_id?: number | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface UpsertRateFinalNodeRequest {
+  entity_id?: number | null;
+  display_name: string;
+  region: string;
+  cp: string;
+  settlement_mode: string;
+  unit_base?: number;
+  final_fee?: number | null;
+  fee_type?: string;
   cp_fee?: number | null;
   cp_fee_owner_id?: number | null;
   node_construction_fee?: number | null;

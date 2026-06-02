@@ -38,17 +38,22 @@ type SettlementFilter struct {
 
 // SettlementConfig 结算配置
 type SettlementConfig struct {
-	ID                int64     `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
-	DailyTime         string    `gorm:"column:daily_time;not null" json:"daily_time"`                                // 每日结算时间，格式为"02:00"
-	WeeklyDay         int       `gorm:"column:weekly_day;not null" json:"weekly_day"`                                // 每周结算日，1-7表示周一到周日
-	WeeklyTime        string    `gorm:"column:weekly_time;not null" json:"weekly_time"`                              // 每周结算时间，格式为"02:00"
-	Enabled           bool      `gorm:"column:enabled;not null;default:true" json:"enabled"`                         // 是否启用
-	DailyEnabled      bool      `gorm:"column:daily_enabled;not null;default:true" json:"daily_enabled"`             // 是否启用每日自动结算
-	WeeklyEnabled     bool      `gorm:"column:weekly_enabled;not null;default:true" json:"weekly_enabled"`           // 是否启用每周自动结算
-	RecalcAfterDaily  bool      `gorm:"column:recalc_after_daily;not null;default:true" json:"recalc_after_daily"`   // 日结算完成后自动复算
-	RecalcAfterWeekly bool      `gorm:"column:recalc_after_weekly;not null;default:true" json:"recalc_after_weekly"` // 周结算完成后自动复算
-	LastExecuteTime   time.Time `gorm:"column:last_execute_time" json:"last_execute_time"`                           // 上次执行时间
-	UpdateTime        time.Time `gorm:"column:update_time;autoUpdateTime" json:"update_time"`                        // 更新时间
+	ID                 int64     `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+	DailyTime          string    `gorm:"column:daily_time;not null" json:"daily_time"`                                   // 每日结算时间，格式为"02:00"
+	WeeklyDay          int       `gorm:"column:weekly_day;not null" json:"weekly_day"`                                   // 每周结算日，1-7表示周一到周日
+	WeeklyTime         string    `gorm:"column:weekly_time;not null" json:"weekly_time"`                                 // 每周结算时间，格式为"02:00"
+	Enabled            bool      `gorm:"column:enabled;not null;default:true" json:"enabled"`                            // 是否启用
+	DailyEnabled       bool      `gorm:"column:daily_enabled;not null;default:true" json:"daily_enabled"`                // 是否启用每日自动结算
+	WeeklyEnabled      bool      `gorm:"column:weekly_enabled;not null;default:true" json:"weekly_enabled"`              // 是否启用每周自动结算
+	NodeDailyEnabled   bool      `gorm:"column:node_daily_enabled;not null;default:false" json:"node_daily_enabled"`     // 是否启用EDC节点每日自动结算
+	NodeDailyTime      string    `gorm:"column:node_daily_time;not null;default:03:00" json:"node_daily_time"`           // EDC节点每日结算时间
+	NodeMonthlyEnabled bool      `gorm:"column:node_monthly_enabled;not null;default:false" json:"node_monthly_enabled"` // 是否启用EDC节点每月自动结算
+	NodeMonthlyDay     int       `gorm:"column:node_monthly_day;not null;default:1" json:"node_monthly_day"`             // EDC节点月结算触发日
+	NodeMonthlyTime    string    `gorm:"column:node_monthly_time;not null;default:04:00" json:"node_monthly_time"`       // EDC节点月结算时间
+	RecalcAfterDaily   bool      `gorm:"column:recalc_after_daily;not null;default:true" json:"recalc_after_daily"`      // 日结算完成后自动复算
+	RecalcAfterWeekly  bool      `gorm:"column:recalc_after_weekly;not null;default:true" json:"recalc_after_weekly"`    // 周结算完成后自动复算
+	LastExecuteTime    time.Time `gorm:"column:last_execute_time" json:"last_execute_time"`                              // 上次执行时间
+	UpdateTime         time.Time `gorm:"column:update_time;autoUpdateTime" json:"update_time"`                           // 更新时间
 }
 
 // TableName 设置表名

@@ -24,6 +24,8 @@ import type {
   RateNode,
   UpsertRateNodeRequest,
   RateFinalCustomer,
+  RateFinalNode,
+  UpsertRateFinalNodeRequest,
   UpsertRateFinalCustomerRequest,
   BusinessEntity,
   CreateBusinessEntityRequest,
@@ -121,6 +123,11 @@ export default {
         enabled: config.enabled,
         daily_enabled: config.daily_enabled,
         weekly_enabled: config.weekly_enabled,
+        node_daily_enabled: config.node_daily_enabled,
+        node_daily_time: config.node_daily_time,
+        node_monthly_enabled: config.node_monthly_enabled,
+        node_monthly_day: config.node_monthly_day,
+        node_monthly_time: config.node_monthly_time,
         recalc_after_daily: config.recalc_after_daily,
         recalc_after_weekly: config.recalc_after_weekly,
       }
@@ -153,6 +160,14 @@ export default {
     // 创建周结算任务
     createWeeklyTask(params?: any) {
       return api.post('/api/v1/settlement/tasks/weekly', params)
+    },
+
+    createNodeDailyTask(params?: any) {
+      return api.post('/api/v1/settlement/tasks/node-daily95', params)
+    },
+
+    createNodeMonthlyTask(params?: any) {
+      return api.post('/api/v1/settlement/tasks/node-monthly95', params)
     },
 
     // 删除结算任务
@@ -446,6 +461,22 @@ export default {
         return api.post('/api/v1/settlement/rates/node', data).then(() => undefined)
       },
     },
+    finalNode: {
+      list(params?: any, config?: AxiosRequestConfig): Promise<PaginatedData<RateFinalNode>> {
+        return api.get('/api/v1/settlement/rates/final-node', { params, ...(config || {}) }).then((d: any) => d as PaginatedData<RateFinalNode>)
+      },
+      upsert(data: UpsertRateFinalNodeRequest): Promise<void> {
+        return api.post('/api/v1/settlement/rates/final-node', data).then(() => undefined)
+      },
+      initFromNode(): Promise<number> {
+        return api.post('/api/v1/settlement/rates/final-node/init-from-node', {})
+          .then((d: any) => (d && typeof d === 'object' && 'affected' in d ? Number((d as any).affected) : 0))
+      },
+      refresh(): Promise<number> {
+        return api.post('/api/v1/settlement/rates/final-node/refresh', {})
+          .then((d: any) => (d && typeof d === 'object' && 'affected' in d ? Number((d as any).affected) : 0))
+      },
+    },
     final: {
       list(params?: any, config?: AxiosRequestConfig): Promise<PaginatedData<RateFinalCustomer>> {
         return api.get('/api/v1/settlement/rates/final', { params, ...(config || {}) }).then((d: any) => d as PaginatedData<RateFinalCustomer>)
@@ -475,7 +506,7 @@ export default {
     sync: {
       execute(): Promise<number> {
         return api
-          .post('/api/v1/settlement/rates/sync/execute', {})
+          .post('/api/v1/settlement/rates/sync/execute', {}, { timeout: 300000 })
           .then((d: any) => (d && typeof d === 'object' && 'affected' in d ? Number((d as any).affected) : 0))
       },
     },
@@ -600,6 +631,16 @@ export default {
         .get('/api/v1/settlement/data/customer/monthly', { params, ...(config || {}) })
         .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
+    nodeList(params?: any, config?: AxiosRequestConfig) {
+      return api
+        .get('/api/v1/settlement/data/node', { params, ...(config || {}) })
+        .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+    },
+    nodeMonthlyList(params?: any, config?: AxiosRequestConfig) {
+      return api
+        .get('/api/v1/settlement/data/node/monthly', { params, ...(config || {}) })
+        .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+    },
     // 重建月度快照
     rebuildMonthly(payload: any = {}): Promise<number> {
       return api
@@ -673,6 +714,28 @@ export default {
     getTrafficSummary(params?: any, config?: AxiosRequestConfig) {
       return api.get('/api/v2/traffic/summary', { params, ...(config || {}) })
         .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+    },
+    edc: {
+      getEntities(params?: any, config?: AxiosRequestConfig) {
+        return api.get('/api/v2/edc/entities', { params, ...(config || {}) })
+          .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+      },
+      getRegions(params?: any, config?: AxiosRequestConfig) {
+        return api.get('/api/v2/edc/regions', { params, ...(config || {}) })
+          .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+      },
+      getCPs(params?: any, config?: AxiosRequestConfig) {
+        return api.get('/api/v2/edc/cps', { params, ...(config || {}) })
+          .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+      },
+      getTrafficData(params?: any, config?: AxiosRequestConfig) {
+        return api.get('/api/v2/edc/traffic', { params, ...(config || {}) })
+          .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+      },
+      getTrafficSummary(params?: any, config?: AxiosRequestConfig) {
+        return api.get('/api/v2/edc/traffic/summary', { params, ...(config || {}) })
+          .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+      },
     },
     // 结算相关（v2）
     settlement: {

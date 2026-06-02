@@ -1,11 +1,79 @@
 package service
 
 import (
+	"errors"
 	"testing"
 	"time"
 
 	"nfa-dashboard/internal/model"
 )
+
+type ratesServiceRatesRepoStub struct {
+	upsertedNodeRate *model.RateNode
+	finalNodeRates   []model.RateFinalNode
+	syncedNodeRate   *model.RateNode
+}
+
+func (s *ratesServiceRatesRepoStub) ListCustomerRates(filter map[string]interface{}, limit, offset int) ([]model.RateCustomer, int64, error) {
+	return nil, 0, nil
+}
+func (s *ratesServiceRatesRepoStub) ListCustomerRateKeys(filter map[string]interface{}) (map[string]struct{}, error) {
+	return nil, nil
+}
+func (s *ratesServiceRatesRepoStub) UpsertCustomerRate(rate *model.RateCustomer) error { return nil }
+func (s *ratesServiceRatesRepoStub) CreateCustomerRateIfMissing(rate *model.RateCustomer) (bool, error) {
+	return false, nil
+}
+func (s *ratesServiceRatesRepoStub) UpdateCustomerByID(id uint64, updates map[string]interface{}) error {
+	return nil
+}
+func (s *ratesServiceRatesRepoStub) ListNodeRates(filter map[string]interface{}, limit, offset int) ([]model.RateNode, int64, error) {
+	return nil, 0, nil
+}
+func (s *ratesServiceRatesRepoStub) UpsertNodeRate(rate *model.RateNode) error {
+	if rate == nil {
+		return errors.New("rate is nil")
+	}
+	cp := *rate
+	s.upsertedNodeRate = &cp
+	return nil
+}
+func (s *ratesServiceRatesRepoStub) ListFinalCustomerRates(filter map[string]interface{}, limit, offset int) ([]model.RateFinalCustomer, int64, error) {
+	return nil, 0, nil
+}
+func (s *ratesServiceRatesRepoStub) UpsertFinalCustomerRate(rate *model.RateFinalCustomer) error {
+	return nil
+}
+func (s *ratesServiceRatesRepoStub) ListFinalNodeRates(filter map[string]interface{}, limit, offset int) ([]model.RateFinalNode, int64, error) {
+	return nil, 0, nil
+}
+func (s *ratesServiceRatesRepoStub) UpsertFinalNodeRate(rate *model.RateFinalNode) error {
+	return nil
+}
+func (s *ratesServiceRatesRepoStub) SyncFinalNodeRateFromNode(rate *model.RateNode) (bool, error) {
+	if rate != nil {
+		cp := *rate
+		s.syncedNodeRate = &cp
+	}
+	return true, nil
+}
+func (s *ratesServiceRatesRepoStub) InitFinalNodeRatesFromNode() (int64, error) { return 0, nil }
+func (s *ratesServiceRatesRepoStub) RefreshFinalNodeRates() (int64, error)      { return 0, nil }
+func (s *ratesServiceRatesRepoStub) ListAllFinalNodeRates() ([]model.RateFinalNode, error) {
+	return s.finalNodeRates, nil
+}
+func (s *ratesServiceRatesRepoStub) InitFinalCustomerRatesFromCustomer() (int64, error) {
+	return 0, nil
+}
+func (s *ratesServiceRatesRepoStub) RefreshFinalCustomerRates() (int64, error) { return 0, nil }
+func (s *ratesServiceRatesRepoStub) CleanupInvalidFinalCustomerRates() (int64, error) {
+	return 0, nil
+}
+func (s *ratesServiceRatesRepoStub) GetFinalCustomerRate(region, cp, schoolName string) (*model.RateFinalCustomer, error) {
+	return nil, nil
+}
+func (s *ratesServiceRatesRepoStub) ListDistinctCustomerRegions() ([]string, error) { return nil, nil }
+func (s *ratesServiceRatesRepoStub) ListDistinctCustomerCPs() ([]string, error)     { return nil, nil }
 
 type ratesServiceUserRepoStub struct {
 	findByIDsResult                 []model.User
@@ -139,6 +207,52 @@ func TestNormalizeIncrementConfig_RatioOutOfRangeShouldFail(t *testing.T) {
 
 	if err := normalizeIncrementConfig(rate); err == nil {
 		t.Fatalf("expected error, got nil")
+	}
+}
+
+func TestUpsertNodeRateRequiresTrafficUnitPrice(t *testing.T) {
+	svc := &ratesService{repo: &ratesServiceRatesRepoStub{}}
+	err := svc.UpsertNodeRate(&model.RateNode{
+		Region:         "天津",
+		CP:             "bilibili",
+		SettlementMode: EDCSettlementModeDaily95Avg,
+		UnitBase:       1000,
+	})
+	if err == nil {
+		t.Fatalf("expected missing traffic unit price to fail")
+	}
+	if got := err.Error(); got != "节点建设费（流量单价）为必填" {
+		t.Fatalf("unexpected error: %s", got)
+	}
+}
+
+func TestUpsertNodeRateNormalizesModeAndUnitBaseWithTrafficUnitPrice(t *testing.T) {
+	repo := &ratesServiceRatesRepoStub{}
+	svc := &ratesService{repo: repo}
+	price := 2.8
+
+	if err := svc.UpsertNodeRate(&model.RateNode{
+		Region:              "天津",
+		CP:                  "bilibili",
+		SettlementMode:      "monthly95",
+		NodeConstructionFee: &price,
+	}); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if repo.upsertedNodeRate == nil {
+		t.Fatalf("expected repository upsert")
+	}
+	if repo.upsertedNodeRate.SettlementMode != EDCSettlementModeRange95 || repo.upsertedNodeRate.SettlementType != EDCSettlementModeRange95 {
+		t.Fatalf("unexpected mode/type: %+v", repo.upsertedNodeRate)
+	}
+	if repo.upsertedNodeRate.UnitBase != 1024 {
+		t.Fatalf("expected default unit_base=1024, got %d", repo.upsertedNodeRate.UnitBase)
+	}
+	if repo.syncedNodeRate == nil {
+		t.Fatalf("expected node rate to sync into final node rate")
+	}
+	if repo.syncedNodeRate.SettlementMode != EDCSettlementModeRange95 || repo.syncedNodeRate.NodeConstructionFee == nil {
+		t.Fatalf("unexpected synced node rate: %+v", repo.syncedNodeRate)
 	}
 }
 

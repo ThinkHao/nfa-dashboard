@@ -10,6 +10,11 @@ export interface SettlementConfig {
   enabled: boolean; // 是否启用自动结算
   daily_enabled?: boolean; // 是否启用每日自动结算
   weekly_enabled?: boolean; // 是否启用每周自动结算
+  node_daily_enabled?: boolean; // 是否启用EDC节点每日自动结算
+  node_daily_time?: string; // EDC节点每日结算时间
+  node_monthly_enabled?: boolean; // 是否启用EDC节点每月自动结算
+  node_monthly_day?: number; // EDC节点月结算触发日
+  node_monthly_time?: string; // EDC节点月结算时间
   recalc_after_daily?: boolean; // 日结算完成后自动复算
   recalc_after_weekly?: boolean; // 周结算完成后自动复算
   last_execute_time: string; // 上次执行时间
@@ -19,7 +24,7 @@ export interface SettlementConfig {
 // 结算任务接口
 export interface SettlementTask {
   id: number;
-  task_type: 'daily' | 'weekly' | 'customer_init' | 'customer_recalc'; // 任务类型：日结算/周结算/初算/复算
+  task_type: 'daily' | 'weekly' | 'node_daily95' | 'node_monthly95' | 'customer_init' | 'customer_recalc'; // 任务类型
   task_date: string; // 任务日期
   status: TaskStatus; // 任务状态
   start_time: string; // 开始时间

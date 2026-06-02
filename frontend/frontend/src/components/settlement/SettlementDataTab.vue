@@ -3,13 +3,16 @@
     <!-- 筛选条件区域 -->
     <el-card class="filter-section" shadow="hover">
       <el-form :model="filterForm" inline>
+        <el-form-item label="数据源" class="min-w-220">
+          <el-segmented v-model="dataSource" :options="dataSourceOptions" @change="handleDataSourceChange" />
+        </el-form-item>
         <el-form-item label="地区" class="min-w-200">
           <SearchSelect v-model="filterForm.region" :options="regions" placeholder="选择地区" clearable class="field-w-180" @change="handleRegionChange" />
         </el-form-item>
         <el-form-item label="CP" class="min-w-200">
           <SearchSelect v-model="filterForm.cp" :options="cps" placeholder="选择 CP" clearable class="field-w-180" @change="handleCPChange" />
         </el-form-item>
-        <el-form-item label="学校" class="min-w-300">
+        <el-form-item v-if="dataSource === 'nfa'" label="学校" class="min-w-300">
           <SearchSelect
             v-model="filterForm.school_id"
             :options="schools"
@@ -21,7 +24,10 @@
             @change="handleSchoolChange"
           />
         </el-form-item>
-        <el-form-item label="费用归属" class="min-w-300">
+        <el-form-item v-else label="节点" class="min-w-300">
+          <el-input v-model="filterForm.display_name" clearable placeholder="输入节点名称" class="field-w-250" @change="onSearch" />
+        </el-form-item>
+        <el-form-item v-if="dataSource === 'nfa'" label="费用归属" class="min-w-300">
           <el-select v-model="ownerSelect" placeholder="选择费用归属" clearable class="field-w-250" @change="handleOwnerChange">
             <el-option
               v-for="opt in ownerOptions"
@@ -62,8 +68,8 @@
         </h3>
         <div class="d-flex gap-8">
           <el-button type="primary" @click="openExportDialog">导出</el-button>
-          <el-button v-if="canRecalc && isMonthlyGranularity" type="success" @click="onRebuildMonthlySnapshot">重建月度快照</el-button>
-          <el-button v-if="canRecalc" type="warning" @click="onRecalculate">复算</el-button>
+          <el-button v-if="dataSource === 'nfa' && canRecalc && isMonthlyGranularity" type="success" @click="onRebuildMonthlySnapshot">重建月度快照</el-button>
+          <el-button v-if="dataSource === 'nfa' && canRecalc" type="warning" @click="onRecalculate">复算</el-button>
         </div>
       </div>
       
@@ -83,26 +89,50 @@
             <p v-else>数据项为空</p>
           </div>
         </template>
-        <el-table-column prop="school_name" label="学校名称" min-width="160" />
+        <el-table-column v-if="dataSource === 'nfa'" prop="school_name" label="学校名称" min-width="160" />
+        <el-table-column v-else prop="display_name" label="节点" min-width="180" />
         <el-table-column prop="region" label="地区" width="100" />
         <el-table-column prop="cp" label="CP" width="100" />
         <el-table-column prop="service_date" :label="serviceDateColumnLabel" width="120">
-          <template #default="{ row }">{{ row.service_date ? formatDateDisplay(row.service_date) : '-' }}</template>
+          <template #default="{ row }">{{ dataSource === 'edc' && granularity === 'monthly' ? (row.service_month || '-') : (row.service_date ? formatDateDisplay(row.service_date) : formatDateDisplay(String(row.settlement_time || ''))) }}</template>
         </el-table-column>
         <el-table-column :label="trafficColumnLabel" width="150">
           <template #default="{ row }">
-            {{ row.settlement_value != null ? formatBitRate(convertToBitsPerSecond(row.settlement_value), false) : '0.00' }}
+            {{ dataSource === 'edc' ? Number(row.mbps_95 || 0).toFixed(2) : (row.settlement_value != null ? formatBitRate(convertToBitsPerSecond(row.settlement_value), false) : '0.00') }}
           </template>
         </el-table-column>
-        <el-table-column :label="incrementColumnLabel" width="150">
+        <el-table-column v-if="dataSource === 'nfa'" :label="incrementColumnLabel" width="150">
           <template #default="{ row }">
             {{ row.daily_increment_value != null ? formatBitRate(convertToBitsPerSecond(row.daily_increment_value), false) : '-' }}
           </template>
         </el-table-column>
+        <el-table-column v-if="dataSource === 'edc'" prop="settlement_mode" label="结算模式" width="120">
+          <template #default="{ row }">{{ row.settlement_mode === 'range_95' ? '月95' : '日95均值' }}</template>
+        </el-table-column>
+        <el-table-column v-if="dataSource === 'edc'" prop="unit_base" label="进制" width="90" />
+        <el-table-column v-if="dataSource === 'edc'" prop="monthly95_fee" label="节点单价" width="110">
+          <template #default="{ row }">{{ row.monthly95_fee ?? row.daily95_fee ?? '-' }}</template>
+        </el-table-column>
+        <el-table-column v-if="dataSource === 'edc'" prop="cp_bill" label="CP费" width="110">
+          <template #default="{ row }">{{ formatMoney(row.cp_bill) }}</template>
+        </el-table-column>
+        <el-table-column v-if="dataSource === 'edc'" prop="traffic_bill" label="流量金额" width="120">
+          <template #default="{ row }">{{ formatMoney(row.traffic_bill) }}</template>
+        </el-table-column>
+        <el-table-column v-if="dataSource === 'edc'" prop="rack_bill" label="机柜费" width="110">
+          <template #default="{ row }">{{ formatMoney(row.rack_bill) }}</template>
+        </el-table-column>
+        <el-table-column v-if="dataSource === 'edc'" prop="other_bill" label="其他费" width="110">
+          <template #default="{ row }">{{ formatMoney(row.other_bill) }}</template>
+        </el-table-column>
+        <el-table-column v-if="dataSource === 'edc'" prop="total_bill" label="总金额" width="120">
+          <template #default="{ row }">{{ formatMoney(row.total_bill) }}</template>
+        </el-table-column>
+        <template v-if="dataSource === 'nfa'">
         <el-table-column prop="customer_fee" label="客户费率" width="110" />
         <el-table-column prop="customer_bill" label="客户金额" width="110">
           <template #default="{ row }">
-            <el-tooltip placement="top">
+            <el-tooltip placement="top" @visible-change="(visible) => onAmountTooltipVisible(visible, row)">
               <template #content>
                 <pre class="amount-detail-pre">{{ amountDetail(row, 'customer_fee', 'customer_bill', '客户费率') }}</pre>
               </template>
@@ -116,7 +146,7 @@
         <el-table-column prop="network_line_fee" label="线路费率" width="110" />
         <el-table-column prop="network_line_bill" label="线路金额" width="110">
           <template #default="{ row }">
-            <el-tooltip placement="top">
+            <el-tooltip placement="top" @visible-change="(visible) => onAmountTooltipVisible(visible, row)">
               <template #content>
                 <pre class="amount-detail-pre">{{ amountDetail(row, 'network_line_fee', 'network_line_bill', '线路费率') }}</pre>
               </template>
@@ -130,7 +160,7 @@
         <el-table-column prop="node_deduction_fee" label="节点通用费率" width="110" />
         <el-table-column prop="node_deduction_bill" label="节点通用金额" width="120">
           <template #default="{ row }">
-            <el-tooltip placement="top">
+            <el-tooltip placement="top" @visible-change="(visible) => onAmountTooltipVisible(visible, row)">
               <template #content>
                 <pre class="amount-detail-pre">{{ amountDetail(row, 'node_deduction_fee', 'node_deduction_bill', '节点通用费率') }}</pre>
               </template>
@@ -144,7 +174,7 @@
         <el-table-column prop="channel_rate" label="渠道费率" width="110" />
         <el-table-column prop="channel_bill" label="渠道金额" width="110">
           <template #default="{ row }">
-            <el-tooltip placement="top">
+            <el-tooltip placement="top" @visible-change="(visible) => onAmountTooltipVisible(visible, row)">
               <template #content>
                 <pre class="amount-detail-pre">{{ amountDetail(row, 'channel_rate', 'channel_bill', '渠道费率') }}</pre>
               </template>
@@ -161,6 +191,7 @@
         <el-table-column prop="last_recalc_time" label="最近复算时间" width="160">
           <template #default="{ row }">{{ row.last_recalc_time ? row.last_recalc_time : '-' }}</template>
         </el-table-column>
+        </template>
       </el-table>
 
       <!-- 分页 -->
@@ -243,6 +274,7 @@ const ownerSelect = ref<string | null>(null)
 // 筛选表单
 interface FilterForm {
   school_id: string;
+  display_name: string;
   region: string;
   cp: string;
   start_service_date: string;
@@ -252,6 +284,12 @@ interface FilterForm {
   page_size: number;
 }
 type SettlementGranularity = 'daily' | 'monthly'
+type SettlementDataSource = 'nfa' | 'edc'
+const dataSource = ref<SettlementDataSource>('nfa')
+const dataSourceOptions = [
+  { label: 'NFA/院校', value: 'nfa' },
+  { label: 'EDC/节点', value: 'edc' },
+]
 const granularity = ref<SettlementGranularity>('daily')
 const settlementDataRateUnit = computed<TrafficRateUnit>(() => (
   trafficSettings.settings.value.settlement_data_rate_unit === 'Gbps' ? 'Gbps' : 'Mbps'
@@ -281,6 +319,12 @@ function daysInMonthFrom(dateStr?: string | null): number {
 
 function toFixedNum(n: number, digits = 2): string {
   try { return Number(n).toFixed(digits) } catch { return String(n) }
+}
+
+function formatMoney(v: unknown): string {
+  if (v === null || v === undefined || v === '') return '-'
+  const n = Number(v)
+  return Number.isFinite(n) ? n.toFixed(2) : '-'
 }
 
 function rowCalcMetaKey(row: any): string {
@@ -371,9 +415,15 @@ function amountDetail(row: any, rateField: string, billField: string, rateLabel:
     const incrementValue = Number(row?.daily_increment_value ?? (sv * (Number.isFinite(incrementRatio) ? incrementRatio : 0)))
     const stockValue = sv - incrementValue
     const meta = rowCalcMetaMap.value[rowCalcMetaKey(row)]
+    const detailKey = amountDetailMetaKey(row)
+    const detailLoaded = !!rowCalcMetaLoadedMap.value[detailKey]
+    const detailLoading = !!rowCalcMetaLoadingMap.value[detailKey]
+    const usesDiscountedDetail = affectsCurrentField && detailLoaded
 
     if (rid > 0) {
-      if (affectsCurrentField) {
+      if (!detailLoaded) {
+        extra.push(detailLoading ? '折损/费率明细加载中...' : '折损/费率明细将在首次展开时加载')
+      } else if (usesDiscountedDetail) {
         extra.push('该字段命中折损规则，费率按同一原始费率的存量/增量两段分别折损后合并')
         if ((Number.isFinite(incrementRatio) && incrementRatio > 0) || (Number.isFinite(incrementValue) && incrementValue > 0)) {
           lines.push(`存量占比：${toFixedNum(stockRatio * 100, 2)}%，增量占比：${toFixedNum(incrementRatio * 100, 2)}%`)
@@ -414,7 +464,7 @@ function amountDetail(row: any, rateField: string, billField: string, rateLabel:
     if (extra.length > 0) lines.push(...extra)
     lines.push(`当月天数：${days}`)
     if (Number.isFinite(rate)) {
-      if (affectsCurrentField) {
+      if (usesDiscountedDetail) {
         lines.push(`公式：金额 = Gbps * [原始费率*存量占比*存量折损系数 + 原始费率*增量占比*增量折损系数] / 当月天数`)
         lines.push(`代入：金额 = ${toFixedNum(gbps,6)} * ${rate} / ${days} = ${toFixedNum(calc, 2)}（当前“费率”为两段合并后的折后费率）`)
       } else {
@@ -429,8 +479,35 @@ function amountDetail(row: any, rateField: string, billField: string, rateLabel:
     return lines.join('\n')
   } catch { return '' }
 }
+
+function amountDetailMetaKey(row: any): string {
+  return `${rowCalcMetaKey(row)}|${Number(row?.discount_rule_id || 0)}`
+}
+
+function onAmountTooltipVisible(visible: boolean, row: any) {
+  if (!visible) return
+  void ensureAmountDetailMeta(row)
+}
+
+async function ensureAmountDetailMeta(row: any) {
+  const key = amountDetailMetaKey(row)
+  if (!key || key.startsWith('|||')) return
+  if (rowCalcMetaLoadedMap.value[key] || rowCalcMetaLoadingMap.value[key]) return
+  rowCalcMetaLoadingMap.value = { ...rowCalcMetaLoadingMap.value, [key]: true }
+  try {
+    const id = Number(row?.discount_rule_id || 0)
+    if (Number.isFinite(id) && id > 0 && !discountRuleDetailMap.value[id]) {
+      try { discountRuleDetailMap.value[id] = await (api as any).settlementRates.discountRules.get(id) } catch {}
+    }
+    await hydrateRowCalcMeta([row])
+    rowCalcMetaLoadedMap.value = { ...rowCalcMetaLoadedMap.value, [key]: true }
+  } finally {
+    rowCalcMetaLoadingMap.value = { ...rowCalcMetaLoadingMap.value, [key]: false }
+  }
+}
 const filterForm = reactive<FilterForm>({
   school_id: '',
+  display_name: '',
   region: '',
   cp: '',
   start_service_date: '',
@@ -450,6 +527,7 @@ const pageSize = ref(10)
 // 加载状态
 const loading = ref(false)
 const currentDataSourceLabel = computed(() => {
+  if (dataSource.value === 'edc') return 'EDC节点'
   const first = (settlementData.value.items && settlementData.value.items.length > 0) ? (settlementData.value.items[0] as any) : null
   const src = String(first?.data_source || '').toLowerCase()
   if (src === 'snapshot') return '月快照'
@@ -471,6 +549,8 @@ const rowCalcMetaMap = ref<Record<string, {
   incrementDiscountRatio: number
   baseRates: Record<string, number | null>
 }>>({})
+const rowCalcMetaLoadingMap = ref<Record<string, boolean>>({})
+const rowCalcMetaLoadedMap = ref<Record<string, boolean>>({})
 
 // 将原始数据转换为 bits/s
 const convertToBitsPerSecond = (bytes: number | null | undefined): number => {
@@ -581,7 +661,7 @@ async function hydrateRowCalcMeta(rows: any[]) {
         }
       }
     }
-    rowCalcMetaMap.value = next
+    rowCalcMetaMap.value = { ...rowCalcMetaMap.value, ...next }
   } catch (e) {
     console.warn('预计算折损系数失败:', e)
   }
@@ -776,6 +856,15 @@ const handleGranularityChange = () => {
   queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
 }
 
+const handleDataSourceChange = () => {
+  currentPage.value = 1
+  ownerSelect.value = null
+  filterForm.school_id = ''
+  filterForm.display_name = ''
+  filterForm.channel_owner_user_id = null
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
+}
+
 // 获取结算数据
 const onSearch = () => {
   currentPage.value = 1
@@ -786,6 +875,26 @@ const fetchData = async (signal?: AbortSignal) => {
   loading.value = true
   
   try {
+    if (dataSource.value === 'edc') {
+      const params: any = {
+        page: currentPage.value,
+        page_size: pageSize.value,
+      }
+      if (filterForm.region) params.region = filterForm.region
+      if (filterForm.cp) params.cp = filterForm.cp
+      if (filterForm.display_name) params.display_name = filterForm.display_name
+      if (granularity.value === 'monthly') {
+        if (filterForm.start_service_date) params.service_month = String(filterForm.start_service_date).slice(0, 7)
+        const response = await (api as any).settlementData.nodeMonthlyList(params, { signal })
+        settlementData.value = Array.isArray(response?.items) ? { items: response.items, total: Number(response.total) || response.items.length } : { items: [], total: 0 }
+      } else {
+        if (filterForm.start_service_date) params.start_date = filterForm.start_service_date
+        if (filterForm.end_service_date) params.end_date = filterForm.end_service_date
+        const response = await (api as any).settlementData.nodeList(params, { signal })
+        settlementData.value = Array.isArray(response?.items) ? { items: response.items, total: Number(response.total) || response.items.length } : { items: [], total: 0 }
+      }
+      return
+    }
     // 计算分页参数
     // 新接口使用 page/page_size 与服务时间
     const params: { 
@@ -841,19 +950,6 @@ const fetchData = async (signal?: AbortSignal) => {
     }
     // 加载用户映射用于归属显示
     await loadUsersForItems(signal)
-    try {
-      const ids = new Set<number>()
-      for (const r of settlementData.value.items || []) {
-        const id = Number((r as any)?.discount_rule_id || 0)
-        if (Number.isFinite(id) && id > 0) ids.add(id)
-      }
-      await Promise.all(Array.from(ids).map(async (id) => {
-        if (!discountRuleDetailMap.value[id]) {
-          try { discountRuleDetailMap.value[id] = await (api as any).settlementRates.discountRules.get(id) } catch {}
-        }
-      }))
-    } catch {}
-    await hydrateRowCalcMeta(settlementData.value.items || [])
     
     // 检查数据结构
     if (settlementData.value.items && Array.isArray(settlementData.value.items)) {
@@ -881,6 +977,7 @@ const fetchData = async (signal?: AbortSignal) => {
 // 重置筛选条件
 const resetFilter = () => {
   filterForm.school_id = ''
+  filterForm.display_name = ''
   filterForm.region = ''
   filterForm.cp = ''
   filterForm.start_service_date = ''

@@ -53,6 +53,9 @@ func (RateCustomer) TableName() string { return "rate_customer" }
 // 节点业务费率（EDC）
 type RateNode struct {
 	ID                         uint64    `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+	Enabled                    *bool     `gorm:"-" json:"enabled,omitempty"`
+	EntityID                   *uint64   `gorm:"column:entity_id" json:"entity_id,omitempty"`
+	DisplayName                *string   `gorm:"column:display_name;size:128" json:"display_name,omitempty"`
 	Region                     string    `gorm:"column:region;size:32;not null" json:"region"`
 	CP                         string    `gorm:"column:cp;size:32;not null" json:"cp"`
 	CPFee                      *float64  `gorm:"column:cp_fee" json:"cp_fee,omitempty"`
@@ -64,11 +67,40 @@ type RateNode struct {
 	OtherFee                   *float64  `gorm:"column:other_fee" json:"other_fee,omitempty"`
 	OtherFeeOwnerID            *uint64   `gorm:"column:other_fee_owner_id" json:"other_fee_owner_id,omitempty"`
 	SettlementType             string    `gorm:"column:settlement_type;size:16;not null" json:"settlement_type"`
+	SettlementMode             string    `gorm:"column:settlement_mode;size:24;not null" json:"settlement_mode"`
+	UnitBase                   int       `gorm:"column:unit_base;not null" json:"unit_base"`
 	CreatedAt                  time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at"`
 	UpdatedAt                  time.Time `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
 }
 
 func (RateNode) TableName() string { return "rate_node" }
+
+// RateFinalNode 对应 rate_final_node 表
+// 最终节点费率（EDC，不参与折损）
+type RateFinalNode struct {
+	ID                         uint64     `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+	EntityID                   *uint64    `gorm:"column:entity_id" json:"entity_id,omitempty"`
+	DisplayName                string     `gorm:"column:display_name;size:128;not null" json:"display_name"`
+	Region                     string     `gorm:"column:region;size:32;not null" json:"region"`
+	CP                         string     `gorm:"column:cp;size:32;not null" json:"cp"`
+	SettlementMode             string     `gorm:"column:settlement_mode;size:24;not null" json:"settlement_mode"`
+	UnitBase                   int        `gorm:"column:unit_base;not null" json:"unit_base"`
+	FinalFee                   *float64   `gorm:"column:final_fee" json:"final_fee,omitempty"`
+	FeeType                    string     `gorm:"column:fee_type;size:16;not null" json:"fee_type"`
+	CPFee                      *float64   `gorm:"column:cp_fee" json:"cp_fee,omitempty"`
+	CPFeeOwnerID               *uint64    `gorm:"column:cp_fee_owner_id" json:"cp_fee_owner_id,omitempty"`
+	NodeConstructionFee        *float64   `gorm:"column:node_construction_fee" json:"node_construction_fee,omitempty"`
+	NodeConstructionFeeOwnerID *uint64    `gorm:"column:node_construction_fee_owner_id" json:"node_construction_fee_owner_id,omitempty"`
+	RackFee                    *float64   `gorm:"column:rack_fee" json:"rack_fee,omitempty"`
+	RackFeeOwnerID             *uint64    `gorm:"column:rack_fee_owner_id" json:"rack_fee_owner_id,omitempty"`
+	OtherFee                   *float64   `gorm:"column:other_fee" json:"other_fee,omitempty"`
+	OtherFeeOwnerID            *uint64    `gorm:"column:other_fee_owner_id" json:"other_fee_owner_id,omitempty"`
+	LastSyncTime               *time.Time `gorm:"column:last_sync_time" json:"last_sync_time,omitempty"`
+	CreatedAt                  time.Time  `gorm:"column:created_at;autoCreateTime" json:"created_at"`
+	UpdatedAt                  time.Time  `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
+}
+
+func (RateFinalNode) TableName() string { return "rate_final_node" }
 
 // RateFinalCustomer 对应 rate_final_customer 表
 // 最终客户费率（手工/自动）
@@ -208,8 +240,15 @@ func (SettlementMonthSlotPointer) TableName() string { return "settlement_month_
 // 节点日95结算金额
 type SettlementNodeDaily95 struct {
 	ID                         uint64    `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+	EntityID                   uint64    `gorm:"column:entity_id;not null" json:"entity_id"`
+	DisplayName                string    `gorm:"column:display_name;size:128;not null" json:"display_name"`
 	Region                     string    `gorm:"column:region;size:32;not null" json:"region"`
 	CP                         string    `gorm:"column:cp;size:32;not null" json:"cp"`
+	ServiceMonth               string    `gorm:"column:service_month;size:7;not null" json:"service_month"`
+	SettlementMode             string    `gorm:"column:settlement_mode;size:24;not null" json:"settlement_mode"`
+	UnitBase                   int       `gorm:"column:unit_base;not null" json:"unit_base"`
+	Raw95                      float64   `gorm:"column:raw_95" json:"raw_95"`
+	Mbps95                     float64   `gorm:"column:mbps_95" json:"mbps_95"`
 	CPFee                      *float64  `gorm:"column:cp_fee" json:"cp_fee,omitempty"`
 	CPBill                     *float64  `gorm:"column:cp_bill" json:"cp_bill,omitempty"`
 	CPFeeOwnerID               *uint64   `gorm:"column:cp_fee_owner_id" json:"cp_fee_owner_id,omitempty"`
@@ -226,6 +265,8 @@ type SettlementNodeDaily95 struct {
 	SettlementTime             time.Time `gorm:"column:settlement_time;not null" json:"settlement_time"`
 	Daily95Fee                 *float64  `gorm:"column:daily95_fee" json:"daily95_fee,omitempty"`
 	Daily95Bill                *float64  `gorm:"column:daily95_bill" json:"daily95_bill,omitempty"`
+	TrafficBill                *float64  `gorm:"column:traffic_bill" json:"traffic_bill,omitempty"`
+	TotalBill                  *float64  `gorm:"column:total_bill" json:"total_bill,omitempty"`
 	CreatedAt                  time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at"`
 	UpdatedAt                  time.Time `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
 }
@@ -236,8 +277,15 @@ func (SettlementNodeDaily95) TableName() string { return "settlement_node_daily9
 // 节点月95结算金额
 type SettlementNodeMonthly95 struct {
 	ID                         uint64    `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+	EntityID                   uint64    `gorm:"column:entity_id;not null" json:"entity_id"`
+	DisplayName                string    `gorm:"column:display_name;size:128;not null" json:"display_name"`
 	Region                     string    `gorm:"column:region;size:32;not null" json:"region"`
 	CP                         string    `gorm:"column:cp;size:32;not null" json:"cp"`
+	ServiceMonth               string    `gorm:"column:service_month;size:7;not null" json:"service_month"`
+	SettlementMode             string    `gorm:"column:settlement_mode;size:24;not null" json:"settlement_mode"`
+	UnitBase                   int       `gorm:"column:unit_base;not null" json:"unit_base"`
+	Raw95                      float64   `gorm:"column:raw_95" json:"raw_95"`
+	Mbps95                     float64   `gorm:"column:mbps_95" json:"mbps_95"`
 	CPFee                      *float64  `gorm:"column:cp_fee" json:"cp_fee,omitempty"`
 	CPBill                     *float64  `gorm:"column:cp_bill" json:"cp_bill,omitempty"`
 	CPFeeOwnerID               *uint64   `gorm:"column:cp_fee_owner_id" json:"cp_fee_owner_id,omitempty"`
@@ -254,6 +302,8 @@ type SettlementNodeMonthly95 struct {
 	SettlementTime             time.Time `gorm:"column:settlement_time;not null" json:"settlement_time"`
 	Monthly95Fee               *float64  `gorm:"column:monthly95_fee" json:"monthly95_fee,omitempty"`
 	Monthly95Bill              *float64  `gorm:"column:monthly95_bill" json:"monthly95_bill,omitempty"`
+	TrafficBill                *float64  `gorm:"column:traffic_bill" json:"traffic_bill,omitempty"`
+	TotalBill                  *float64  `gorm:"column:total_bill" json:"total_bill,omitempty"`
 	CreatedAt                  time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at"`
 	UpdatedAt                  time.Time `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
 }

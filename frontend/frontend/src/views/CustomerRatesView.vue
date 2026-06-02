@@ -1136,7 +1136,7 @@ async function onSave() {
 // 执行同步
 async function onExecuteSync() {
   try {
-    await ElMessageBox.confirm('将按启用的同步规则批量更新客户费率的自定义字段，是否继续？', '确认执行', { type: 'warning', confirmButtonText: '执行', cancelButtonText: '取消' })
+    await ElMessageBox.confirm('将按启用的同步规则增量新增缺失的客户费率，不会覆盖已有费率，是否继续？', '确认执行', { type: 'warning', confirmButtonText: '执行', cancelButtonText: '取消' })
   } catch {
     return
   }
