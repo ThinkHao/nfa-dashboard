@@ -36,8 +36,7 @@ CREATE TABLE IF NOT EXISTS `edc_traffic_5m` (
   PRIMARY KEY (`bucket_5m`, `entity_id`),
   KEY `idx_edc_traffic_entity_bucket` (`entity_id`, `bucket_5m`),
   KEY `idx_edc_traffic_region_cp_bucket` (`region`, `cp`, `bucket_5m`),
-  KEY `idx_edc_traffic_bucket` (`bucket_5m`),
-  CONSTRAINT `fk_edc_traffic_entity` FOREIGN KEY (`entity_id`) REFERENCES `edc_entities` (`id`)
+  KEY `idx_edc_traffic_bucket` (`bucket_5m`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='EDC 流量 5 分钟事实表';
 
 CREATE TABLE IF NOT EXISTS `edc_traffic_scope_rule_groups` (
@@ -60,6 +59,5 @@ CREATE TABLE IF NOT EXISTS `edc_traffic_scope_rule_conditions` (
   PRIMARY KEY (`id`),
   KEY `idx_edc_scope_condition_group` (`group_id`),
   KEY `idx_edc_scope_condition_lookup` (`dimension_type`, `dimension_value`),
-  CONSTRAINT `chk_edc_scope_condition_dimension_type` CHECK (`dimension_type` in ('region', 'cp', 'entity')),
-  CONSTRAINT `fk_edc_scope_condition_group` FOREIGN KEY (`group_id`) REFERENCES `edc_traffic_scope_rule_groups` (`id`) ON DELETE CASCADE
+  CONSTRAINT `chk_edc_scope_condition_dimension_type` CHECK (`dimension_type` in ('region', 'cp', 'entity'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='EDC 流量可见范围条件';
