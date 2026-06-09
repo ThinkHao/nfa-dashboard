@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"nfa-dashboard/internal/model"
@@ -161,9 +162,34 @@ func parseEDCTrafficFilter(ctx *gin.Context) (model.EDCTrafficFilter, bool) {
 		}
 	}
 	filter.DisplayName = ctx.Query("display_name")
+	if s := ctx.Query("entity_ids"); s != "" {
+		ids, err := parseEDCEntityIDsParam(s)
+		if err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "entity_ids 格式错误，应为逗号分隔的正整数", "error": err.Error()})
+			return filter, false
+		}
+		filter.EntityIDs = ids
+	}
 	filter.Region = ctx.Query("region")
 	filter.CP = ctx.Query("cp")
 	return filter, true
+}
+
+func parseEDCEntityIDsParam(value string) ([]uint64, error) {
+	parts := strings.Split(value, ",")
+	ids := make([]uint64, 0, len(parts))
+	for _, part := range parts {
+		s := strings.TrimSpace(part)
+		if s == "" {
+			continue
+		}
+		id, err := strconv.ParseUint(s, 10, 64)
+		if err != nil || id == 0 {
+			return nil, errors.New("entity id must be a positive integer")
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 func (c *EDCController) resolveEDCScopeOrRespond(ctx *gin.Context) (model.EffectiveEDCTrafficScope, bool) {

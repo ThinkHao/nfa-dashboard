@@ -58,6 +58,7 @@ type EDCTrafficFilter struct {
 	StartTime        time.Time `form:"start_time"`
 	EndTime          time.Time `form:"end_time"`
 	DisplayName      string    `form:"display_name"`
+	EntityIDs        []uint64  `form:"-" json:"-"`
 	Region           string    `form:"region"`
 	CP               string    `form:"cp"`
 	AllowedEntityIDs []uint64  `form:"-" json:"-"`

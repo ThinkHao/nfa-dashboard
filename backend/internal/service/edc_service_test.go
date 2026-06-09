@@ -219,3 +219,26 @@ func TestEDCServicePassesAllowedEntityIDsToTrafficQueries(t *testing.T) {
 		t.Fatalf("AllowedEntityIDs=%v, want [10 20]", repo.trafficFilter.AllowedEntityIDs)
 	}
 }
+
+func TestEDCServicePassesEntityIDsAndAllowedEntityIDsToTrafficQueries(t *testing.T) {
+	repo := &edcRepoStub{}
+	svc := NewEDCService(repo)
+	start := time.Date(2026, 5, 1, 0, 0, 0, 0, time.Local)
+	end := start.Add(time.Hour)
+
+	_, err := svc.GetTrafficData(model.EDCTrafficFilter{
+		StartTime:        start,
+		EndTime:          end,
+		EntityIDs:        []uint64{1, 2},
+		AllowedEntityIDs: []uint64{1, 2, 3},
+	})
+	if err != nil {
+		t.Fatalf("GetTrafficData() error = %v", err)
+	}
+	if len(repo.trafficFilter.EntityIDs) != 2 || repo.trafficFilter.EntityIDs[0] != 1 || repo.trafficFilter.EntityIDs[1] != 2 {
+		t.Fatalf("EntityIDs=%v, want [1 2]", repo.trafficFilter.EntityIDs)
+	}
+	if len(repo.trafficFilter.AllowedEntityIDs) != 3 || repo.trafficFilter.AllowedEntityIDs[0] != 1 || repo.trafficFilter.AllowedEntityIDs[2] != 3 {
+		t.Fatalf("AllowedEntityIDs=%v, want [1 2 3]", repo.trafficFilter.AllowedEntityIDs)
+	}
+}

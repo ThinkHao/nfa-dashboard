@@ -75,7 +75,7 @@ func (r *edcRepository) GetTrafficData(filter model.EDCTrafficFilter) ([]model.E
 	groupBy := []string{"t.bucket_5m"}
 	orderBy := "t.bucket_5m ASC"
 
-	if filter.DisplayName != "" {
+	if filter.DisplayName != "" && len(filter.EntityIDs) == 0 {
 		selectExpr[1] = "t.entity_id"
 		selectExpr[2] = "t.display_name"
 		selectExpr[3] = "t.region"
@@ -267,6 +267,9 @@ func applyEDCTrafficFilter(q *gorm.DB, filter model.EDCTrafficFilter) *gorm.DB {
 		} else {
 			q = q.Where("t.display_name = ?", filter.DisplayName)
 		}
+	}
+	if len(filter.EntityIDs) > 0 {
+		q = q.Where("t.entity_id IN ?", filter.EntityIDs)
 	}
 	if filter.Region != "" {
 		q = q.Where("t.region = ?", filter.Region)

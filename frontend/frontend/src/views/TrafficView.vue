@@ -201,11 +201,19 @@ const pagedTrafficData = computed(() => {
 const queryForm = reactive({
   data_source: 'nfa' as 'nfa' | 'edc',
   school_name: '',
+  edc_entity_ids: [] as number[],
   region: '',
   cp: '',
   start_time: '',
   end_time: '',
   timeRange: 'last1h' as TrafficTimeRangeOption, // 默认选择过去1小时
+})
+
+const selectedEDCEntityIDs = computed(() => {
+  if (!Array.isArray(queryForm.edc_entity_ids)) return []
+  return queryForm.edc_entity_ids
+    .map((id) => Number(id))
+    .filter((id) => Number.isFinite(id) && id > 0)
 })
 
 const customDateRange = computed<[string, string] | null>({
@@ -222,11 +230,20 @@ const customDateRange = computed<[string, string] | null>({
 
 // 是否已选择任一筛选条件（地区/内容方/学校）
 const hasFilter = computed(() => {
-  return !!(queryForm.school_name || queryForm.region || queryForm.cp)
+  return !!(queryForm.school_name || selectedEDCEntityIDs.value.length > 0 || queryForm.region || queryForm.cp)
 })
 
 const entityLabel = computed(() => queryForm.data_source === 'edc' ? 'EDC名称' : '学校名称')
 const dataSourceTitle = computed(() => queryForm.data_source === 'edc' ? 'EDC流量监控' : '学校流量监控')
+const selectedEDCEntityLabel = computed(() => {
+  const ids = selectedEDCEntityIDs.value
+  if (queryForm.data_source !== 'edc' || ids.length === 0) return ''
+  if (ids.length === 1) {
+    const selected = (schools.value || []).find((s: any) => Number(s?.id) === Number(ids[0]))
+    return String(selected?.display_name || selected?.school_name || '1个EDC节点')
+  }
+  return `${ids.length}个EDC节点`
+})
 
 // 预设时间范围选项
 const timeRangeOptions = [
@@ -466,13 +483,21 @@ function applyRouteQueryFilters(q: RouteQueryLike, options: { autoQuery?: boolea
   if (!isTrafficRouteActive()) return
 
   const hasSchool = Object.prototype.hasOwnProperty.call(q, 'school_name')
+  const hasEDCEntityIDs = Object.prototype.hasOwnProperty.call(q, 'entity_ids')
   const hasRegion = Object.prototype.hasOwnProperty.call(q, 'region')
   const hasCp = Object.prototype.hasOwnProperty.call(q, 'cp')
   const hasDataSource = Object.prototype.hasOwnProperty.call(q, 'data_source')
-  const hasExplicitFilterKeys = hasSchool || hasRegion || hasCp
+  const hasExplicitFilterKeys = hasSchool || hasEDCEntityIDs || hasRegion || hasCp
 
   if (hasDataSource && (q.data_source === 'nfa' || q.data_source === 'edc')) queryForm.data_source = q.data_source
   if (hasSchool) queryForm.school_name = typeof q.school_name === 'string' ? q.school_name : ''
+  if (hasEDCEntityIDs) {
+    const raw = Array.isArray(q.entity_ids) ? q.entity_ids.join(',') : String(q.entity_ids || '')
+    queryForm.edc_entity_ids = raw
+      .split(',')
+      .map((v) => Number(String(v).trim()))
+      .filter((v) => Number.isFinite(v) && v > 0)
+  }
   if (hasRegion) queryForm.region = typeof q.region === 'string' ? q.region : ''
   if (hasCp) queryForm.cp = typeof q.cp === 'string' ? q.cp : ''
 
@@ -631,19 +656,30 @@ async function loadSchools(region = '', cp = '') {
       }
     }
 
-    // 下拉按展示名去重（不区分 CP）
-    const uniqueSchools: Record<string, any> = {}
-    schoolsList.forEach((school: any) => {
-      const name = String(queryForm.data_source === 'edc' ? school?.display_name : school?.school_name || '').trim()
-      if (!name) return
-      if (!uniqueSchools[name]) {
-        uniqueSchools[name] = {
+    if (queryForm.data_source === 'edc') {
+      schools.value = schoolsList
+        .filter((school: any) => Number(school?.id) > 0)
+        .map((school: any) => ({
           ...school,
-          school_name: name,
+          id: Number(school.id),
+          school_name: String(school?.display_name || '').trim(),
+        }))
+        .filter((school: any) => school.school_name)
+    } else {
+      // NFA 下拉按学校名称去重（不区分 CP），保持原有单选行为。
+      const uniqueSchools: Record<string, any> = {}
+      schoolsList.forEach((school: any) => {
+        const name = String(school?.school_name || '').trim()
+        if (!name) return
+        if (!uniqueSchools[name]) {
+          uniqueSchools[name] = {
+            ...school,
+            school_name: name,
+          }
         }
-      }
-    })
-    schools.value = Object.values(uniqueSchools)
+      })
+      schools.value = Object.values(uniqueSchools)
+    }
     console.log('去重后的实体数据:', schools.value.length)
 
     // 仅在接口未返回地区/运营商时，才基于学校数据兜底填充
@@ -706,7 +742,13 @@ async function loadTrafficData(signal?: AbortSignal) {
       params.region = queryForm.region
     }
     
-    if (queryForm.school_name) {
+    const edcEntityIDs = selectedEDCEntityIDs.value
+    if (queryForm.data_source === 'edc' && edcEntityIDs.length > 0) {
+      params.entity_ids = edcEntityIDs.join(',')
+      if (queryForm.cp) {
+        params.cp = queryForm.cp
+      }
+    } else if (queryForm.school_name) {
       if (queryForm.data_source === 'edc') {
         params.display_name = queryForm.school_name
       } else {
@@ -848,7 +890,7 @@ async function loadTrafficData(signal?: AbortSignal) {
       // 预计算 bps，减少渲染与 tooltip 阶段的重复换算
       const withBps = finalData.map((it: any) => ({
         ...it,
-        school_name: it.school_name || it.display_name || '',
+        school_name: it.school_name || it.display_name || selectedEDCEntityLabel.value || '',
         total_recv: Number(it.total_recv ?? it.service_size) || 0,
         total_send: Number(it.total_send ?? it.cache_size) || 0,
         recv_bps: it && it.recv_bps != null ? Number(it.recv_bps) : convertToBitsPerSecond(Number(it.total_recv ?? it.service_size) || 0),
@@ -910,6 +952,7 @@ function handleQuery() {
 // 当选择省份变化时重新加载学校列表
 async function handleRegionChange(region) {
   queryForm.school_name = ''
+  queryForm.edc_entity_ids = []
   queryForm.cp = ''
   if (!region) {
     await loadRegionCpOptions()
@@ -923,9 +966,14 @@ async function handleRegionChange(region) {
 // 当选择运营商变化时重新加载学校列表
 async function handleCPChange(cp) {
   const prevSchool = queryForm.school_name
+  const prevEDCEntityIDs = [...selectedEDCEntityIDs.value]
   // 按地区/运营商重新加载学校；仅当当前学校在新条件下不可见时才清空
   await loadSchools(queryForm.region, cp)
-  if (prevSchool) {
+  if (queryForm.data_source === 'edc') {
+    const visibleIDs = new Set((schools.value || []).map((s: any) => Number(s?.id)).filter((id) => Number.isFinite(id) && id > 0))
+    queryForm.edc_entity_ids = prevEDCEntityIDs.filter((id) => visibleIDs.has(Number(id)))
+    queryForm.school_name = ''
+  } else if (prevSchool) {
     const stillVisible = (schools.value || []).some((s: any) => String(s?.school_name || '') === String(prevSchool))
     queryForm.school_name = stillVisible ? prevSchool : ''
   }
@@ -934,6 +982,7 @@ async function handleCPChange(cp) {
 
 async function handleDataSourceChange() {
   queryForm.school_name = ''
+  queryForm.edc_entity_ids = []
   queryForm.region = ''
   queryForm.cp = ''
   trafficData.value = []
@@ -967,6 +1016,7 @@ function handleTimeRangeChange(value: TrafficTimeRangeOption) {
 function handleReset() {
   // 重置表单
   queryForm.school_name = ''
+  queryForm.edc_entity_ids = []
   queryForm.region = ''
   queryForm.cp = ''
   queryForm.timeRange = 'last1h'
@@ -1104,7 +1154,35 @@ usePageRefresh(() => {
         </ElFormItem>
         
         <ElFormItem :label="entityLabel">
-          <SearchSelect v-model="queryForm.school_name" :options="schools" label-key="school_name" value-key="school_name" :placeholder="`选择${entityLabel}`" clearable class="field-lg" />
+          <SearchSelect
+            v-if="queryForm.data_source === 'edc'"
+            v-model="queryForm.edc_entity_ids"
+            :options="schools"
+            label-key="school_name"
+            value-key="id"
+            :placeholder="`选择${entityLabel}`"
+            clearable
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            class="field-lg"
+            @change="queryForm.school_name = ''"
+          >
+            <template #option="{ option }">
+              <span>{{ (option as any).display_name || (option as any).school_name }}</span>
+              <span class="edc-option-meta">{{ (option as any).region }} / {{ (option as any).cp }}</span>
+            </template>
+          </SearchSelect>
+          <SearchSelect
+            v-else
+            v-model="queryForm.school_name"
+            :options="schools"
+            label-key="school_name"
+            value-key="school_name"
+            :placeholder="`选择${entityLabel}`"
+            clearable
+            class="field-lg"
+          />
         </ElFormItem>
         
         <ElFormItem label="时间范围">
@@ -1212,5 +1290,11 @@ usePageRefresh(() => {
 .field-xs:deep(.el-select__wrapper),
 .field-xs:deep(.el-input__wrapper) {
   width: 150px !important;
+}
+
+.edc-option-meta {
+  margin-left: 8px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
 }
 </style>
