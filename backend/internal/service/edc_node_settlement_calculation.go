@@ -251,6 +251,10 @@ func billValue(v *float64) float64 {
 	return *v
 }
 
+func trafficBillFromMbps(mbps float64, fee *float64, unitBase int) float64 {
+	return mbps / float64(normalizeEDCUnitBase(unitBase)) * floatPtrValue(fee)
+}
+
 func buildEDCNodeMonthlySettlementRows(entity model.EDCEntity, rate model.RateFinalNode, month time.Time, raw95 float64) []model.SettlementNodeMonthly95 {
 	rows := make([]model.SettlementNodeMonthly95, 0, len(edcSettlementUnitBases))
 	for _, base := range edcSettlementUnitBases {
@@ -270,7 +274,7 @@ func buildEDCNodeDailySettlementRows(entity model.EDCEntity, rate model.RateFina
 }
 
 func buildEDCNodeMonthlySettlement(entity model.EDCEntity, rate model.RateFinalNode, month time.Time, raw95 float64, mbps95 float64, unitBase int) model.SettlementNodeMonthly95 {
-	trafficBill := mbps95 * floatPtrValue(rate.FinalFee)
+	trafficBill := trafficBillFromMbps(mbps95, rate.FinalFee, unitBase)
 	cpBill := billFromFee(rate.CPFee)
 	rackBill := billFromFee(rate.RackFee)
 	otherBill := billFromFee(rate.OtherFee)
@@ -312,7 +316,7 @@ func buildEDCNodeMonthlySettlement(entity model.EDCEntity, rate model.RateFinalN
 }
 
 func buildEDCNodeDailySettlement(entity model.EDCEntity, rate model.RateFinalNode, day time.Time, raw95 float64, mbps95 float64, unitBase int) model.SettlementNodeDaily95 {
-	trafficBill := mbps95 * floatPtrValue(rate.FinalFee)
+	trafficBill := trafficBillFromMbps(mbps95, rate.FinalFee, unitBase)
 	cpBill := billFromFee(rate.CPFee)
 	rackBill := billFromFee(rate.RackFee)
 	otherBill := billFromFee(rate.OtherFee)

@@ -255,14 +255,51 @@ func TestBuildEDCNodeMonthlySettlementAddsRackFeeOnce(t *testing.T) {
 	}
 
 	row := buildEDCNodeMonthlySettlement(entity, rate, month, 80, 10, 1000)
-	if row.TrafficBill == nil || *row.TrafficBill != 20 {
-		t.Fatalf("traffic_bill=%v, want 20", row.TrafficBill)
+	if row.TrafficBill == nil || math.Abs(*row.TrafficBill-0.02) > 0.000001 {
+		t.Fatalf("traffic_bill=%v, want 0.02", row.TrafficBill)
 	}
 	if row.RackBill == nil || *row.RackBill != 50 {
 		t.Fatalf("rack_bill=%v, want 50", row.RackBill)
 	}
-	if row.TotalBill == nil || *row.TotalBill != 70 {
-		t.Fatalf("total_bill=%v, want 70", row.TotalBill)
+	if row.TotalBill == nil || math.Abs(*row.TotalBill-50.02) > 0.000001 {
+		t.Fatalf("total_bill=%v, want 50.02", row.TotalBill)
+	}
+}
+
+func TestBuildEDCNodeSettlementBillsTrafficUnitPriceByG(t *testing.T) {
+	entity := model.EDCEntity{ID: 12, DisplayName: "TJ-Node-A", Region: "天津", CP: "bilibili"}
+	day := time.Date(2026, 5, 2, 0, 0, 0, 0, time.Local)
+	month := time.Date(2026, 5, 1, 0, 0, 0, 0, time.Local)
+
+	daily := buildEDCNodeDailySettlement(entity, model.RateFinalNode{
+		EntityID:       ptrUint64(12),
+		DisplayName:    "TJ-Node-A",
+		Region:         "天津",
+		CP:             "bilibili",
+		SettlementMode: EDCSettlementModeDaily95Avg,
+		FinalFee:       ptrFloat64(2),
+	}, day, 80, 10, 1000)
+	if daily.TrafficBill == nil || math.Abs(*daily.TrafficBill-0.02) > 0.000001 {
+		t.Fatalf("daily traffic_bill=%v, want 0.02", daily.TrafficBill)
+	}
+	if daily.Daily95Bill == nil || *daily.Daily95Bill != *daily.TrafficBill {
+		t.Fatalf("daily95_bill=%v, want traffic_bill %v", daily.Daily95Bill, daily.TrafficBill)
+	}
+
+	monthly := buildEDCNodeMonthlySettlement(entity, model.RateFinalNode{
+		EntityID:       ptrUint64(12),
+		DisplayName:    "TJ-Node-A",
+		Region:         "天津",
+		CP:             "bilibili",
+		SettlementMode: EDCSettlementModeRange95,
+		FinalFee:       ptrFloat64(3),
+	}, month, 80, 10, 1024)
+	wantMonthly := 10 * 3 / 1024.0
+	if monthly.TrafficBill == nil || math.Abs(*monthly.TrafficBill-wantMonthly) > 0.000001 {
+		t.Fatalf("monthly traffic_bill=%v, want %f", monthly.TrafficBill, wantMonthly)
+	}
+	if monthly.Monthly95Bill == nil || *monthly.Monthly95Bill != *monthly.TrafficBill {
+		t.Fatalf("monthly95_bill=%v, want traffic_bill %v", monthly.Monthly95Bill, monthly.TrafficBill)
 	}
 }
 
@@ -285,8 +322,8 @@ func TestBuildEDCNodeDailySettlementAddsAllFeeItems(t *testing.T) {
 	if row.UnitBase != 1000 {
 		t.Fatalf("unit_base=%d, want 1000", row.UnitBase)
 	}
-	if row.TrafficBill == nil || *row.TrafficBill != 20 {
-		t.Fatalf("traffic_bill=%v, want 20", row.TrafficBill)
+	if row.TrafficBill == nil || math.Abs(*row.TrafficBill-0.02) > 0.000001 {
+		t.Fatalf("traffic_bill=%v, want 0.02", row.TrafficBill)
 	}
 	if row.CPBill == nil || *row.CPBill != 10 {
 		t.Fatalf("cp_bill=%v, want 10", row.CPBill)
@@ -297,8 +334,8 @@ func TestBuildEDCNodeDailySettlementAddsAllFeeItems(t *testing.T) {
 	if row.OtherBill == nil || *row.OtherBill != 5 {
 		t.Fatalf("other_bill=%v, want 5", row.OtherBill)
 	}
-	if row.TotalBill == nil || *row.TotalBill != 85 {
-		t.Fatalf("total_bill=%v, want 85", row.TotalBill)
+	if row.TotalBill == nil || math.Abs(*row.TotalBill-65.02) > 0.000001 {
+		t.Fatalf("total_bill=%v, want 65.02", row.TotalBill)
 	}
 }
 
@@ -321,8 +358,9 @@ func TestBuildEDCNodeMonthlySettlementAddsAllFeeItems(t *testing.T) {
 	if row.UnitBase != 1024 {
 		t.Fatalf("unit_base=%d, want 1024", row.UnitBase)
 	}
-	if row.TrafficBill == nil || *row.TrafficBill != 30 {
-		t.Fatalf("traffic_bill=%v, want 30", row.TrafficBill)
+	wantTrafficBill := 10 * 3 / 1024.0
+	if row.TrafficBill == nil || math.Abs(*row.TrafficBill-wantTrafficBill) > 0.000001 {
+		t.Fatalf("traffic_bill=%v, want %f", row.TrafficBill, wantTrafficBill)
 	}
 	if row.CPBill == nil || *row.CPBill != 10 {
 		t.Fatalf("cp_bill=%v, want 10", row.CPBill)
@@ -333,8 +371,9 @@ func TestBuildEDCNodeMonthlySettlementAddsAllFeeItems(t *testing.T) {
 	if row.OtherBill == nil || *row.OtherBill != 5 {
 		t.Fatalf("other_bill=%v, want 5", row.OtherBill)
 	}
-	if row.TotalBill == nil || *row.TotalBill != 95 {
-		t.Fatalf("total_bill=%v, want 95", row.TotalBill)
+	wantTotalBill := 10 + 50 + 5 + wantTrafficBill
+	if row.TotalBill == nil || math.Abs(*row.TotalBill-wantTotalBill) > 0.000001 {
+		t.Fatalf("total_bill=%v, want %f", row.TotalBill, wantTotalBill)
 	}
 }
 
