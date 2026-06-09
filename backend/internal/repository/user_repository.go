@@ -87,7 +87,8 @@ func (r *userRepository) List(username string, status *int8, roles []string, pag
 		base = base.Joins("JOIN user_roles ur ON ur.user_id = users.id").Joins("JOIN roles r ON r.id = ur.role_id").Where("r.name IN ?", roles)
 	}
 	if username != "" {
-		base = base.Where("users.username LIKE ?", "%"+username+"%")
+		keyword := "%" + username + "%"
+		base = base.Where("users.username LIKE ? OR users.alias LIKE ?", keyword, keyword)
 	}
 	if status != nil {
 		base = base.Where("users.status = ?", *status)

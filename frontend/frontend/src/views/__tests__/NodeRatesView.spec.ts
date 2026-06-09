@@ -128,4 +128,26 @@ describe('NodeRatesView', () => {
       expect.arrayContaining([{ id: 7, label: '张三' }]),
     )
   })
+
+  it('loads more active owner users for dropdown and keyword search', async () => {
+    const wrapper = mountComponent()
+    await flushPromises()
+
+    apiMock.system.users.list.mockClear()
+    await (wrapper.vm as any).remoteSearchOwnerUsers('')
+    await (wrapper.vm as any).remoteSearchOwnerUsers('普阑尼')
+
+    expect(apiMock.system.users.list).toHaveBeenNthCalledWith(1, {
+      page: 1,
+      page_size: 100,
+      status: 1,
+      username: undefined,
+    })
+    expect(apiMock.system.users.list).toHaveBeenNthCalledWith(2, {
+      page: 1,
+      page_size: 100,
+      status: 1,
+      username: '普阑尼',
+    })
+  })
 })

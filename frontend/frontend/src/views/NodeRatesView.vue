@@ -472,7 +472,7 @@ async function loadUsersForItems() {
 async function remoteSearchOwnerUsers(keyword = '') {
   ownerUserLoading.value = true
   try {
-    const res: any = await api.system.users.list({ page: 1, page_size: 20, username: keyword || undefined })
+    const res: any = await api.system.users.list({ page: 1, page_size: 100, status: 1, username: keyword || undefined })
     const users: any[] = Array.isArray(res?.items) ? res.items : []
     ownerUserOptions.value = users.map((user: any) => ({ id: Number(user.id), label: buildUserLabel(user) })).filter((item) => Number.isFinite(item.id) && item.id > 0)
   } catch {
