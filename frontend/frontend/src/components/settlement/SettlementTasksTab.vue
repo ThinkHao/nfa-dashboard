@@ -187,14 +187,28 @@
       v-model="createTaskVisible"
       :title="taskDialogTitle"
       width="500px"
+      :close-on-click-modal="!submitting"
+      :close-on-press-escape="!submitting"
+      :show-close="!submitting"
+      :before-close="beforeCloseCreateTask"
+      @closed="onCreateTaskDialogClosed"
     >
       <el-form :model="taskForm" label-width="100px">
         <!-- 日结算任务显示单日选择器 -->
-        <el-form-item v-if="taskForm.type === 'daily' || taskForm.type === 'node_daily95'" label="任务日期">
+        <el-form-item v-if="taskForm.type === 'daily'" label="任务日期">
           <el-date-picker
             v-model="taskForm.date"
             type="date"
             placeholder="选择日期"
+            format="YYYY-MM-DD"
+            value-format="YYYY-MM-DD"
+          />
+        </el-form-item>
+
+        <el-form-item v-else-if="taskForm.type === 'node_daily95'" label="任务日期范围">
+          <UnifiedDateRange
+            v-model="taskForm.dateRange"
+            type="daterange"
             format="YYYY-MM-DD"
             value-format="YYYY-MM-DD"
           />
@@ -209,13 +223,18 @@
             value-format="YYYY-MM-DD HH:mm:ss"
           />
         </el-form-item>
-        <el-form-item v-else label="服务月份">
-          <el-date-picker v-model="taskForm.month" type="month" placeholder="选择月份" format="YYYY-MM" value-format="YYYY-MM" />
+        <el-form-item v-else label="服务月份范围">
+          <UnifiedDateRange
+            v-model="taskForm.monthRange"
+            type="monthrange"
+            format="YYYY-MM"
+            value-format="YYYY-MM"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
         <span class="dialog-footer">
-          <el-button @click="createTaskVisible = false">取消</el-button>
+          <el-button :disabled="submitting" @click="createTaskVisible = false">取消</el-button>
           <el-button type="primary" @click="submitTaskCreate" :loading="submitting">
             确认
           </el-button>
@@ -233,9 +252,11 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import type { TaskListResponse, SettlementTask, TaskStatus } from '../../types/settlement'
 import UnifiedDateRange from '@/components/ui/UnifiedDateRange.vue'
 import { buildSettlementDayRange, normalizeSettlementDayRange, splitSettlementDayRange } from './settlement-day-range'
+import { expandNodeDailyTaskRange, expandNodeMonthlyTaskRange } from './settlement-task-batch-range'
 import QueryActionButton from '@/components/ui/QueryActionButton.vue'
 import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
 import { usePageRefresh } from '@/composables/usePageRefresh'
+import { cleanupStaleElementOverlays } from '@/utils/overlayCleanup'
 
 // 估算结算任务总工作量：按可见学校的 school_id/region/cp 唯一组合数量
 const combosTotal = ref<number | null>(null)
@@ -310,7 +331,8 @@ const taskForm = reactive({
   type: 'daily',
   date: '',
   month: '',
-  dateRange: null as [string, string] | null
+  dateRange: null as [string, string] | null,
+  monthRange: null as [string, string] | null
 })
 
 function taskTypeLabel(type: string) {
@@ -468,6 +490,7 @@ const createDailyTask = () => {
   taskDialogTitle.value = '创建日结算任务'
   taskForm.date = formatDateToYYYYMMDD(new Date())
   taskForm.dateRange = null
+  taskForm.monthRange = null
   createTaskVisible.value = true
 }
 
@@ -489,6 +512,7 @@ const createWeeklyTask = () => {
     formatDateToYYYYMMDD(monday),
     formatDateToYYYYMMDD(sunday)
   ])
+  taskForm.monthRange = null
   
   createTaskVisible.value = true
 }
@@ -496,9 +520,11 @@ const createWeeklyTask = () => {
 const createNodeDailyTask = () => {
   taskForm.type = 'node_daily95'
   taskDialogTitle.value = '创建节点日95任务'
-  taskForm.date = formatDateToYYYYMMDD(new Date())
-  taskForm.dateRange = null
+  const today = formatDateToYYYYMMDD(new Date())
+  taskForm.date = ''
+  taskForm.dateRange = [today, today]
   taskForm.month = ''
+  taskForm.monthRange = null
   createTaskVisible.value = true
 }
 
@@ -506,14 +532,27 @@ const createNodeMonthlyTask = () => {
   taskForm.type = 'node_monthly95'
   taskDialogTitle.value = '创建节点月95任务'
   const today = new Date()
-  taskForm.month = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
+  const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
+  taskForm.month = ''
   taskForm.dateRange = null
+  taskForm.monthRange = [currentMonth, currentMonth]
   createTaskVisible.value = true
+}
+
+const beforeCloseCreateTask = (done: () => void) => {
+  if (submitting.value) return
+  done()
+}
+
+const onCreateTaskDialogClosed = () => {
+  cleanupStaleElementOverlays(document)
 }
 
 // 提交创建任务
 const submitTaskCreate = async () => {
-  if ((taskForm.type === 'daily' || taskForm.type === 'node_daily95') && !taskForm.date) {
+  if (submitting.value) return
+
+  if (taskForm.type === 'daily' && !taskForm.date) {
     ElMessage.warning('请选择任务日期')
     return
   }
@@ -523,28 +562,51 @@ const submitTaskCreate = async () => {
     return
   }
 
+  const dailyRange = taskForm.type === 'node_daily95' ? expandNodeDailyTaskRange(taskForm.dateRange) : null
+  if (dailyRange?.error) {
+    ElMessage.warning(dailyRange.error)
+    return
+  }
+
+  const monthlyRange = taskForm.type === 'node_monthly95' ? expandNodeMonthlyTaskRange(taskForm.monthRange) : null
+  if (monthlyRange?.error) {
+    ElMessage.warning(monthlyRange.error)
+    return
+  }
+
+  let createdCount = 0
   submitting.value = true
   try {
-    let response
-    
     if (taskForm.type === 'daily') {
       // 日结算任务使用单个日期
       const params = { date: taskForm.date }
-      response = await api.settlement.createDailyTask(params)
+      await api.settlement.createDailyTask(params)
+      createdCount = 1
     } else if (taskForm.type === 'weekly') {
       // 周结算任务使用日期范围
       const params = { 
         start_date: taskForm.dateRange[0],
         end_date: taskForm.dateRange[1]
       }
-      response = await api.settlement.createWeeklyTask(params)
+      await api.settlement.createWeeklyTask(params)
+      createdCount = 1
     } else if (taskForm.type === 'node_daily95') {
-      response = await api.settlement.createNodeDailyTask({ date: taskForm.date })
+      await api.settlement.createNodeDailyTask({
+        start_date: dailyRange!.dates[0],
+        end_date: dailyRange!.dates[dailyRange!.dates.length - 1],
+      })
+      createdCount = 1
     } else {
-      response = await api.settlement.createNodeMonthlyTask({ month: taskForm.month })
+      await api.settlement.createNodeMonthlyTask({
+        start_month: monthlyRange!.months[0],
+        end_month: monthlyRange!.months[monthlyRange!.months.length - 1],
+      })
+      createdCount = 1
     }
     
-    ElMessage.success(`创建${taskTypeLabel(taskForm.type)}任务成功`)
+    const periodCount = dailyRange?.dates.length || monthlyRange?.months.length || createdCount
+    const countText = periodCount > 1 ? `，覆盖 ${periodCount} 个周期` : ''
+    ElMessage.success(`创建${taskTypeLabel(taskForm.type)}任务成功${countText}`)
     createTaskVisible.value = false
     queryCtl.run((signal) => fetchTasks(signal), { showCancelMessage: false }) // 刷新任务列表
     
@@ -552,7 +614,14 @@ const submitTaskCreate = async () => {
     startAutoRefresh()
   } catch (error) {
     console.error('创建任务失败', error)
-    ElMessage.error('创建任务失败')
+    const message = (error as any)?.response?.data?.message || (error as any)?.response?.data?.error || '创建任务失败'
+    if (createdCount > 0) {
+      ElMessage.error(`已创建 ${createdCount} 个任务，后续创建失败：${message}`)
+      queryCtl.run((signal) => fetchTasks(signal), { showCancelMessage: false })
+      startAutoRefresh()
+    } else {
+      ElMessage.error(message)
+    }
   } finally {
     submitting.value = false
   }
@@ -716,8 +785,3 @@ onUnmounted(() => {
   word-break: break-all;
 }
 </style>
-  if (taskForm.type === 'node_monthly95' && !taskForm.month) {
-    ElMessage.warning('请选择服务月份')
-    return
-  }
-

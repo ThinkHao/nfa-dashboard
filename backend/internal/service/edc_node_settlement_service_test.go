@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"math"
 	"strings"
 	"testing"
@@ -13,8 +14,11 @@ func ptrFloat64(v float64) *float64 { return &v }
 func ptrUint64(v uint64) *uint64    { return &v }
 
 type edcNodeSettlementRepoStub struct {
-	entities []model.EDCEntity
-	points   []model.EDCNodeTrafficPoint
+	entities           []model.EDCEntity
+	points             []model.EDCNodeTrafficPoint
+	trafficPointExists bool
+	trafficPointErr    error
+	existsCalled       bool
 }
 
 func (s *edcNodeSettlementRepoStub) ListEnabledEntities() ([]model.EDCEntity, error) {
@@ -27,6 +31,11 @@ func (s *edcNodeSettlementRepoStub) ListTrafficPoints(entityID uint64, start, en
 
 func (s *edcNodeSettlementRepoStub) ListTrafficPointsByDisplayNode(start, end time.Time) ([]model.EDCNodeTrafficPoint, error) {
 	return s.points, nil
+}
+
+func (s *edcNodeSettlementRepoStub) ExistsTrafficPointByDisplayNode(start, end time.Time) (bool, error) {
+	s.existsCalled = true
+	return s.trafficPointExists, s.trafficPointErr
 }
 
 func (s *edcNodeSettlementRepoStub) DeleteDailySettlements(start, end time.Time) error  { return nil }
@@ -133,6 +142,53 @@ func TestBuildEDCNodeMonthlyTrafficSettlementDoesNotRequireRate(t *testing.T) {
 	}
 	if row.Monthly95Fee != nil || row.TrafficBill != nil || row.TotalBill != nil {
 		t.Fatalf("traffic-only settlement should not populate fee fields: %+v", row)
+	}
+}
+
+func TestHasSettlementTrafficUsesRepositoryExistenceCheck(t *testing.T) {
+	repo := &edcNodeSettlementRepoStub{trafficPointExists: true}
+	svc := &edcNodeSettlementService{repo: repo}
+	start := time.Date(2026, 5, 1, 0, 0, 0, 0, time.Local)
+	end := start.AddDate(0, 1, 0)
+
+	ok, err := svc.HasSettlementTraffic(start, end)
+	if err != nil {
+		t.Fatalf("HasSettlementTraffic() error=%v", err)
+	}
+	if !ok {
+		t.Fatalf("HasSettlementTraffic()=false, want true")
+	}
+	if !repo.existsCalled {
+		t.Fatalf("HasSettlementTraffic() did not use existence check")
+	}
+}
+
+func TestHasSettlementTrafficReturnsFalseWithoutPoints(t *testing.T) {
+	svc := &edcNodeSettlementService{repo: &edcNodeSettlementRepoStub{trafficPointExists: false}}
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.Local)
+	end := start.AddDate(0, 1, 0)
+
+	ok, err := svc.HasSettlementTraffic(start, end)
+	if err != nil {
+		t.Fatalf("HasSettlementTraffic() error=%v", err)
+	}
+	if ok {
+		t.Fatalf("HasSettlementTraffic()=true, want false")
+	}
+}
+
+func TestHasSettlementTrafficReturnsRepositoryError(t *testing.T) {
+	wantErr := errors.New("exists query failed")
+	svc := &edcNodeSettlementService{repo: &edcNodeSettlementRepoStub{trafficPointErr: wantErr}}
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.Local)
+	end := start.AddDate(0, 1, 0)
+
+	ok, err := svc.HasSettlementTraffic(start, end)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("HasSettlementTraffic() error=%v, want %v", err, wantErr)
+	}
+	if ok {
+		t.Fatalf("HasSettlementTraffic()=true, want false when repository errors")
 	}
 }
 

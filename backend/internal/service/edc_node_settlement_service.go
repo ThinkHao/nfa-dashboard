@@ -9,8 +9,11 @@ import (
 )
 
 type EDCNodeSettlementService interface {
+	HasSettlementTraffic(start, end time.Time) (bool, error)
 	ExecuteDailyTask(taskID int64, day time.Time) error
+	ExecuteDailyRangeTask(taskID int64, start, end time.Time) error
 	ExecuteMonthlyTask(taskID int64, month time.Time) error
+	ExecuteMonthlyRangeTask(taskID int64, start, end time.Time) error
 	ListDailySettlements(filter map[string]interface{}, page, pageSize int) ([]model.SettlementNodeDaily95, int64, error)
 	ListMonthlySettlements(filter map[string]interface{}, page, pageSize int) ([]model.SettlementNodeMonthly95, int64, error)
 }
@@ -25,46 +28,70 @@ func NewEDCNodeSettlementService(repo repository.EDCNodeSettlementRepository, ra
 	return &edcNodeSettlementService{repo: repo, ratesRepo: ratesRepo, settlementRepo: settlementRepo}
 }
 
+func (s *edcNodeSettlementService) HasSettlementTraffic(start, end time.Time) (bool, error) {
+	ok, err := s.repo.ExistsTrafficPointByDisplayNode(start, end)
+	if err != nil {
+		return false, err
+	}
+	return ok, nil
+}
+
 func (s *edcNodeSettlementService) ExecuteDailyTask(taskID int64, day time.Time) error {
+	return s.ExecuteDailyRangeTask(taskID, day, day)
+}
+
+func (s *edcNodeSettlementService) ExecuteDailyRangeTask(taskID int64, start, end time.Time) error {
 	if err := s.updateTask(taskID, "running", 0, ""); err != nil {
 		return err
 	}
-	rows, processed, err := s.calculateDaily(day)
-	if err != nil {
-		_ = s.updateTask(taskID, "failed", processed, err.Error())
-		return err
+	totalProcessed := 0
+	for day := startOfDay(start); !day.After(startOfDay(end)); day = day.AddDate(0, 0, 1) {
+		rows, processed, err := s.calculateDaily(day)
+		if err != nil {
+			_ = s.updateTask(taskID, "failed", totalProcessed+processed, err.Error())
+			return err
+		}
+		if err := s.repo.DeleteDailySettlements(day, day.AddDate(0, 0, 1)); err != nil {
+			_ = s.updateTask(taskID, "failed", totalProcessed+processed, err.Error())
+			return err
+		}
+		if err := s.repo.UpsertDailySettlements(rows); err != nil {
+			_ = s.updateTask(taskID, "failed", totalProcessed+processed, err.Error())
+			return err
+		}
+		totalProcessed += processed
+		_ = s.updateTask(taskID, "running", totalProcessed, "")
 	}
-	start := startOfDay(day)
-	if err := s.repo.DeleteDailySettlements(start, start.AddDate(0, 0, 1)); err != nil {
-		_ = s.updateTask(taskID, "failed", processed, err.Error())
-		return err
-	}
-	if err := s.repo.UpsertDailySettlements(rows); err != nil {
-		_ = s.updateTask(taskID, "failed", processed, err.Error())
-		return err
-	}
-	return s.updateTask(taskID, "success", processed, "")
+	return s.updateTask(taskID, "success", totalProcessed, "")
 }
 
 func (s *edcNodeSettlementService) ExecuteMonthlyTask(taskID int64, month time.Time) error {
+	return s.ExecuteMonthlyRangeTask(taskID, month, month)
+}
+
+func (s *edcNodeSettlementService) ExecuteMonthlyRangeTask(taskID int64, start, end time.Time) error {
 	if err := s.updateTask(taskID, "running", 0, ""); err != nil {
 		return err
 	}
-	monthly, processed, err := s.calculateMonthly(month)
-	if err != nil {
-		_ = s.updateTask(taskID, "failed", processed, err.Error())
-		return err
+	totalProcessed := 0
+	for month := startOfMonth(start); !month.After(startOfMonth(end)); month = month.AddDate(0, 1, 0) {
+		monthly, processed, err := s.calculateMonthly(month)
+		if err != nil {
+			_ = s.updateTask(taskID, "failed", totalProcessed+processed, err.Error())
+			return err
+		}
+		if err := s.repo.DeleteMonthlySettlements(month.Format("2006-01")); err != nil {
+			_ = s.updateTask(taskID, "failed", totalProcessed+processed, err.Error())
+			return err
+		}
+		if err := s.repo.UpsertMonthlySettlements(monthly); err != nil {
+			_ = s.updateTask(taskID, "failed", totalProcessed+processed, err.Error())
+			return err
+		}
+		totalProcessed += processed
+		_ = s.updateTask(taskID, "running", totalProcessed, "")
 	}
-	start := startOfMonth(month)
-	if err := s.repo.DeleteMonthlySettlements(start.Format("2006-01")); err != nil {
-		_ = s.updateTask(taskID, "failed", processed, err.Error())
-		return err
-	}
-	if err := s.repo.UpsertMonthlySettlements(monthly); err != nil {
-		_ = s.updateTask(taskID, "failed", processed, err.Error())
-		return err
-	}
-	return s.updateTask(taskID, "success", processed, "")
+	return s.updateTask(taskID, "success", totalProcessed, "")
 }
 
 func (s *edcNodeSettlementService) calculateDaily(day time.Time) ([]model.SettlementNodeDaily95, int, error) {

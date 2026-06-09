@@ -163,11 +163,11 @@ export default {
     },
 
     createNodeDailyTask(params?: any) {
-      return api.post('/api/v1/settlement/tasks/node-daily95', params)
+      return api.post('/api/v1/settlement/tasks/node-daily95', params, { timeout: 180000 })
     },
 
     createNodeMonthlyTask(params?: any) {
-      return api.post('/api/v1/settlement/tasks/node-monthly95', params)
+      return api.post('/api/v1/settlement/tasks/node-monthly95', params, { timeout: 180000 })
     },
 
     // 删除结算任务

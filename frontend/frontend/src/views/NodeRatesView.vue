@@ -412,22 +412,37 @@ function displayOwner(id?: number | null): string {
   return buildUserLabel(user) || `用户#${key}`
 }
 
-async function loadUsersForItems() {
+function collectOwnerIDsFromRates(rates: Array<RateNode | undefined | null>): number[] {
   const ids = new Set<number>()
-  for (const row of items.value) {
+  for (const row of rates) {
+    if (!row) continue
     for (const value of [row.cp_fee_owner_id, row.node_construction_fee_owner_id, row.rack_fee_owner_id, row.other_fee_owner_id]) {
       const id = Number(value)
       if (Number.isFinite(id) && id > 0) ids.add(id)
     }
   }
-  if (ids.size === 0) {
-    userMap.value = {}
-    return
+  return Array.from(ids)
+}
+
+function mergeOwnerUserOptions(options: Array<{ id: number; label: string }>) {
+  const merged = new Map<number, { id: number; label: string }>()
+  for (const option of ownerUserOptions.value) {
+    if (Number.isFinite(Number(option.id)) && Number(option.id) > 0) merged.set(Number(option.id), option)
   }
-  try {
-    const res: any = await api.system.users.list({ ids: Array.from(ids).join(',') })
+  for (const option of options) {
+    if (Number.isFinite(Number(option.id)) && Number(option.id) > 0) merged.set(Number(option.id), option)
+  }
+  ownerUserOptions.value = Array.from(merged.values())
+}
+
+async function loadUsersByIDs(ids: number[], options: { mergeOptions?: boolean } = {}) {
+  const unique = Array.from(new Set(ids.filter((id) => Number.isFinite(id) && id > 0)))
+  if (unique.length === 0) return
+  const missing = unique.filter((id) => !userMap.value[id])
+  if (missing.length > 0) {
+    const res: any = await api.system.users.list({ ids: missing.join(',') })
     const users: any[] = Array.isArray(res?.items) ? res.items : []
-    const next: Record<number, { id: number; alias?: string; display_name?: string; username: string }> = {}
+    const next = { ...userMap.value }
     for (const user of users) {
       const id = Number(user.id)
       if (Number.isFinite(id) && id > 0) {
@@ -435,6 +450,20 @@ async function loadUsersForItems() {
       }
     }
     userMap.value = next
+  }
+  if (options.mergeOptions) {
+    mergeOwnerUserOptions(unique.map((id) => ({ id, label: displayOwner(id) })).filter((item) => item.label !== '-'))
+  }
+}
+
+async function loadUsersForItems() {
+  const ids = collectOwnerIDsFromRates(items.value)
+  if (ids.length === 0) {
+    userMap.value = {}
+    return
+  }
+  try {
+    await loadUsersByIDs(ids)
   } catch {
     userMap.value = {}
   }
@@ -552,6 +581,7 @@ function openDialog(row?: AggregatedNodeRateRow) {
   if (row) {
     const related = Object.values(row.mode_rates || {}).filter(Boolean) as RateNode[]
     for (const item of related.length ? related : [row]) applyRateToMode(item)
+    loadUsersByIDs(collectOwnerIDsFromRates(related.length ? related : [row]), { mergeOptions: true })
     if (row.entity_id) {
       entityOptions.value = [{
         id: Number(row.entity_id),

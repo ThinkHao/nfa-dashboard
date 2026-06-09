@@ -26,3 +26,27 @@
 - Preserve settlement semantics when adding CLI helpers: daily 95 vs range 95, recv vs both direction, unit base `1000` vs `1024`, 5m traffic precision, and V4/V6 label distinctions are business-visible details.
 - For production-like repair or bulk update workflows, default to preview-first and backup-first. Use CLI dry-run plus explicit payload review before sending mutating requests.
 - For discrepancy analysis, provide evidence from code paths, API responses, DB recomputation, or operation logs rather than stopping at a plausible explanation.
+- For EDC node 95 settlement, runtime rates come from `rate_final_node`, not only `rate_node`. When node daily/monthly 95 tasks fail, first check `nfa_settlement_task.error_message`, then verify traffic existence, business rates, and final-node rates independently.
+- For user-visible fee-owner fields, show the system user's alias/display name/username instead of raw numeric IDs. This applies to tables, summaries, tooltips, exports, and edit forms/dropdowns. Raw `*_owner_id` values may remain in payloads or hidden import/export compatibility fields, but visible UI should resolve them to names.
+- For node daily95/monthly95 task creation from a date/month range, keep the UI as a convenience layer but create one backend task for the selected range. Do not expand a 30-day or 12-month range into many `nfa_settlement_task` rows. Keep the existing single-period payloads compatible, but prefer range payloads such as `{ start_date, end_date }` and `{ start_month, end_month }`.
+- Do not make creation endpoints synchronously calculate settlement results. Creation should perform only cheap validation, create the task row, and run calculation asynchronously. For "has traffic" checks, prefer existence queries (`SELECT 1 ... LIMIT 1`) over full `COUNT(*)` scans.
+- Preserve node 95 calculation behavior when optimizing task creation: daily node 95 still processes one day at a time, monthly node 95 still processes one month at a time, and range tasks should execute those existing per-period calculations sequentially inside one task.
+
+## Frontend Notes
+
+- Settlement task modals should guard long-running submissions: prevent duplicate clicks while `submitting`, disable cancel/close/ESC/mask close during submission, and clean stale Element Plus overlays with `cleanupStaleElementOverlays` after dialogs close.
+- For long-running but asynchronous create actions, prefer improving backend preflight cost over only increasing Axios timeouts. Endpoint-specific timeouts are acceptable as a fallback, but should not hide expensive synchronous work.
+- Use focused Vue unit tests for settlement task UI behavior. For range task creation, assert request count and payload shape so future changes do not accidentally reintroduce per-day/per-month frontend loops.
+
+## Local Development And Verification
+
+- The local backend commonly runs on `http://localhost:8081`; the frontend dev server commonly runs on `http://localhost:5173`. If `go run main.go` fails with `listen tcp :8081: bind`, identify and stop the existing backend process rather than starting another server on a random port without telling the user.
+- Backend code changes do not affect the running local server until the `go run main.go` process is restarted.
+- For settlement-related frontend/backend changes, run targeted tests first, then broader checks when practical:
+  - `cd backend && go test ./internal/service`
+  - `cd backend && go test ./internal/controller`
+  - `cd backend && go test ./...`
+  - `cd frontend/frontend && npm run type-check`
+  - `cd frontend/frontend && npm run test:unit -- <target spec files>`
+  - `cd frontend/frontend && npm run build` when frontend wiring or shared APIs changed
+- Existing Vite large chunk warnings are not by themselves a failure. Report them, but do not treat them as blocking unless the task is about bundle size.

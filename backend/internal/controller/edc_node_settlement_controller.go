@@ -20,50 +20,105 @@ func NewEDCNodeSettlementController(settlementSvc service.SettlementService, nod
 
 func (c *EDCNodeSettlementController) CreateNodeDailyTask(ctx *gin.Context) {
 	var req struct {
-		Date string `json:"date"`
+		Date      string `json:"date"`
+		StartDate string `json:"start_date"`
+		EndDate   string `json:"end_date"`
 	}
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid request"})
 		return
 	}
-	day, err := parseNodeTaskDate(req.Date, time.Now().AddDate(0, 0, -1))
+	startText := req.StartDate
+	if startText == "" {
+		startText = req.Date
+	}
+	start, err := parseNodeTaskDate(startText, time.Now().AddDate(0, 0, -1))
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid date, expect YYYY-MM-DD"})
 		return
 	}
-	task, err := c.settlementSvc.CreateSettlementTask("node_daily95", day)
+	endText := req.EndDate
+	if endText == "" {
+		endText = startText
+	}
+	end, err := parseNodeTaskDate(endText, start)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid date, expect YYYY-MM-DD"})
+		return
+	}
+	if end.Before(start) {
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "end_date must not be before start_date"})
+		return
+	}
+	hasTraffic, err := c.nodeSvc.HasSettlementTraffic(start, end.AddDate(0, 0, 1))
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 		return
 	}
-	go func() { _ = c.nodeSvc.ExecuteDailyTask(task.ID, day) }()
+	if !hasTraffic {
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "任务周期内没有可结算的 EDC 节点日95流量数据"})
+		return
+	}
+	task, err := c.settlementSvc.CreateSettlementTask("node_daily95", start)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		return
+	}
+	go func() { _ = c.nodeSvc.ExecuteDailyRangeTask(task.ID, start, end) }()
 	ctx.JSON(http.StatusOK, gin.H{"task": task})
 }
 
 func (c *EDCNodeSettlementController) CreateNodeMonthlyTask(ctx *gin.Context) {
 	var req struct {
-		Month string `json:"month"`
-		Date  string `json:"date"`
+		Month      string `json:"month"`
+		Date       string `json:"date"`
+		StartMonth string `json:"start_month"`
+		EndMonth   string `json:"end_month"`
 	}
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid request"})
 		return
 	}
-	monthText := req.Month
-	if monthText == "" {
-		monthText = req.Date
+	startText := req.StartMonth
+	if startText == "" {
+		startText = req.Month
 	}
-	month, err := parseNodeTaskMonth(monthText, time.Now().AddDate(0, -1, 0))
+	if startText == "" {
+		startText = req.Date
+	}
+	start, err := parseNodeTaskMonth(startText, time.Now().AddDate(0, -1, 0))
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid month, expect YYYY-MM"})
 		return
 	}
-	task, err := c.settlementSvc.CreateSettlementTask("node_monthly95", month)
+	endText := req.EndMonth
+	if endText == "" {
+		endText = startText
+	}
+	end, err := parseNodeTaskMonth(endText, start)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid month, expect YYYY-MM"})
+		return
+	}
+	if end.Before(start) {
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "end_month must not be before start_month"})
+		return
+	}
+	hasTraffic, err := c.nodeSvc.HasSettlementTraffic(start, end.AddDate(0, 1, 0))
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 		return
 	}
-	go func() { _ = c.nodeSvc.ExecuteMonthlyTask(task.ID, month) }()
+	if !hasTraffic {
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "任务周期内没有可结算的 EDC 节点月95流量数据"})
+		return
+	}
+	task, err := c.settlementSvc.CreateSettlementTask("node_monthly95", start)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		return
+	}
+	go func() { _ = c.nodeSvc.ExecuteMonthlyRangeTask(task.ID, start, end) }()
 	ctx.JSON(http.StatusOK, gin.H{"task": task})
 }
 

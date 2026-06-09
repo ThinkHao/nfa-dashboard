@@ -12,6 +12,7 @@ type EDCNodeSettlementRepository interface {
 	ListEnabledEntities() ([]model.EDCEntity, error)
 	ListTrafficPoints(entityID uint64, start, end time.Time) ([]model.EDCTraffic5m, error)
 	ListTrafficPointsByDisplayNode(start, end time.Time) ([]model.EDCNodeTrafficPoint, error)
+	ExistsTrafficPointByDisplayNode(start, end time.Time) (bool, error)
 	DeleteDailySettlements(start, end time.Time) error
 	DeleteMonthlySettlements(serviceMonth string) error
 	UpsertDailySettlements(rows []model.SettlementNodeDaily95) error
@@ -55,6 +56,20 @@ func (r *edcNodeSettlementRepository) ListTrafficPointsByDisplayNode(start, end 
 		Order("e.region ASC, e.cp ASC, e.display_name ASC, t.bucket_5m ASC").
 		Scan(&points).Error
 	return points, err
+}
+
+func (r *edcNodeSettlementRepository) ExistsTrafficPointByDisplayNode(start, end time.Time) (bool, error) {
+	var hit int
+	tx := model.DB.Table("edc_traffic_5m AS t").
+		Select("1").
+		Joins("JOIN edc_entities AS e ON e.id = t.entity_id").
+		Where("e.enabled = ? AND e.is_backup = ? AND t.bucket_5m >= ? AND t.bucket_5m < ?", true, false, start, end).
+		Limit(1).
+		Scan(&hit)
+	if tx.Error != nil {
+		return false, tx.Error
+	}
+	return tx.RowsAffected > 0, nil
 }
 
 func (r *edcNodeSettlementRepository) DeleteDailySettlements(start, end time.Time) error {
