@@ -326,11 +326,12 @@ func buildEDCNodeMonthlySettlement(entity model.EDCEntity, rate model.RateFinalN
 }
 
 func buildEDCNodeDailySettlement(entity model.EDCEntity, rate model.RateFinalNode, day time.Time, raw95 float64, mbps95 float64, unitBase int) model.SettlementNodeDaily95 {
-	trafficBill := trafficBillFromMbps(mbps95, rate.FinalFee, unitBase)
+	trafficBillValue := trafficBillFromMbps(mbps95, rate.FinalFee, unitBase)
+	trafficBill := prorateMonthlyFeeByDay(&trafficBillValue, day)
 	cpBill := prorateMonthlyFeeByDay(rate.CPFee, day)
 	rackBill := prorateMonthlyFeeByDay(rate.RackFee, day)
 	otherBill := prorateMonthlyFeeByDay(rate.OtherFee, day)
-	totalBill := trafficBill + billValue(cpBill) + billValue(rackBill) + billValue(otherBill)
+	totalBill := billValue(trafficBill) + billValue(cpBill) + billValue(rackBill) + billValue(otherBill)
 	base := normalizeEDCUnitBase(unitBase)
 	mode := normalizeEDCSettlementMode(rate.SettlementMode)
 	settlementTime := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, day.Location())
@@ -348,15 +349,15 @@ func buildEDCNodeDailySettlement(entity model.EDCEntity, rate model.RateFinalNod
 		SettlementValue:            mbps95,
 		SettlementTime:             settlementTime,
 		Daily95Fee:                 &fee,
-		Daily95Bill:                &trafficBill,
-		TrafficBill:                &trafficBill,
+		Daily95Bill:                trafficBill,
+		TrafficBill:                trafficBill,
 		CPFee:                      rate.CPFee,
 		CPBill:                     cpBill,
 		CPFeeOwnerID:               rate.CPFeeOwnerID,
 		RackBill:                   rackBill,
 		TotalBill:                  &totalBill,
 		NodeConstructionFee:        rate.NodeConstructionFee,
-		NodeConstructionBill:       &trafficBill,
+		NodeConstructionBill:       trafficBill,
 		NodeConstructionFeeOwnerID: rate.NodeConstructionFeeOwnerID,
 		RackFee:                    rate.RackFee,
 		RackFeeOwnerID:             rate.RackFeeOwnerID,

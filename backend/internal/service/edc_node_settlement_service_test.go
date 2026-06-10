@@ -279,8 +279,9 @@ func TestBuildEDCNodeSettlementBillsTrafficUnitPriceByG(t *testing.T) {
 		SettlementMode: EDCSettlementModeDaily95Avg,
 		FinalFee:       ptrFloat64(2),
 	}, day, 80, 10, 1000)
-	if daily.TrafficBill == nil || math.Abs(*daily.TrafficBill-0.02) > 0.000001 {
-		t.Fatalf("daily traffic_bill=%v, want 0.02", daily.TrafficBill)
+	wantDailyTraffic := 0.02 / 31.0
+	if daily.TrafficBill == nil || math.Abs(*daily.TrafficBill-wantDailyTraffic) > 0.000001 {
+		t.Fatalf("daily traffic_bill=%v, want %f", daily.TrafficBill, wantDailyTraffic)
 	}
 	if daily.Daily95Bill == nil || *daily.Daily95Bill != *daily.TrafficBill {
 		t.Fatalf("daily95_bill=%v, want traffic_bill %v", daily.Daily95Bill, daily.TrafficBill)
@@ -322,8 +323,9 @@ func TestBuildEDCNodeDailySettlementAddsAllFeeItems(t *testing.T) {
 	if row.UnitBase != 1000 {
 		t.Fatalf("unit_base=%d, want 1000", row.UnitBase)
 	}
-	if row.TrafficBill == nil || math.Abs(*row.TrafficBill-0.02) > 0.000001 {
-		t.Fatalf("traffic_bill=%v, want 0.02", row.TrafficBill)
+	wantTrafficBill := 0.02 / 31.0
+	if row.TrafficBill == nil || math.Abs(*row.TrafficBill-wantTrafficBill) > 0.000001 {
+		t.Fatalf("traffic_bill=%v, want %f", row.TrafficBill, wantTrafficBill)
 	}
 	wantCPBill := 10 / 31.0
 	if row.CPBill == nil || math.Abs(*row.CPBill-wantCPBill) > 0.000001 {
@@ -337,7 +339,7 @@ func TestBuildEDCNodeDailySettlementAddsAllFeeItems(t *testing.T) {
 	if row.OtherBill == nil || math.Abs(*row.OtherBill-wantOtherBill) > 0.000001 {
 		t.Fatalf("other_bill=%v, want %f", row.OtherBill, wantOtherBill)
 	}
-	wantTotalBill := 0.02 + wantCPBill + wantRackBill + wantOtherBill
+	wantTotalBill := wantTrafficBill + wantCPBill + wantRackBill + wantOtherBill
 	if row.TotalBill == nil || math.Abs(*row.TotalBill-wantTotalBill) > 0.000001 {
 		t.Fatalf("total_bill=%v, want %f", row.TotalBill, wantTotalBill)
 	}
@@ -352,12 +354,20 @@ func TestBuildEDCNodeDailySettlementProratesFeeItemsForLeapYearFebruary(t *testi
 		Region:         "天津",
 		CP:             "bilibili",
 		SettlementMode: EDCSettlementModeDaily95Avg,
+		FinalFee:       ptrFloat64(29),
 		CPFee:          ptrFloat64(29),
 		RackFee:        ptrFloat64(58),
 		OtherFee:       ptrFloat64(87),
 	}
 
 	row := buildEDCNodeDailySettlement(entity, rate, day, 80, 10, 1000)
+	wantTrafficBill := 10 * 29 / 1000.0 / 29.0
+	if row.TrafficBill == nil || math.Abs(*row.TrafficBill-wantTrafficBill) > 0.000001 {
+		t.Fatalf("traffic_bill=%v, want %f", row.TrafficBill, wantTrafficBill)
+	}
+	if row.Daily95Bill == nil || *row.Daily95Bill != *row.TrafficBill {
+		t.Fatalf("daily95_bill=%v, want traffic_bill %v", row.Daily95Bill, row.TrafficBill)
+	}
 	if row.CPBill == nil || math.Abs(*row.CPBill-1) > 0.000001 {
 		t.Fatalf("cp_bill=%v, want 1", row.CPBill)
 	}
@@ -367,8 +377,9 @@ func TestBuildEDCNodeDailySettlementProratesFeeItemsForLeapYearFebruary(t *testi
 	if row.OtherBill == nil || math.Abs(*row.OtherBill-3) > 0.000001 {
 		t.Fatalf("other_bill=%v, want 3", row.OtherBill)
 	}
-	if row.TotalBill == nil || math.Abs(*row.TotalBill-6) > 0.000001 {
-		t.Fatalf("total_bill=%v, want 6", row.TotalBill)
+	wantTotalBill := wantTrafficBill + 1 + 2 + 3
+	if row.TotalBill == nil || math.Abs(*row.TotalBill-wantTotalBill) > 0.000001 {
+		t.Fatalf("total_bill=%v, want %f", row.TotalBill, wantTotalBill)
 	}
 }
 
