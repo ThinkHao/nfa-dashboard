@@ -325,17 +325,50 @@ func TestBuildEDCNodeDailySettlementAddsAllFeeItems(t *testing.T) {
 	if row.TrafficBill == nil || math.Abs(*row.TrafficBill-0.02) > 0.000001 {
 		t.Fatalf("traffic_bill=%v, want 0.02", row.TrafficBill)
 	}
-	if row.CPBill == nil || *row.CPBill != 10 {
-		t.Fatalf("cp_bill=%v, want 10", row.CPBill)
+	wantCPBill := 10 / 31.0
+	if row.CPBill == nil || math.Abs(*row.CPBill-wantCPBill) > 0.000001 {
+		t.Fatalf("cp_bill=%v, want %f", row.CPBill, wantCPBill)
 	}
-	if row.RackBill == nil || *row.RackBill != 50 {
-		t.Fatalf("rack_bill=%v, want 50", row.RackBill)
+	wantRackBill := 50 / 31.0
+	if row.RackBill == nil || math.Abs(*row.RackBill-wantRackBill) > 0.000001 {
+		t.Fatalf("rack_bill=%v, want %f", row.RackBill, wantRackBill)
 	}
-	if row.OtherBill == nil || *row.OtherBill != 5 {
-		t.Fatalf("other_bill=%v, want 5", row.OtherBill)
+	wantOtherBill := 5 / 31.0
+	if row.OtherBill == nil || math.Abs(*row.OtherBill-wantOtherBill) > 0.000001 {
+		t.Fatalf("other_bill=%v, want %f", row.OtherBill, wantOtherBill)
 	}
-	if row.TotalBill == nil || math.Abs(*row.TotalBill-65.02) > 0.000001 {
-		t.Fatalf("total_bill=%v, want 65.02", row.TotalBill)
+	wantTotalBill := 0.02 + wantCPBill + wantRackBill + wantOtherBill
+	if row.TotalBill == nil || math.Abs(*row.TotalBill-wantTotalBill) > 0.000001 {
+		t.Fatalf("total_bill=%v, want %f", row.TotalBill, wantTotalBill)
+	}
+}
+
+func TestBuildEDCNodeDailySettlementProratesFeeItemsForLeapYearFebruary(t *testing.T) {
+	day := time.Date(2024, 2, 10, 0, 0, 0, 0, time.Local)
+	entity := model.EDCEntity{ID: 12, DisplayName: "TJ-Node-A", Region: "天津", CP: "bilibili"}
+	rate := model.RateFinalNode{
+		EntityID:       ptrUint64(12),
+		DisplayName:    "TJ-Node-A",
+		Region:         "天津",
+		CP:             "bilibili",
+		SettlementMode: EDCSettlementModeDaily95Avg,
+		CPFee:          ptrFloat64(29),
+		RackFee:        ptrFloat64(58),
+		OtherFee:       ptrFloat64(87),
+	}
+
+	row := buildEDCNodeDailySettlement(entity, rate, day, 80, 10, 1000)
+	if row.CPBill == nil || math.Abs(*row.CPBill-1) > 0.000001 {
+		t.Fatalf("cp_bill=%v, want 1", row.CPBill)
+	}
+	if row.RackBill == nil || math.Abs(*row.RackBill-2) > 0.000001 {
+		t.Fatalf("rack_bill=%v, want 2", row.RackBill)
+	}
+	if row.OtherBill == nil || math.Abs(*row.OtherBill-3) > 0.000001 {
+		t.Fatalf("other_bill=%v, want 3", row.OtherBill)
+	}
+	if row.TotalBill == nil || math.Abs(*row.TotalBill-6) > 0.000001 {
+		t.Fatalf("total_bill=%v, want 6", row.TotalBill)
 	}
 }
 

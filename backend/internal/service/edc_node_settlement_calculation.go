@@ -244,6 +244,16 @@ func billFromFee(fee *float64) *float64 {
 	return &value
 }
 
+func prorateMonthlyFeeByDay(fee *float64, day time.Time) *float64 {
+	if fee == nil {
+		return nil
+	}
+	monthStart := time.Date(day.Year(), day.Month(), 1, 0, 0, 0, 0, day.Location())
+	daysInMonth := monthStart.AddDate(0, 1, -1).Day()
+	value := *fee / float64(daysInMonth)
+	return &value
+}
+
 func billValue(v *float64) float64 {
 	if v == nil {
 		return 0
@@ -317,9 +327,9 @@ func buildEDCNodeMonthlySettlement(entity model.EDCEntity, rate model.RateFinalN
 
 func buildEDCNodeDailySettlement(entity model.EDCEntity, rate model.RateFinalNode, day time.Time, raw95 float64, mbps95 float64, unitBase int) model.SettlementNodeDaily95 {
 	trafficBill := trafficBillFromMbps(mbps95, rate.FinalFee, unitBase)
-	cpBill := billFromFee(rate.CPFee)
-	rackBill := billFromFee(rate.RackFee)
-	otherBill := billFromFee(rate.OtherFee)
+	cpBill := prorateMonthlyFeeByDay(rate.CPFee, day)
+	rackBill := prorateMonthlyFeeByDay(rate.RackFee, day)
+	otherBill := prorateMonthlyFeeByDay(rate.OtherFee, day)
 	totalBill := trafficBill + billValue(cpBill) + billValue(rackBill) + billValue(otherBill)
 	base := normalizeEDCUnitBase(unitBase)
 	mode := normalizeEDCSettlementMode(rate.SettlementMode)
