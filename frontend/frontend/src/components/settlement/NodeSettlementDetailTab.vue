@@ -3,13 +3,13 @@
     <el-card class="filter-section">
       <el-form :model="filterForm" inline>
         <el-form-item label="地区">
-          <el-input v-model="filterForm.region" clearable class="field-w-160" />
+          <SearchSelect v-model="filterForm.region" :options="regions" placeholder="选择地区" clearable class="field-w-160" @change="handleRegionChange" />
         </el-form-item>
         <el-form-item label="CP">
-          <el-input v-model="filterForm.cp" clearable class="field-w-160" />
+          <SearchSelect v-model="filterForm.cp" :options="cps" placeholder="选择 CP" clearable class="field-w-160" @change="handleCPChange" />
         </el-form-item>
         <el-form-item label="节点">
-          <el-input v-model="filterForm.display_name" clearable class="field-w-200" />
+          <SearchSelect v-model="filterForm.display_name" :options="nodes" label-key="display_name" value-key="display_name" placeholder="选择节点" clearable class="field-w-200" @change="handleNodeChange" />
         </el-form-item>
         <el-form-item v-if="kind === 'monthly'" label="服务月份">
           <el-date-picker v-model="filterForm.service_month" type="month" value-format="YYYY-MM" format="YYYY-MM" />
@@ -80,8 +80,10 @@ import { reactive, ref, onMounted } from 'vue'
 import api from '@/api'
 import QueryActionButton from '@/components/ui/QueryActionButton.vue'
 import UnifiedDateRange from '@/components/ui/UnifiedDateRange.vue'
+import SearchSelect from '@/components/ui/SearchSelect.vue'
 import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
 import { splitSettlementDayRange } from './settlement-day-range'
+import { sanitizeScopeOptionValues } from '@/utils/scope-options'
 import { ElMessage } from 'element-plus'
 import { formatMbps95 } from './settlement-display-utils'
 
@@ -95,6 +97,62 @@ const pageSize = ref(10)
 const dateRange = ref<[string, string] | null>(null)
 const queryCtl = useCancelableQuery()
 const filterForm = reactive({ region: '', cp: '', display_name: '', service_month: '', start_date: '', end_date: '' })
+
+// 下拉选项数据
+const regions = ref<string[]>([])
+const cps = ref<string[]>([])
+const nodes = ref<any[]>([])
+
+// 加载地区/CP选项
+async function loadRegionCpOptions() {
+  try {
+    const [regionResp, cpResp] = await Promise.all([
+      (api as any).v2.edc.getRegions(),
+      (api as any).v2.edc.getCPs(),
+    ])
+    regions.value = sanitizeScopeOptionValues(Array.isArray(regionResp) ? regionResp : [])
+    cps.value = sanitizeScopeOptionValues(Array.isArray(cpResp) ? cpResp : [])
+  } catch (e) {
+    console.warn('加载地区/CP选项失败:', e)
+    regions.value = []
+    cps.value = []
+  }
+}
+
+// 加载节点列表
+async function loadNodes(region: string = '', cp: string = '') {
+  try {
+    const params: any = {}
+    if (region) params.region = region
+    if (cp) params.cp = cp
+    const resp = await (api as any).v2.edc.getEntities(params)
+    nodes.value = Array.isArray(resp) ? resp : Array.isArray(resp?.items) ? resp.items : []
+  } catch (e) {
+    console.warn('加载节点列表失败:', e)
+    nodes.value = []
+  }
+}
+
+// 地区变化：联动刷新CP和节点
+function handleRegionChange(region: string) {
+  filterForm.cp = ''
+  filterForm.display_name = ''
+  loadRegionCpOptions()
+  loadNodes(region)
+  onSearch()
+}
+
+// CP变化：联动刷新节点
+function handleCPChange(cp: string) {
+  filterForm.display_name = ''
+  loadNodes(filterForm.region, cp)
+  onSearch()
+}
+
+// 节点变化：触发查询
+function handleNodeChange() {
+  onSearch()
+}
 
 function buildParams() {
   const p: any = { page: page.value, page_size: pageSize.value }
@@ -123,7 +181,13 @@ async function fetch(signal?: AbortSignal) {
   }
 }
 function onSearch() { page.value = 1; queryCtl.run((signal) => fetch(signal), { toggleIfRunning: true }) }
-function onReset() { Object.assign(filterForm, { region: '', cp: '', display_name: '', service_month: '', start_date: '', end_date: '' }); dateRange.value = null; onSearch() }
+function onReset() {
+  Object.assign(filterForm, { region: '', cp: '', display_name: '', service_month: '', start_date: '', end_date: '' })
+  dateRange.value = null
+  loadRegionCpOptions()
+  loadNodes()
+  onSearch()
+}
 function onPageChange(nextPage: number) {
   page.value = nextPage
   queryCtl.run((signal) => fetch(signal), { showCancelMessage: false })
@@ -148,5 +212,8 @@ function formatMoney(v: unknown) {
   const n = Number(v)
   return Number.isFinite(n) ? n.toFixed(2) : '-'
 }
-onMounted(() => queryCtl.run((signal) => fetch(signal), { showCancelMessage: false }))
+onMounted(async () => {
+  await Promise.all([loadRegionCpOptions(), loadNodes()])
+  queryCtl.run((signal) => fetch(signal), { showCancelMessage: false })
+})
 </script>
