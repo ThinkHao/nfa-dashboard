@@ -23,6 +23,8 @@ import type {
   UpsertRateCustomerRequest,
   RateNode,
   UpsertRateNodeRequest,
+  EDCNodeSettlementGroup,
+  UpsertEDCNodeSettlementGroupRequest,
   RateFinalCustomer,
   RateFinalNode,
   UpsertRateFinalNodeRequest,
@@ -459,6 +461,20 @@ export default {
       },
       upsert(data: UpsertRateNodeRequest): Promise<void> {
         return api.post('/api/v1/settlement/rates/node', data).then(() => undefined)
+      },
+    },
+    nodeGroups: {
+      list(params?: any, config?: AxiosRequestConfig): Promise<PaginatedData<EDCNodeSettlementGroup>> {
+        return api.get('/api/v1/settlement/rates/node-groups', { params, ...(config || {}) }).then((d: any) => d as PaginatedData<EDCNodeSettlementGroup>)
+      },
+      create(data: UpsertEDCNodeSettlementGroupRequest): Promise<EDCNodeSettlementGroup> {
+        return api.post('/api/v1/settlement/rates/node-groups', data).then((d: any) => d as EDCNodeSettlementGroup)
+      },
+      update(id: number, data: UpsertEDCNodeSettlementGroupRequest): Promise<EDCNodeSettlementGroup> {
+        return api.put(`/api/v1/settlement/rates/node-groups/${id}`, data).then((d: any) => d as EDCNodeSettlementGroup)
+      },
+      remove(id: number): Promise<void> {
+        return api.delete(`/api/v1/settlement/rates/node-groups/${id}`).then(() => undefined)
       },
     },
     finalNode: {

@@ -756,6 +756,9 @@ func (ctl *SettlementRatesController) UpsertNodeRate(c *gin.Context) {
 		Enabled                    *bool    `json:"enabled"`
 		EntityID                   *uint64  `json:"entity_id"`
 		DisplayName                *string  `json:"display_name"`
+		BillingSubjectType         string   `json:"billing_subject_type"`
+		BillingSubjectID           *uint64  `json:"billing_subject_id"`
+		BillingDisplayName         *string  `json:"billing_display_name"`
 		Region                     string   `json:"region" binding:"required"`
 		CP                         string   `json:"cp" binding:"required"`
 		SettlementType             string   `json:"settlement_type"`
@@ -779,6 +782,9 @@ func (ctl *SettlementRatesController) UpsertNodeRate(c *gin.Context) {
 		Enabled:                    req.Enabled,
 		EntityID:                   req.EntityID,
 		DisplayName:                req.DisplayName,
+		BillingSubjectType:         req.BillingSubjectType,
+		BillingSubjectID:           req.BillingSubjectID,
+		BillingDisplayName:         req.BillingDisplayName,
 		Region:                     req.Region,
 		CP:                         req.CP,
 		SettlementType:             req.SettlementType,
@@ -804,6 +810,92 @@ func (ctl *SettlementRatesController) UpsertNodeRate(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+func (ctl *SettlementRatesController) ListNodeSettlementGroups(c *gin.Context) {
+	page := parseIntDefault(c.Query("page"), 1)
+	pageSize := parseIntDefault(c.Query("page_size"), 10)
+	region := c.Query("region")
+	cp := c.Query("cp")
+	groupName := c.Query("group_name")
+	var enabled *bool
+	if raw := strings.TrimSpace(c.Query("enabled")); raw != "" {
+		value := raw == "1" || strings.EqualFold(raw, "true")
+		enabled = &value
+	}
+	items, total, err := ctl.svc.ListNodeSettlementGroups(region, cp, groupName, enabled, page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items, "total": total})
+}
+
+func (ctl *SettlementRatesController) CreateNodeSettlementGroup(c *gin.Context) {
+	ctl.saveNodeSettlementGroup(c, 0)
+}
+
+func (ctl *SettlementRatesController) UpdateNodeSettlementGroup(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid group id"})
+		return
+	}
+	ctl.saveNodeSettlementGroup(c, id)
+}
+
+func (ctl *SettlementRatesController) DisableNodeSettlementGroup(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid group id"})
+		return
+	}
+	if err := ctl.svc.DisableNodeSettlementGroup(id); err != nil {
+		if service.IsBadRequest(err) {
+			c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (ctl *SettlementRatesController) saveNodeSettlementGroup(c *gin.Context, id uint64) {
+	type reqT struct {
+		GroupName string   `json:"group_name" binding:"required"`
+		Region    string   `json:"region" binding:"required"`
+		CP        string   `json:"cp" binding:"required"`
+		Enabled   *bool    `json:"enabled"`
+		Remark    *string  `json:"remark"`
+		MemberIDs []uint64 `json:"member_entity_ids"`
+	}
+	var req reqT
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid request"})
+		return
+	}
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+	group := &model.EDCNodeSettlementGroup{
+		ID:        id,
+		GroupName: req.GroupName,
+		Region:    req.Region,
+		CP:        req.CP,
+		Enabled:   enabled,
+		Remark:    req.Remark,
+	}
+	if err := ctl.svc.SaveNodeSettlementGroup(group, req.MemberIDs); err != nil {
+		if service.IsBadRequest(err) {
+			c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, group)
+}
+
 func (ctl *SettlementRatesController) ListFinalNodeRates(c *gin.Context) {
 	page := parseIntDefault(c.Query("page"), 1)
 	pageSize := parseIntDefault(c.Query("page_size"), 10)
@@ -824,6 +916,9 @@ func (ctl *SettlementRatesController) UpsertFinalNodeRate(c *gin.Context) {
 	type reqT struct {
 		EntityID                   *uint64  `json:"entity_id"`
 		DisplayName                string   `json:"display_name"`
+		BillingSubjectType         string   `json:"billing_subject_type"`
+		BillingSubjectID           *uint64  `json:"billing_subject_id"`
+		BillingDisplayName         string   `json:"billing_display_name"`
 		Region                     string   `json:"region" binding:"required"`
 		CP                         string   `json:"cp" binding:"required"`
 		SettlementMode             string   `json:"settlement_mode" binding:"required"`
@@ -847,6 +942,9 @@ func (ctl *SettlementRatesController) UpsertFinalNodeRate(c *gin.Context) {
 	rate := &model.RateFinalNode{
 		EntityID:                   req.EntityID,
 		DisplayName:                req.DisplayName,
+		BillingSubjectType:         req.BillingSubjectType,
+		BillingSubjectID:           req.BillingSubjectID,
+		BillingDisplayName:         req.BillingDisplayName,
 		Region:                     req.Region,
 		CP:                         req.CP,
 		SettlementMode:             req.SettlementMode,

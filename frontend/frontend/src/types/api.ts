@@ -395,6 +395,9 @@ export interface RateNode {
   id: number;
   entity_id?: number | null;
   display_name?: string | null;
+  billing_subject_type?: 'node' | 'group';
+  billing_subject_id?: number | null;
+  billing_display_name?: string | null;
   region: string;
   cp: string;
   settlement_type: string;
@@ -415,6 +418,9 @@ export interface RateNode {
 export interface UpsertRateNodeRequest {
   entity_id?: number | null;
   display_name?: string | null;
+  billing_subject_type?: 'node' | 'group';
+  billing_subject_id?: number | null;
+  billing_display_name?: string | null;
   region: string;
   cp: string;
   enabled?: boolean;
@@ -435,6 +441,9 @@ export interface RateFinalNode {
   id: number;
   entity_id?: number | null;
   display_name: string;
+  billing_subject_type?: 'node' | 'group';
+  billing_subject_id?: number | null;
+  billing_display_name?: string | null;
   region: string;
   cp: string;
   settlement_mode: string;
@@ -456,6 +465,9 @@ export interface RateFinalNode {
 export interface UpsertRateFinalNodeRequest {
   entity_id?: number | null;
   display_name: string;
+  billing_subject_type?: 'node' | 'group';
+  billing_subject_id?: number | null;
+  billing_display_name?: string | null;
   region: string;
   cp: string;
   settlement_mode: string;
@@ -470,6 +482,41 @@ export interface UpsertRateFinalNodeRequest {
   rack_fee_owner_id?: number | null;
   other_fee?: number | null;
   other_fee_owner_id?: number | null;
+}
+
+export interface EDCNodeSettlementGroupMember {
+  id?: number;
+  group_id?: number;
+  entity_id: number;
+  entity?: {
+    id: number;
+    display_name?: string;
+    region?: string;
+    cp?: string;
+    edc_name?: string;
+    sn?: string;
+  };
+}
+
+export interface EDCNodeSettlementGroup {
+  id: number;
+  group_name: string;
+  region: string;
+  cp: string;
+  enabled: boolean;
+  remark?: string | null;
+  members?: EDCNodeSettlementGroupMember[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface UpsertEDCNodeSettlementGroupRequest {
+  group_name: string;
+  region: string;
+  cp: string;
+  enabled?: boolean;
+  remark?: string | null;
+  member_entity_ids: number[];
 }
 
 // 最终客户费率（rate_final_customer）

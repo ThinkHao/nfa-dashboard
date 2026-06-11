@@ -25,6 +25,9 @@ type RatesService interface {
 	// 节点业务费率
 	ListNodeRates(region, cp, settlementType string, page, pageSize int) ([]model.RateNode, int64, error)
 	UpsertNodeRate(rate *model.RateNode) error
+	ListNodeSettlementGroups(region, cp, groupName string, enabled *bool, page, pageSize int) ([]model.EDCNodeSettlementGroup, int64, error)
+	SaveNodeSettlementGroup(group *model.EDCNodeSettlementGroup, memberIDs []uint64) error
+	DisableNodeSettlementGroup(id uint64) error
 
 	// 最终客户费率
 	ListFinalCustomerRates(region, cp, schoolName, feeType string, page, pageSize int) ([]model.RateFinalCustomer, int64, error)
@@ -220,6 +223,22 @@ func (s *ratesService) UpsertNodeRate(rate *model.RateNode) error {
 	rate.SettlementMode = normalizeEDCSettlementMode(rate.SettlementMode)
 	rate.SettlementType = rate.SettlementMode
 	rate.UnitBase = normalizeEDCUnitBase(rate.UnitBase)
+	if rate.BillingSubjectType != EDCBillingSubjectGroup {
+		rate.BillingSubjectType = EDCBillingSubjectNode
+		rate.BillingSubjectID = rate.EntityID
+		if rate.BillingDisplayName == nil {
+			rate.BillingDisplayName = rate.DisplayName
+		}
+	} else {
+		if rate.BillingSubjectID == nil || *rate.BillingSubjectID == 0 {
+			return NewBadRequest("结算分组费率必须指定 billing_subject_id")
+		}
+		if rate.BillingDisplayName == nil || strings.TrimSpace(*rate.BillingDisplayName) == "" {
+			return NewBadRequest("结算分组费率必须指定 billing_display_name")
+		}
+		rate.DisplayName = rate.BillingDisplayName
+		rate.EntityID = nil
+	}
 	if (rate.Enabled == nil || *rate.Enabled) && rate.NodeConstructionFee == nil {
 		return NewBadRequest("节点建设费（流量单价）为必填")
 	}
@@ -228,6 +247,52 @@ func (s *ratesService) UpsertNodeRate(rate *model.RateNode) error {
 	}
 	_, err := s.repo.SyncFinalNodeRateFromNode(rate)
 	return err
+}
+
+func (s *ratesService) ListNodeSettlementGroups(region, cp, groupName string, enabled *bool, page, pageSize int) ([]model.EDCNodeSettlementGroup, int64, error) {
+	filter := map[string]interface{}{}
+	if region != "" {
+		filter["region"] = region
+	}
+	if cp != "" {
+		filter["cp"] = cp
+	}
+	if groupName != "" {
+		filter["group_name"] = groupName
+	}
+	if enabled != nil {
+		filter["enabled"] = *enabled
+	}
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 10
+	}
+	return s.repo.ListNodeSettlementGroups(filter, pageSize, (page-1)*pageSize)
+}
+
+func (s *ratesService) SaveNodeSettlementGroup(group *model.EDCNodeSettlementGroup, memberIDs []uint64) error {
+	if group == nil {
+		return NewBadRequest("group is required")
+	}
+	group.GroupName = strings.TrimSpace(group.GroupName)
+	group.Region = strings.TrimSpace(group.Region)
+	group.CP = strings.TrimSpace(group.CP)
+	if group.GroupName == "" {
+		return NewBadRequest("分组名称为必填")
+	}
+	if group.Region == "" || group.CP == "" {
+		return NewBadRequest("区域和 CP 为必填")
+	}
+	return s.repo.SaveNodeSettlementGroup(group, memberIDs)
+}
+
+func (s *ratesService) DisableNodeSettlementGroup(id uint64) error {
+	if id == 0 {
+		return NewBadRequest("invalid group id")
+	}
+	return s.repo.DisableNodeSettlementGroup(id)
 }
 
 func (s *ratesService) ListFinalNodeRates(region, cp, displayName, settlementMode string, unitBase int, page, pageSize int) ([]model.RateFinalNode, int64, error) {
@@ -262,6 +327,22 @@ func (s *ratesService) UpsertFinalNodeRate(rate *model.RateFinalNode) error {
 	}
 	rate.SettlementMode = normalizeEDCSettlementMode(rate.SettlementMode)
 	rate.UnitBase = normalizeEDCUnitBase(rate.UnitBase)
+	if rate.BillingSubjectType != EDCBillingSubjectGroup {
+		rate.BillingSubjectType = EDCBillingSubjectNode
+		rate.BillingSubjectID = rate.EntityID
+		if rate.BillingDisplayName == "" {
+			rate.BillingDisplayName = rate.DisplayName
+		}
+	} else {
+		if rate.BillingSubjectID == nil || *rate.BillingSubjectID == 0 {
+			return NewBadRequest("结算分组最终费率必须指定 billing_subject_id")
+		}
+		if strings.TrimSpace(rate.BillingDisplayName) == "" {
+			return NewBadRequest("结算分组最终费率必须指定 billing_display_name")
+		}
+		rate.DisplayName = rate.BillingDisplayName
+		rate.EntityID = nil
+	}
 	if rate.FeeType == "" {
 		rate.FeeType = "config"
 	}

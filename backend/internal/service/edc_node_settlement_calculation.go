@@ -12,6 +12,8 @@ import (
 const (
 	EDCSettlementModeDaily95Avg = "daily_95_avg"
 	EDCSettlementModeRange95    = "range_95"
+	EDCBillingSubjectNode       = "node"
+	EDCBillingSubjectGroup      = "group"
 )
 
 var edcSettlementUnitBases = []int{1000, 1024}
@@ -21,6 +23,14 @@ type edcNodeKey struct {
 	Region      string
 	CP          string
 	DisplayName string
+}
+
+type edcBillingSubject struct {
+	Type        string
+	ID          uint64
+	DisplayName string
+	Region      string
+	CP          string
 }
 
 func normalizeEDCSettlementMode(mode string) string {
@@ -36,34 +46,40 @@ func buildEDCNodeMonthlyTrafficSettlement(entity model.EDCEntity, month time.Tim
 	serviceMonth := month.In(time.Local).Format("2006-01")
 	settlementTime := time.Date(month.Year(), month.Month(), 1, 0, 0, 0, 0, month.Location())
 	return model.SettlementNodeMonthly95{
-		EntityID:        entity.ID,
-		DisplayName:     entity.DisplayName,
-		Region:          entity.Region,
-		CP:              entity.CP,
-		ServiceMonth:    serviceMonth,
-		SettlementMode:  normalizeEDCSettlementMode(mode),
-		UnitBase:        normalizeEDCUnitBase(unitBase),
-		Raw95:           raw95,
-		Mbps95:          mbps95,
-		SettlementValue: mbps95,
-		SettlementTime:  settlementTime,
+		EntityID:           entity.ID,
+		DisplayName:        entity.DisplayName,
+		BillingSubjectType: EDCBillingSubjectNode,
+		BillingSubjectID:   entity.ID,
+		BillingDisplayName: entity.DisplayName,
+		Region:             entity.Region,
+		CP:                 entity.CP,
+		ServiceMonth:       serviceMonth,
+		SettlementMode:     normalizeEDCSettlementMode(mode),
+		UnitBase:           normalizeEDCUnitBase(unitBase),
+		Raw95:              raw95,
+		Mbps95:             mbps95,
+		SettlementValue:    mbps95,
+		SettlementTime:     settlementTime,
 	}
 }
 
 func buildEDCNodeDailyTrafficSettlement(entity model.EDCEntity, day time.Time, mode string, unitBase int, raw95 float64, mbps95 float64) model.SettlementNodeDaily95 {
 	settlementTime := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, day.Location())
 	return model.SettlementNodeDaily95{
-		EntityID:        entity.ID,
-		DisplayName:     entity.DisplayName,
-		Region:          entity.Region,
-		CP:              entity.CP,
-		ServiceMonth:    day.In(time.Local).Format("2006-01"),
-		SettlementMode:  normalizeEDCSettlementMode(mode),
-		UnitBase:        normalizeEDCUnitBase(unitBase),
-		Raw95:           raw95,
-		Mbps95:          mbps95,
-		SettlementValue: mbps95,
-		SettlementTime:  settlementTime,
+		EntityID:           entity.ID,
+		DisplayName:        entity.DisplayName,
+		BillingSubjectType: EDCBillingSubjectNode,
+		BillingSubjectID:   entity.ID,
+		BillingDisplayName: entity.DisplayName,
+		Region:             entity.Region,
+		CP:                 entity.CP,
+		ServiceMonth:       day.In(time.Local).Format("2006-01"),
+		SettlementMode:     normalizeEDCSettlementMode(mode),
+		UnitBase:           normalizeEDCUnitBase(unitBase),
+		Raw95:              raw95,
+		Mbps95:             mbps95,
+		SettlementValue:    mbps95,
+		SettlementTime:     settlementTime,
 	}
 }
 
@@ -72,6 +88,13 @@ func normalizeEDCUnitBase(base int) int {
 		return 1000
 	}
 	return 1024
+}
+
+func normalizeEDCBillingSubjectType(subjectType string) string {
+	if subjectType == EDCBillingSubjectGroup {
+		return EDCBillingSubjectGroup
+	}
+	return EDCBillingSubjectNode
 }
 
 func edcRawToMbps(raw int64, base int) float64 {
@@ -147,6 +170,24 @@ func groupEDCNodeTrafficPoints(points []model.EDCNodeTrafficPoint) map[edcNodeKe
 	return grouped
 }
 
+func aggregateEDCNodeTrafficPoints(points []model.EDCNodeTrafficPoint) []model.EDCNodeTrafficPoint {
+	byBucket := make(map[time.Time]model.EDCNodeTrafficPoint)
+	for _, point := range points {
+		agg := byBucket[point.Bucket5m]
+		agg.Bucket5m = point.Bucket5m
+		agg.ServiceSize += point.ServiceSize
+		agg.CacheSize += point.CacheSize
+		agg.RecordCount += point.RecordCount
+		byBucket[point.Bucket5m] = agg
+	}
+	out := make([]model.EDCNodeTrafficPoint, 0, len(byBucket))
+	for _, point := range byBucket {
+		out = append(out, point)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Bucket5m.Before(out[j].Bucket5m) })
+	return out
+}
+
 func sortedEDCNodeKeys(grouped map[edcNodeKey][]model.EDCNodeTrafficPoint) []edcNodeKey {
 	keys := make([]edcNodeKey, 0, len(grouped))
 	for key := range grouped {
@@ -195,6 +236,9 @@ func selectFinalNodeRate(entity model.EDCEntity, rates []model.RateFinalNode) (m
 	var fallback *model.RateFinalNode
 	for i := range rates {
 		rate := rates[i]
+		if normalizeEDCBillingSubjectType(rate.BillingSubjectType) != EDCBillingSubjectNode {
+			continue
+		}
 		if rate.EntityID != nil && *rate.EntityID == entity.ID {
 			return rate, true
 		}
@@ -213,6 +257,9 @@ func selectFinalNodeRateForSettlement(entity model.EDCEntity, rates []model.Rate
 	var fallback *model.RateFinalNode
 	for i := range rates {
 		rate := rates[i]
+		if normalizeEDCBillingSubjectType(rate.BillingSubjectType) != EDCBillingSubjectNode {
+			continue
+		}
 		if normalizeEDCSettlementMode(rate.SettlementMode) != targetMode || rate.FinalFee == nil {
 			continue
 		}
@@ -225,6 +272,24 @@ func selectFinalNodeRateForSettlement(entity model.EDCEntity, rates []model.Rate
 	}
 	if fallback != nil {
 		return *fallback, true
+	}
+	return model.RateFinalNode{}, false
+}
+
+func selectFinalGroupRateForSettlement(group model.EDCNodeSettlementGroup, rates []model.RateFinalNode, mode string) (model.RateFinalNode, bool) {
+	targetMode := normalizeEDCSettlementMode(mode)
+	for i := range rates {
+		rate := rates[i]
+		if normalizeEDCBillingSubjectType(rate.BillingSubjectType) != EDCBillingSubjectGroup {
+			continue
+		}
+		if rate.BillingSubjectID == nil || *rate.BillingSubjectID != group.ID {
+			continue
+		}
+		if normalizeEDCSettlementMode(rate.SettlementMode) != targetMode || rate.FinalFee == nil {
+			continue
+		}
+		return rate, true
 	}
 	return model.RateFinalNode{}, false
 }
@@ -284,6 +349,28 @@ func buildEDCNodeDailySettlementRows(entity model.EDCEntity, rate model.RateFina
 }
 
 func buildEDCNodeMonthlySettlement(entity model.EDCEntity, rate model.RateFinalNode, month time.Time, raw95 float64, mbps95 float64, unitBase int) model.SettlementNodeMonthly95 {
+	subject := edcBillingSubject{
+		Type:        EDCBillingSubjectNode,
+		ID:          entity.ID,
+		DisplayName: entity.DisplayName,
+		Region:      entity.Region,
+		CP:          entity.CP,
+	}
+	return buildEDCSubjectMonthlySettlement(subject, entity.ID, entity.DisplayName, rate, month, raw95, mbps95, unitBase)
+}
+
+func buildEDCGroupMonthlySettlement(group model.EDCNodeSettlementGroup, rate model.RateFinalNode, month time.Time, raw95 float64, mbps95 float64, unitBase int) model.SettlementNodeMonthly95 {
+	subject := edcBillingSubject{
+		Type:        EDCBillingSubjectGroup,
+		ID:          group.ID,
+		DisplayName: group.GroupName,
+		Region:      group.Region,
+		CP:          group.CP,
+	}
+	return buildEDCSubjectMonthlySettlement(subject, 0, group.GroupName, rate, month, raw95, mbps95, unitBase)
+}
+
+func buildEDCSubjectMonthlySettlement(subject edcBillingSubject, entityID uint64, displayName string, rate model.RateFinalNode, month time.Time, raw95 float64, mbps95 float64, unitBase int) model.SettlementNodeMonthly95 {
 	trafficBill := trafficBillFromMbps(mbps95, rate.FinalFee, unitBase)
 	cpBill := billFromFee(rate.CPFee)
 	rackBill := billFromFee(rate.RackFee)
@@ -295,10 +382,13 @@ func buildEDCNodeMonthlySettlement(entity model.EDCEntity, rate model.RateFinalN
 	settlementTime := time.Date(month.Year(), month.Month(), 1, 0, 0, 0, 0, month.Location())
 	fee := floatPtrValue(rate.FinalFee)
 	return model.SettlementNodeMonthly95{
-		EntityID:                   entity.ID,
-		DisplayName:                entity.DisplayName,
-		Region:                     entity.Region,
-		CP:                         entity.CP,
+		EntityID:                   entityID,
+		DisplayName:                displayName,
+		BillingSubjectType:         subject.Type,
+		BillingSubjectID:           subject.ID,
+		BillingDisplayName:         subject.DisplayName,
+		Region:                     subject.Region,
+		CP:                         subject.CP,
 		ServiceMonth:               serviceMonth,
 		SettlementMode:             mode,
 		UnitBase:                   base,
@@ -326,6 +416,28 @@ func buildEDCNodeMonthlySettlement(entity model.EDCEntity, rate model.RateFinalN
 }
 
 func buildEDCNodeDailySettlement(entity model.EDCEntity, rate model.RateFinalNode, day time.Time, raw95 float64, mbps95 float64, unitBase int) model.SettlementNodeDaily95 {
+	subject := edcBillingSubject{
+		Type:        EDCBillingSubjectNode,
+		ID:          entity.ID,
+		DisplayName: entity.DisplayName,
+		Region:      entity.Region,
+		CP:          entity.CP,
+	}
+	return buildEDCSubjectDailySettlement(subject, entity.ID, entity.DisplayName, rate, day, raw95, mbps95, unitBase)
+}
+
+func buildEDCGroupDailySettlement(group model.EDCNodeSettlementGroup, rate model.RateFinalNode, day time.Time, raw95 float64, mbps95 float64, unitBase int) model.SettlementNodeDaily95 {
+	subject := edcBillingSubject{
+		Type:        EDCBillingSubjectGroup,
+		ID:          group.ID,
+		DisplayName: group.GroupName,
+		Region:      group.Region,
+		CP:          group.CP,
+	}
+	return buildEDCSubjectDailySettlement(subject, 0, group.GroupName, rate, day, raw95, mbps95, unitBase)
+}
+
+func buildEDCSubjectDailySettlement(subject edcBillingSubject, entityID uint64, displayName string, rate model.RateFinalNode, day time.Time, raw95 float64, mbps95 float64, unitBase int) model.SettlementNodeDaily95 {
 	trafficBillValue := trafficBillFromMbps(mbps95, rate.FinalFee, unitBase)
 	trafficBill := prorateMonthlyFeeByDay(&trafficBillValue, day)
 	cpBill := prorateMonthlyFeeByDay(rate.CPFee, day)
@@ -337,10 +449,13 @@ func buildEDCNodeDailySettlement(entity model.EDCEntity, rate model.RateFinalNod
 	settlementTime := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, day.Location())
 	fee := floatPtrValue(rate.FinalFee)
 	return model.SettlementNodeDaily95{
-		EntityID:                   entity.ID,
-		DisplayName:                entity.DisplayName,
-		Region:                     entity.Region,
-		CP:                         entity.CP,
+		EntityID:                   entityID,
+		DisplayName:                displayName,
+		BillingSubjectType:         subject.Type,
+		BillingSubjectID:           subject.ID,
+		BillingDisplayName:         subject.DisplayName,
+		Region:                     subject.Region,
+		CP:                         subject.CP,
 		ServiceMonth:               day.In(time.Local).Format("2006-01"),
 		SettlementMode:             mode,
 		UnitBase:                   base,

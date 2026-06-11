@@ -16,6 +16,7 @@ func ptrUint64(v uint64) *uint64    { return &v }
 type edcNodeSettlementRepoStub struct {
 	entities           []model.EDCEntity
 	points             []model.EDCNodeTrafficPoint
+	dailyTrafficExists map[string]bool
 	trafficPointExists bool
 	trafficPointErr    error
 	existsCalled       bool
@@ -29,12 +30,36 @@ func (s *edcNodeSettlementRepoStub) ListTrafficPoints(entityID uint64, start, en
 	return nil, nil
 }
 
-func (s *edcNodeSettlementRepoStub) ListTrafficPointsByDisplayNode(start, end time.Time) ([]model.EDCNodeTrafficPoint, error) {
+func (s *edcNodeSettlementRepoStub) ListTrafficPointsByEntity(start, end time.Time) ([]model.EDCNodeTrafficPoint, error) {
 	return s.points, nil
+}
+
+func (s *edcNodeSettlementRepoStub) ListTrafficPointsByEntities(entityIDs []uint64, start, end time.Time) ([]model.EDCNodeTrafficPoint, error) {
+	if len(entityIDs) == 0 {
+		return s.points, nil
+	}
+	allowed := make(map[uint64]struct{}, len(entityIDs))
+	for _, id := range entityIDs {
+		allowed[id] = struct{}{}
+	}
+	out := make([]model.EDCNodeTrafficPoint, 0, len(s.points))
+	for _, point := range s.points {
+		if _, ok := allowed[point.EntityID]; ok {
+			out = append(out, point)
+		}
+	}
+	return out, nil
+}
+
+func (s *edcNodeSettlementRepoStub) ListTrafficPointsByDisplayNode(start, end time.Time) ([]model.EDCNodeTrafficPoint, error) {
+	return filterEDCNodePoints(s.points, start, end), nil
 }
 
 func (s *edcNodeSettlementRepoStub) ExistsTrafficPointByDisplayNode(start, end time.Time) (bool, error) {
 	s.existsCalled = true
+	if s.dailyTrafficExists != nil {
+		return s.dailyTrafficExists[start.In(time.Local).Format("2006-01-02")], nil
+	}
 	return s.trafficPointExists, s.trafficPointErr
 }
 
@@ -507,5 +532,74 @@ func TestCalculateMonthlyFailsWhenAllTrafficNodesMissRate(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "没有可用的 EDC 节点月95费率或流量单价") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCalculateMonthlyAggregatesSettlementGroupAndSkipsMemberRows(t *testing.T) {
+	month := time.Date(2026, 5, 1, 0, 0, 0, 0, time.Local)
+	groupID := uint64(88)
+	svc := &edcNodeSettlementService{
+		repo: &edcNodeSettlementRepoStub{
+			entities: []model.EDCEntity{
+				{ID: 101, DisplayName: "GD-Bilibili-01", Region: "广东", CP: "bilibili"},
+				{ID: 102, DisplayName: "GD-Bilibili-02", Region: "广东", CP: "bilibili"},
+			},
+			points: []model.EDCNodeTrafficPoint{
+				{EntityID: 101, Region: "广东", CP: "bilibili", DisplayName: "GD-Bilibili-01", Bucket5m: month, ServiceSize: 100},
+				{EntityID: 102, Region: "广东", CP: "bilibili", DisplayName: "GD-Bilibili-02", Bucket5m: month, ServiceSize: 300},
+				{EntityID: 101, Region: "广东", CP: "bilibili", DisplayName: "GD-Bilibili-01", Bucket5m: month.Add(5 * time.Minute), ServiceSize: 200},
+				{EntityID: 102, Region: "广东", CP: "bilibili", DisplayName: "GD-Bilibili-02", Bucket5m: month.Add(5 * time.Minute), ServiceSize: 400},
+			},
+		},
+		ratesRepo: &ratesServiceRatesRepoStub{
+			nodeGroups: []model.EDCNodeSettlementGroup{
+				{
+					ID:        groupID,
+					GroupName: "GD-Bilibili",
+					Region:    "广东",
+					CP:        "bilibili",
+					Enabled:   true,
+					Members: []model.EDCNodeSettlementGroupMember{
+						{GroupID: groupID, EntityID: 101},
+						{GroupID: groupID, EntityID: 102},
+					},
+				},
+			},
+			finalNodeRates: []model.RateFinalNode{
+				{
+					BillingSubjectType: EDCBillingSubjectGroup,
+					BillingSubjectID:   &groupID,
+					BillingDisplayName: "GD-Bilibili",
+					DisplayName:        "GD-Bilibili",
+					Region:             "广东",
+					CP:                 "bilibili",
+					SettlementMode:     EDCSettlementModeRange95,
+					FinalFee:           ptrFloat64(2),
+					RackFee:            ptrFloat64(50),
+				},
+			},
+		},
+	}
+
+	rows, processed, err := svc.calculateMonthly(month)
+	if err != nil {
+		t.Fatalf("calculateMonthly() error=%v", err)
+	}
+	if processed != 2 || len(rows) != 2 {
+		t.Fatalf("processed/rows=%d/%d, want 2/2", processed, len(rows))
+	}
+	for _, row := range rows {
+		if row.BillingSubjectType != EDCBillingSubjectGroup || row.BillingSubjectID != groupID || row.BillingDisplayName != "GD-Bilibili" {
+			t.Fatalf("unexpected billing subject: %+v", row)
+		}
+		if row.EntityID != 0 || row.DisplayName != "GD-Bilibili" {
+			t.Fatalf("group row should not be stored as a member node: entity_id=%d display=%s", row.EntityID, row.DisplayName)
+		}
+		if row.Raw95 != 400 {
+			t.Fatalf("raw95=%f, want aggregated bucket 400", row.Raw95)
+		}
+		if row.RackBill == nil || *row.RackBill != 50 {
+			t.Fatalf("rack_bill=%v, want one group rack fee 50", row.RackBill)
+		}
 	}
 }

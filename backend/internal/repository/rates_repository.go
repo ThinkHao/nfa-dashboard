@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"fmt"
 	"nfa-dashboard/internal/model"
 	"strings"
 	"time"
@@ -21,6 +22,10 @@ type RatesRepository interface {
 	// 节点业务费率
 	ListNodeRates(filter map[string]interface{}, limit, offset int) ([]model.RateNode, int64, error)
 	UpsertNodeRate(rate *model.RateNode) error
+	ListNodeSettlementGroups(filter map[string]interface{}, limit, offset int) ([]model.EDCNodeSettlementGroup, int64, error)
+	SaveNodeSettlementGroup(group *model.EDCNodeSettlementGroup, memberIDs []uint64) error
+	DisableNodeSettlementGroup(id uint64) error
+	ListEnabledNodeSettlementGroups() ([]model.EDCNodeSettlementGroup, error)
 
 	// 最终客户费率
 	ListFinalCustomerRates(filter map[string]interface{}, limit, offset int) ([]model.RateFinalCustomer, int64, error)
@@ -262,6 +267,12 @@ func (r *ratesRepository) ListNodeRates(filter map[string]interface{}, limit, of
 	if v, ok := filter["entity_id"]; ok && v != "" {
 		q = q.Where("entity_id = ?", v)
 	}
+	if v, ok := filter["billing_subject_type"]; ok && v != "" {
+		q = q.Where("billing_subject_type = ?", v)
+	}
+	if v, ok := filter["billing_subject_id"]; ok && v != "" {
+		q = q.Where("billing_subject_id = ?", v)
+	}
 	if err := q.Count(&count).Error; err != nil {
 		return nil, 0, err
 	}
@@ -288,8 +299,12 @@ func (r *ratesRepository) UpsertNodeRate(rate *model.RateNode) error {
 	if rate.UnitBase == 0 {
 		rate.UnitBase = 1000
 	}
+	normalizeRateNodeBillingSubject(rate)
 	updates := map[string]interface{}{
 		"display_name":                   rate.DisplayName,
+		"billing_subject_type":           rate.BillingSubjectType,
+		"billing_subject_id":             rate.BillingSubjectID,
+		"billing_display_name":           rate.BillingDisplayName,
 		"region":                         rate.Region,
 		"cp":                             rate.CP,
 		"settlement_type":                rate.SettlementType,
@@ -306,10 +321,10 @@ func (r *ratesRepository) UpsertNodeRate(rate *model.RateNode) error {
 		"updated_at":                     gorm.Expr("NOW()"),
 	}
 	q := model.DB.Model(&model.RateNode{})
-	if rate.EntityID != nil && *rate.EntityID > 0 {
-		q = q.Where("entity_id = ? AND settlement_mode = ? AND unit_base = ?", *rate.EntityID, rate.SettlementMode, rate.UnitBase)
+	if rate.BillingSubjectID != nil && *rate.BillingSubjectID > 0 {
+		q = q.Where("billing_subject_type = ? AND billing_subject_id = ? AND settlement_mode = ? AND unit_base = ?", rate.BillingSubjectType, *rate.BillingSubjectID, rate.SettlementMode, rate.UnitBase)
 	} else {
-		q = q.Where("entity_id IS NULL AND region = ? AND cp = ? AND settlement_mode = ? AND unit_base = ?", rate.Region, rate.CP, rate.SettlementMode, rate.UnitBase)
+		q = q.Where("billing_subject_type = ? AND billing_subject_id IS NULL AND region = ? AND cp = ? AND settlement_mode = ? AND unit_base = ?", rate.BillingSubjectType, rate.Region, rate.CP, rate.SettlementMode, rate.UnitBase)
 	}
 	var existing model.RateNode
 	if err := q.Limit(1).Find(&existing).Error; err != nil {
@@ -319,6 +334,157 @@ func (r *ratesRepository) UpsertNodeRate(rate *model.RateNode) error {
 		return model.DB.Model(&model.RateNode{}).Where("id = ?", existing.ID).Updates(updates).Error
 	}
 	return model.DB.Create(rate).Error
+}
+
+func normalizeRateNodeBillingSubject(rate *model.RateNode) {
+	if rate.BillingSubjectType != "group" {
+		rate.BillingSubjectType = "node"
+	}
+	if rate.BillingSubjectType == "node" {
+		rate.BillingSubjectID = rate.EntityID
+		if rate.BillingDisplayName == nil {
+			rate.BillingDisplayName = rate.DisplayName
+		}
+		return
+	}
+	rate.EntityID = nil
+	if rate.BillingDisplayName == nil {
+		rate.BillingDisplayName = rate.DisplayName
+	}
+	if rate.DisplayName == nil {
+		rate.DisplayName = rate.BillingDisplayName
+	}
+}
+
+func normalizeRateFinalNodeBillingSubject(rate *model.RateFinalNode) {
+	if rate.BillingSubjectType != "group" {
+		rate.BillingSubjectType = "node"
+	}
+	if rate.BillingSubjectType == "node" {
+		rate.BillingSubjectID = rate.EntityID
+		if rate.BillingDisplayName == "" {
+			rate.BillingDisplayName = rate.DisplayName
+		}
+		return
+	}
+	rate.EntityID = nil
+	if rate.BillingDisplayName == "" {
+		rate.BillingDisplayName = rate.DisplayName
+	}
+	if rate.DisplayName == "" {
+		rate.DisplayName = rate.BillingDisplayName
+	}
+}
+
+func (r *ratesRepository) ListNodeSettlementGroups(filter map[string]interface{}, limit, offset int) ([]model.EDCNodeSettlementGroup, int64, error) {
+	var items []model.EDCNodeSettlementGroup
+	var count int64
+	q := model.DB.Model(&model.EDCNodeSettlementGroup{})
+	if v, ok := filter["region"]; ok && v != "" {
+		q = q.Where("region = ?", v)
+	}
+	if v, ok := filter["cp"]; ok && v != "" {
+		q = q.Where("cp = ?", v)
+	}
+	if v, ok := filter["enabled"]; ok {
+		if b, ok2 := v.(bool); ok2 {
+			q = q.Where("enabled = ?", b)
+		}
+	}
+	if v, ok := filter["group_name"]; ok && v != "" {
+		q = q.Where("group_name LIKE ?", "%"+v.(string)+"%")
+	}
+	if err := q.Count(&count).Error; err != nil {
+		return nil, 0, err
+	}
+	if count == 0 {
+		return []model.EDCNodeSettlementGroup{}, 0, nil
+	}
+	err := q.Preload("Members").Preload("Members.Entity").
+		Order("enabled DESC, region ASC, cp ASC, group_name ASC").
+		Limit(limit).Offset(offset).Find(&items).Error
+	return items, count, err
+}
+
+func (r *ratesRepository) SaveNodeSettlementGroup(group *model.EDCNodeSettlementGroup, memberIDs []uint64) error {
+	if group == nil {
+		return gorm.ErrInvalidData
+	}
+	seen := map[uint64]struct{}{}
+	cleanIDs := make([]uint64, 0, len(memberIDs))
+	for _, id := range memberIDs {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			return fmt.Errorf("同一节点不能重复加入结算分组")
+		}
+		seen[id] = struct{}{}
+		cleanIDs = append(cleanIDs, id)
+	}
+	return model.DB.Transaction(func(tx *gorm.DB) error {
+		if len(cleanIDs) > 0 {
+			var count int64
+			if err := tx.Model(&model.EDCEntity{}).
+				Where("id IN ? AND enabled = ? AND is_backup = ?", cleanIDs, true, false).
+				Count(&count).Error; err != nil {
+				return err
+			}
+			if count != int64(len(cleanIDs)) {
+				return fmt.Errorf("分组成员必须是启用的非备份 EDC 节点")
+			}
+			conflictQ := tx.Model(&model.EDCNodeSettlementGroupMember{}).Where("entity_id IN ?", cleanIDs)
+			if group.ID > 0 {
+				conflictQ = conflictQ.Where("group_id <> ?", group.ID)
+			}
+			var conflictCount int64
+			if err := conflictQ.Count(&conflictCount).Error; err != nil {
+				return err
+			}
+			if conflictCount > 0 {
+				return fmt.Errorf("同一节点只能属于一个结算分组")
+			}
+		}
+		if group.ID > 0 {
+			if err := tx.Model(&model.EDCNodeSettlementGroup{}).Where("id = ?", group.ID).Updates(map[string]interface{}{
+				"group_name": group.GroupName,
+				"region":     group.Region,
+				"cp":         group.CP,
+				"enabled":    group.Enabled,
+				"remark":     group.Remark,
+				"updated_at": gorm.Expr("NOW()"),
+			}).Error; err != nil {
+				return err
+			}
+		} else if err := tx.Create(group).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("group_id = ?", group.ID).Delete(&model.EDCNodeSettlementGroupMember{}).Error; err != nil {
+			return err
+		}
+		if len(cleanIDs) == 0 {
+			return nil
+		}
+		members := make([]model.EDCNodeSettlementGroupMember, 0, len(cleanIDs))
+		for _, id := range cleanIDs {
+			members = append(members, model.EDCNodeSettlementGroupMember{GroupID: group.ID, EntityID: id})
+		}
+		return tx.Create(&members).Error
+	})
+}
+
+func (r *ratesRepository) DisableNodeSettlementGroup(id uint64) error {
+	return model.DB.Model(&model.EDCNodeSettlementGroup{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"enabled":    false,
+		"updated_at": gorm.Expr("NOW()"),
+	}).Error
+}
+
+func (r *ratesRepository) ListEnabledNodeSettlementGroups() ([]model.EDCNodeSettlementGroup, error) {
+	var groups []model.EDCNodeSettlementGroup
+	err := model.DB.Preload("Members").Where("enabled = ?", true).
+		Order("region ASC, cp ASC, group_name ASC").Find(&groups).Error
+	return groups, err
 }
 
 func (r *ratesRepository) ListFinalNodeRates(filter map[string]interface{}, limit, offset int) ([]model.RateFinalNode, int64, error) {
@@ -339,6 +505,12 @@ func (r *ratesRepository) ListFinalNodeRates(filter map[string]interface{}, limi
 	}
 	if v, ok := filter["unit_base"]; ok && v != "" {
 		q = q.Where("unit_base = ?", v)
+	}
+	if v, ok := filter["billing_subject_type"]; ok && v != "" {
+		q = q.Where("billing_subject_type = ?", v)
+	}
+	if v, ok := filter["billing_subject_id"]; ok && v != "" {
+		q = q.Where("billing_subject_id = ?", v)
 	}
 	if err := q.Count(&count).Error; err != nil {
 		return nil, 0, err
@@ -368,8 +540,12 @@ func (r *ratesRepository) UpsertFinalNodeRate(rate *model.RateFinalNode) error {
 	if rate.FeeType == "" {
 		rate.FeeType = "config"
 	}
+	normalizeRateFinalNodeBillingSubject(rate)
 	updates := map[string]interface{}{
 		"display_name":                   rate.DisplayName,
+		"billing_subject_type":           rate.BillingSubjectType,
+		"billing_subject_id":             rate.BillingSubjectID,
+		"billing_display_name":           rate.BillingDisplayName,
 		"region":                         rate.Region,
 		"cp":                             rate.CP,
 		"settlement_mode":                rate.SettlementMode,
@@ -387,10 +563,10 @@ func (r *ratesRepository) UpsertFinalNodeRate(rate *model.RateFinalNode) error {
 		"updated_at":                     gorm.Expr("NOW()"),
 	}
 	q := model.DB.Model(&model.RateFinalNode{})
-	if rate.EntityID != nil && *rate.EntityID > 0 {
-		q = q.Where("entity_id = ? AND settlement_mode = ? AND unit_base = ?", *rate.EntityID, rate.SettlementMode, rate.UnitBase)
+	if rate.BillingSubjectID != nil && *rate.BillingSubjectID > 0 {
+		q = q.Where("billing_subject_type = ? AND billing_subject_id = ? AND settlement_mode = ? AND unit_base = ?", rate.BillingSubjectType, *rate.BillingSubjectID, rate.SettlementMode, rate.UnitBase)
 	} else {
-		q = q.Where("entity_id IS NULL AND region = ? AND cp = ? AND settlement_mode = ? AND unit_base = ?", rate.Region, rate.CP, rate.SettlementMode, rate.UnitBase)
+		q = q.Where("billing_subject_type = ? AND billing_subject_id IS NULL AND region = ? AND cp = ? AND settlement_mode = ? AND unit_base = ?", rate.BillingSubjectType, rate.Region, rate.CP, rate.SettlementMode, rate.UnitBase)
 	}
 	var existing model.RateFinalNode
 	if err := q.Limit(1).Find(&existing).Error; err != nil {
@@ -417,6 +593,7 @@ func (r *ratesRepository) SyncFinalNodeRateFromNode(rate *model.RateNode) (bool,
 	if base == 0 {
 		base = 1000
 	}
+	normalizeRateNodeBillingSubject(rate)
 	displayName := ""
 	if rate.DisplayName != nil {
 		displayName = *rate.DisplayName
@@ -424,6 +601,9 @@ func (r *ratesRepository) SyncFinalNodeRateFromNode(rate *model.RateNode) (bool,
 	item := &model.RateFinalNode{
 		EntityID:                   rate.EntityID,
 		DisplayName:                displayName,
+		BillingSubjectType:         rate.BillingSubjectType,
+		BillingSubjectID:           rate.BillingSubjectID,
+		BillingDisplayName:         "",
 		Region:                     rate.Region,
 		CP:                         rate.CP,
 		SettlementMode:             mode,
@@ -440,11 +620,17 @@ func (r *ratesRepository) SyncFinalNodeRateFromNode(rate *model.RateNode) (bool,
 		OtherFeeOwnerID:            rate.OtherFeeOwnerID,
 		LastSyncTime:               ptrTime(time.Now()),
 	}
+	if rate.BillingDisplayName != nil {
+		item.BillingDisplayName = *rate.BillingDisplayName
+	}
+	if item.BillingDisplayName == "" {
+		item.BillingDisplayName = item.DisplayName
+	}
 	q := model.DB.Model(&model.RateFinalNode{})
-	if item.EntityID != nil && *item.EntityID > 0 {
-		q = q.Where("entity_id = ? AND settlement_mode = ? AND unit_base = ?", *item.EntityID, item.SettlementMode, item.UnitBase)
+	if item.BillingSubjectID != nil && *item.BillingSubjectID > 0 {
+		q = q.Where("billing_subject_type = ? AND billing_subject_id = ? AND settlement_mode = ? AND unit_base = ?", item.BillingSubjectType, *item.BillingSubjectID, item.SettlementMode, item.UnitBase)
 	} else {
-		q = q.Where("entity_id IS NULL AND region = ? AND cp = ? AND settlement_mode = ? AND unit_base = ?", item.Region, item.CP, item.SettlementMode, item.UnitBase)
+		q = q.Where("billing_subject_type = ? AND billing_subject_id IS NULL AND region = ? AND cp = ? AND settlement_mode = ? AND unit_base = ?", item.BillingSubjectType, item.Region, item.CP, item.SettlementMode, item.UnitBase)
 	}
 	var existing model.RateFinalNode
 	if err := q.Limit(1).Find(&existing).Error; err != nil {
@@ -456,6 +642,9 @@ func (r *ratesRepository) SyncFinalNodeRateFromNode(rate *model.RateNode) (bool,
 		}
 		updates := map[string]interface{}{
 			"display_name":                   item.DisplayName,
+			"billing_subject_type":           item.BillingSubjectType,
+			"billing_subject_id":             item.BillingSubjectID,
+			"billing_display_name":           item.BillingDisplayName,
 			"region":                         item.Region,
 			"cp":                             item.CP,
 			"final_fee":                      item.FinalFee,

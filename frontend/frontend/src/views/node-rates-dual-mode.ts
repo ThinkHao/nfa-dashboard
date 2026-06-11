@@ -6,6 +6,9 @@ export type NodeRateMode = 'daily_95_avg' | 'range_95'
 export interface NodeRateBaseFields {
   entity_id?: number | null
   display_name?: string | null
+  billing_subject_type?: 'node' | 'group'
+  billing_subject_id?: number | null
+  billing_display_name?: string | null
   region: string
   cp: string
 }
@@ -61,7 +64,10 @@ export function normalizeNodeRateMode(mode?: string): NodeRateMode {
   return mode === 'range_95' || mode === 'monthly95' ? 'range_95' : 'daily_95_avg'
 }
 
-function nodeRateScopeKey(row: Pick<RateNode, 'entity_id' | 'region' | 'cp'>): string {
+function nodeRateScopeKey(row: Pick<RateNode, 'entity_id' | 'region' | 'cp' | 'billing_subject_type' | 'billing_subject_id'>): string {
+  if (row.billing_subject_type === 'group' && Number(row.billing_subject_id || 0) > 0) {
+    return `group:${Number(row.billing_subject_id)}`
+  }
   const entityID = Number(row.entity_id || 0)
   if (entityID > 0) return `entity:${entityID}`
   return `default:${row.region}:${row.cp}`

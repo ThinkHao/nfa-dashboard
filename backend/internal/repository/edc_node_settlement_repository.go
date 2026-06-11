@@ -11,6 +11,8 @@ import (
 type EDCNodeSettlementRepository interface {
 	ListEnabledEntities() ([]model.EDCEntity, error)
 	ListTrafficPoints(entityID uint64, start, end time.Time) ([]model.EDCTraffic5m, error)
+	ListTrafficPointsByEntity(start, end time.Time) ([]model.EDCNodeTrafficPoint, error)
+	ListTrafficPointsByEntities(entityIDs []uint64, start, end time.Time) ([]model.EDCNodeTrafficPoint, error)
 	ListTrafficPointsByDisplayNode(start, end time.Time) ([]model.EDCNodeTrafficPoint, error)
 	ExistsTrafficPointByDisplayNode(start, end time.Time) (bool, error)
 	DeleteDailySettlements(start, end time.Time) error
@@ -40,6 +42,27 @@ func (r *edcNodeSettlementRepository) ListTrafficPoints(entityID uint64, start, 
 		Joins("JOIN edc_entities AS e ON e.id = t.entity_id AND e.enabled = ? AND e.is_backup = ?", true, false).
 		Where("t.entity_id = ? AND t.bucket_5m >= ? AND t.bucket_5m < ?", entityID, start, end).
 		Order("t.bucket_5m ASC").Find(&points).Error
+	return points, err
+}
+
+func (r *edcNodeSettlementRepository) ListTrafficPointsByEntity(start, end time.Time) ([]model.EDCNodeTrafficPoint, error) {
+	return r.ListTrafficPointsByEntities(nil, start, end)
+}
+
+func (r *edcNodeSettlementRepository) ListTrafficPointsByEntities(entityIDs []uint64, start, end time.Time) ([]model.EDCNodeTrafficPoint, error) {
+	var points []model.EDCNodeTrafficPoint
+	q := model.DB.Table("edc_traffic_5m AS t").
+		Select(`e.id AS entity_id, e.region, e.cp, e.display_name, t.bucket_5m,
+			SUM(t.service_size) AS service_size,
+			SUM(t.cache_size) AS cache_size,
+			SUM(t.record_count) AS record_count`).
+		Joins("JOIN edc_entities AS e ON e.id = t.entity_id").
+		Where("e.enabled = ? AND e.is_backup = ? AND t.bucket_5m >= ? AND t.bucket_5m < ?", true, false, start, end)
+	if len(entityIDs) > 0 {
+		q = q.Where("t.entity_id IN ?", entityIDs)
+	}
+	err := q.Group("e.id, e.region, e.cp, e.display_name, t.bucket_5m").
+		Order("e.region ASC, e.cp ASC, e.display_name ASC, t.bucket_5m ASC").Scan(&points).Error
 	return points, err
 }
 
@@ -87,9 +110,9 @@ func (r *edcNodeSettlementRepository) UpsertDailySettlements(rows []model.Settle
 		return nil
 	}
 	return model.DB.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "entity_id"}, {Name: "settlement_time"}, {Name: "settlement_mode"}, {Name: "unit_base"}},
+		Columns: []clause.Column{{Name: "billing_subject_type"}, {Name: "billing_subject_id"}, {Name: "settlement_time"}, {Name: "settlement_mode"}, {Name: "unit_base"}},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"display_name", "region", "cp", "service_month", "raw_95", "mbps_95",
+			"entity_id", "display_name", "billing_display_name", "region", "cp", "service_month", "raw_95", "mbps_95",
 			"cp_fee", "cp_bill", "cp_fee_owner_id",
 			"node_construction_fee", "node_construction_bill", "node_construction_fee_owner_id",
 			"rack_fee", "rack_bill", "rack_fee_owner_id",
@@ -104,9 +127,9 @@ func (r *edcNodeSettlementRepository) UpsertMonthlySettlements(rows []model.Sett
 		return nil
 	}
 	return model.DB.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "entity_id"}, {Name: "service_month"}, {Name: "settlement_mode"}, {Name: "unit_base"}},
+		Columns: []clause.Column{{Name: "billing_subject_type"}, {Name: "billing_subject_id"}, {Name: "service_month"}, {Name: "settlement_mode"}, {Name: "unit_base"}},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"display_name", "region", "cp", "raw_95", "mbps_95",
+			"entity_id", "display_name", "billing_display_name", "region", "cp", "raw_95", "mbps_95",
 			"cp_fee", "cp_bill", "cp_fee_owner_id",
 			"node_construction_fee", "node_construction_bill", "node_construction_fee_owner_id",
 			"rack_fee", "rack_bill", "rack_fee_owner_id",
@@ -119,8 +142,7 @@ func (r *edcNodeSettlementRepository) UpsertMonthlySettlements(rows []model.Sett
 func (r *edcNodeSettlementRepository) ListDailySettlements(filter map[string]interface{}, limit, offset int) ([]model.SettlementNodeDaily95, int64, error) {
 	var rows []model.SettlementNodeDaily95
 	var total int64
-	q := model.DB.Model(&model.SettlementNodeDaily95{}).
-		Joins("JOIN edc_entities AS e ON e.id = settlement_node_daily95.entity_id AND e.enabled = ? AND e.is_backup = ?", true, false)
+	q := model.DB.Model(&model.SettlementNodeDaily95{})
 	q = applyNodeDailyMonthlyFilters(q, filter, "settlement_node_daily95")
 	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -135,8 +157,7 @@ func (r *edcNodeSettlementRepository) ListDailySettlements(filter map[string]int
 func (r *edcNodeSettlementRepository) ListMonthlySettlements(filter map[string]interface{}, limit, offset int) ([]model.SettlementNodeMonthly95, int64, error) {
 	var rows []model.SettlementNodeMonthly95
 	var total int64
-	q := model.DB.Model(&model.SettlementNodeMonthly95{}).
-		Joins("JOIN edc_entities AS e ON e.id = settlement_node_monthly95.entity_id AND e.enabled = ? AND e.is_backup = ?", true, false)
+	q := model.DB.Model(&model.SettlementNodeMonthly95{})
 	q = applyNodeDailyMonthlyFilters(q, filter, "settlement_node_monthly95")
 	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -156,7 +177,13 @@ func applyNodeDailyMonthlyFilters(db *gorm.DB, filter map[string]interface{}, ta
 		db = db.Where(tableName+".cp = ?", v)
 	}
 	if v, ok := filter["display_name"]; ok && v != "" {
-		db = db.Where(tableName+".display_name LIKE ?", "%"+v.(string)+"%")
+		db = db.Where(tableName+".billing_display_name LIKE ?", "%"+v.(string)+"%")
+	}
+	if v, ok := filter["billing_subject_type"]; ok && v != "" {
+		db = db.Where(tableName+".billing_subject_type = ?", v)
+	}
+	if v, ok := filter["billing_subject_id"]; ok && v != "" {
+		db = db.Where(tableName+".billing_subject_id = ?", v)
 	}
 	if v, ok := filter["service_month"]; ok && v != "" {
 		db = db.Where(tableName+".service_month = ?", v)

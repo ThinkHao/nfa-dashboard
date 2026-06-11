@@ -218,6 +218,16 @@ func (s *ratesSyncRatesRepoStub) ListNodeRates(filter map[string]interface{}, li
 	return nil, 0, nil
 }
 func (s *ratesSyncRatesRepoStub) UpsertNodeRate(rate *model.RateNode) error { return nil }
+func (s *ratesSyncRatesRepoStub) ListNodeSettlementGroups(filter map[string]interface{}, limit, offset int) ([]model.EDCNodeSettlementGroup, int64, error) {
+	return nil, 0, nil
+}
+func (s *ratesSyncRatesRepoStub) SaveNodeSettlementGroup(group *model.EDCNodeSettlementGroup, memberIDs []uint64) error {
+	return nil
+}
+func (s *ratesSyncRatesRepoStub) DisableNodeSettlementGroup(id uint64) error { return nil }
+func (s *ratesSyncRatesRepoStub) ListEnabledNodeSettlementGroups() ([]model.EDCNodeSettlementGroup, error) {
+	return nil, nil
+}
 func (s *ratesSyncRatesRepoStub) ListFinalCustomerRates(filter map[string]interface{}, limit, offset int) ([]model.RateFinalCustomer, int64, error) {
 	return nil, 0, nil
 }

@@ -121,6 +121,16 @@ func (s *settlementRatesServiceStub) ListNodeRates(region, cp, settlementType st
 
 func (s *settlementRatesServiceStub) UpsertNodeRate(rate *model.RateNode) error { return nil }
 
+func (s *settlementRatesServiceStub) ListNodeSettlementGroups(region, cp, groupName string, enabled *bool, page, pageSize int) ([]model.EDCNodeSettlementGroup, int64, error) {
+	return nil, 0, nil
+}
+
+func (s *settlementRatesServiceStub) SaveNodeSettlementGroup(group *model.EDCNodeSettlementGroup, memberIDs []uint64) error {
+	return nil
+}
+
+func (s *settlementRatesServiceStub) DisableNodeSettlementGroup(id uint64) error { return nil }
+
 func (s *settlementRatesServiceStub) ListFinalCustomerRates(region, cp, schoolName, feeType string, page, pageSize int) ([]model.RateFinalCustomer, int64, error) {
 	return nil, 0, nil
 }

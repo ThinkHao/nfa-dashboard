@@ -11,6 +11,7 @@ import (
 type ratesServiceRatesRepoStub struct {
 	upsertedNodeRate *model.RateNode
 	finalNodeRates   []model.RateFinalNode
+	nodeGroups       []model.EDCNodeSettlementGroup
 	syncedNodeRate   *model.RateNode
 }
 
@@ -37,6 +38,16 @@ func (s *ratesServiceRatesRepoStub) UpsertNodeRate(rate *model.RateNode) error {
 	cp := *rate
 	s.upsertedNodeRate = &cp
 	return nil
+}
+func (s *ratesServiceRatesRepoStub) ListNodeSettlementGroups(filter map[string]interface{}, limit, offset int) ([]model.EDCNodeSettlementGroup, int64, error) {
+	return s.nodeGroups, int64(len(s.nodeGroups)), nil
+}
+func (s *ratesServiceRatesRepoStub) SaveNodeSettlementGroup(group *model.EDCNodeSettlementGroup, memberIDs []uint64) error {
+	return nil
+}
+func (s *ratesServiceRatesRepoStub) DisableNodeSettlementGroup(id uint64) error { return nil }
+func (s *ratesServiceRatesRepoStub) ListEnabledNodeSettlementGroups() ([]model.EDCNodeSettlementGroup, error) {
+	return s.nodeGroups, nil
 }
 func (s *ratesServiceRatesRepoStub) ListFinalCustomerRates(filter map[string]interface{}, limit, offset int) ([]model.RateFinalCustomer, int64, error) {
 	return nil, 0, nil

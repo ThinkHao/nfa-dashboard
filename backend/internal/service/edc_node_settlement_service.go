@@ -45,7 +45,18 @@ func (s *edcNodeSettlementService) ExecuteDailyRangeTask(taskID int64, start, en
 		return err
 	}
 	totalProcessed := 0
+	multiDay := !startOfDay(start).Equal(startOfDay(end))
 	for day := startOfDay(start); !day.After(startOfDay(end)); day = day.AddDate(0, 0, 1) {
+		if multiDay {
+			hasTraffic, err := s.repo.ExistsTrafficPointByDisplayNode(day, day.AddDate(0, 0, 1))
+			if err != nil {
+				_ = s.updateTask(taskID, "failed", totalProcessed, err.Error())
+				return err
+			}
+			if !hasTraffic {
+				continue
+			}
+		}
 		rows, processed, err := s.calculateDaily(day)
 		if err != nil {
 			_ = s.updateTask(taskID, "failed", totalProcessed+processed, err.Error())
@@ -74,7 +85,18 @@ func (s *edcNodeSettlementService) ExecuteMonthlyRangeTask(taskID int64, start, 
 		return err
 	}
 	totalProcessed := 0
+	multiMonth := !startOfMonth(start).Equal(startOfMonth(end))
 	for month := startOfMonth(start); !month.After(startOfMonth(end)); month = month.AddDate(0, 1, 0) {
+		if multiMonth {
+			hasTraffic, err := s.repo.ExistsTrafficPointByDisplayNode(month, month.AddDate(0, 1, 0))
+			if err != nil {
+				_ = s.updateTask(taskID, "failed", totalProcessed, err.Error())
+				return err
+			}
+			if !hasTraffic {
+				continue
+			}
+		}
 		monthly, processed, err := s.calculateMonthly(month)
 		if err != nil {
 			_ = s.updateTask(taskID, "failed", totalProcessed+processed, err.Error())
@@ -112,10 +134,42 @@ func (s *edcNodeSettlementService) calculateDaily(day time.Time) ([]model.Settle
 	if err != nil {
 		return nil, 0, err
 	}
-	grouped := groupEDCNodeTrafficPoints(points)
+	groups, err := s.ratesRepo.ListEnabledNodeSettlementGroups()
+	if err != nil {
+		return nil, 0, err
+	}
+	memberIDs := nodeSettlementGroupMemberIDs(groups)
+	groupPoints := []model.EDCNodeTrafficPoint(nil)
+	if len(memberIDs) > 0 {
+		groupPoints, err = s.repo.ListTrafficPointsByEntities(memberIDs, start, end)
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+	grouped := groupEDCNodeTrafficPoints(filterGroupedEDCNodePoints(points, memberIDs))
+	groupedSettlementPoints := groupEDCNodeSettlementPoints(groupPoints, groups)
 	keys := sortedEDCNodeKeys(grouped)
-	rows := make([]model.SettlementNodeDaily95, 0, len(keys))
+	rows := make([]model.SettlementNodeDaily95, 0, len(keys)+len(groupedSettlementPoints))
 	processed := 0
+	for _, group := range groups {
+		groupPoints := groupedSettlementPoints[group.ID]
+		if len(groupPoints) == 0 {
+			continue
+		}
+		raw, ok := computeNodeRange95Raw(aggregateEDCNodeTrafficPoints(groupPoints))
+		if !ok {
+			continue
+		}
+		rate, ok := selectFinalGroupRateForSettlement(group, rates, EDCSettlementModeDaily95Avg)
+		if !ok {
+			continue
+		}
+		for _, base := range edcSettlementUnitBases {
+			mbps95 := raw * 8 / 300 / float64(base) / float64(base)
+			rows = append(rows, buildEDCGroupDailySettlement(group, rate, start, raw, mbps95, base))
+			processed++
+		}
+	}
 	for _, key := range keys {
 		raw, ok := computeNodeRange95Raw(grouped[key])
 		if !ok {
@@ -154,10 +208,42 @@ func (s *edcNodeSettlementService) calculateMonthly(month time.Time) ([]model.Se
 	if err != nil {
 		return nil, 0, err
 	}
-	grouped := groupEDCNodeTrafficPoints(points)
+	groups, err := s.ratesRepo.ListEnabledNodeSettlementGroups()
+	if err != nil {
+		return nil, 0, err
+	}
+	memberIDs := nodeSettlementGroupMemberIDs(groups)
+	groupPoints := []model.EDCNodeTrafficPoint(nil)
+	if len(memberIDs) > 0 {
+		groupPoints, err = s.repo.ListTrafficPointsByEntities(memberIDs, start, end)
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+	grouped := groupEDCNodeTrafficPoints(filterGroupedEDCNodePoints(points, memberIDs))
+	groupedSettlementPoints := groupEDCNodeSettlementPoints(groupPoints, groups)
 	keys := sortedEDCNodeKeys(grouped)
-	monthlyRows := make([]model.SettlementNodeMonthly95, 0, len(keys))
+	monthlyRows := make([]model.SettlementNodeMonthly95, 0, len(keys)+len(groupedSettlementPoints))
 	processed := 0
+	for _, group := range groups {
+		groupPoints := groupedSettlementPoints[group.ID]
+		if len(groupPoints) == 0 {
+			continue
+		}
+		raw95, ok := computeNodeRange95Raw(aggregateEDCNodeTrafficPoints(groupPoints))
+		if !ok {
+			continue
+		}
+		rate, ok := selectFinalGroupRateForSettlement(group, rates, EDCSettlementModeRange95)
+		if !ok {
+			continue
+		}
+		for _, base := range edcSettlementUnitBases {
+			mbps95 := raw95 * 8 / 300 / float64(base) / float64(base)
+			monthlyRows = append(monthlyRows, buildEDCGroupMonthlySettlement(group, rate, start, raw95, mbps95, base))
+			processed++
+		}
+	}
 	for _, key := range keys {
 		nodePoints := grouped[key]
 		entity := edcNodeEntityFromKey(key)
@@ -177,6 +263,58 @@ func (s *edcNodeSettlementService) calculateMonthly(month time.Time) ([]model.Se
 		return monthlyRows, processed, buildEmptyEDCNodeSettlementError(len(keys), "月", len(points) > 0)
 	}
 	return monthlyRows, processed, nil
+}
+
+func nodeSettlementGroupMemberIDs(groups []model.EDCNodeSettlementGroup) []uint64 {
+	ids := make([]uint64, 0)
+	seen := make(map[uint64]struct{})
+	for _, group := range groups {
+		for _, member := range group.Members {
+			if member.EntityID == 0 {
+				continue
+			}
+			if _, ok := seen[member.EntityID]; ok {
+				continue
+			}
+			seen[member.EntityID] = struct{}{}
+			ids = append(ids, member.EntityID)
+		}
+	}
+	return ids
+}
+
+func filterGroupedEDCNodePoints(points []model.EDCNodeTrafficPoint, memberIDs []uint64) []model.EDCNodeTrafficPoint {
+	if len(memberIDs) == 0 {
+		return points
+	}
+	members := make(map[uint64]struct{}, len(memberIDs))
+	for _, id := range memberIDs {
+		members[id] = struct{}{}
+	}
+	out := make([]model.EDCNodeTrafficPoint, 0, len(points))
+	for _, point := range points {
+		if _, ok := members[point.EntityID]; ok {
+			continue
+		}
+		out = append(out, point)
+	}
+	return out
+}
+
+func groupEDCNodeSettlementPoints(points []model.EDCNodeTrafficPoint, groups []model.EDCNodeSettlementGroup) map[uint64][]model.EDCNodeTrafficPoint {
+	memberGroupIDs := make(map[uint64]uint64)
+	for _, group := range groups {
+		for _, member := range group.Members {
+			memberGroupIDs[member.EntityID] = group.ID
+		}
+	}
+	grouped := make(map[uint64][]model.EDCNodeTrafficPoint)
+	for _, point := range points {
+		if groupID, ok := memberGroupIDs[point.EntityID]; ok {
+			grouped[groupID] = append(grouped[groupID], point)
+		}
+	}
+	return grouped
 }
 
 func buildEmptyEDCNodeSettlementError(entitiesWithTraffic int, periodLabel string, hasTrafficPoints bool) error {

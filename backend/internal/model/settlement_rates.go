@@ -56,6 +56,9 @@ type RateNode struct {
 	Enabled                    *bool     `gorm:"-" json:"enabled,omitempty"`
 	EntityID                   *uint64   `gorm:"column:entity_id" json:"entity_id,omitempty"`
 	DisplayName                *string   `gorm:"column:display_name;size:128" json:"display_name,omitempty"`
+	BillingSubjectType         string    `gorm:"column:billing_subject_type;size:16;not null;default:node" json:"billing_subject_type"`
+	BillingSubjectID           *uint64   `gorm:"column:billing_subject_id" json:"billing_subject_id,omitempty"`
+	BillingDisplayName         *string   `gorm:"column:billing_display_name;size:128" json:"billing_display_name,omitempty"`
 	Region                     string    `gorm:"column:region;size:32;not null" json:"region"`
 	CP                         string    `gorm:"column:cp;size:32;not null" json:"cp"`
 	CPFee                      *float64  `gorm:"column:cp_fee" json:"cp_fee,omitempty"`
@@ -81,6 +84,9 @@ type RateFinalNode struct {
 	ID                         uint64     `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
 	EntityID                   *uint64    `gorm:"column:entity_id" json:"entity_id,omitempty"`
 	DisplayName                string     `gorm:"column:display_name;size:128;not null" json:"display_name"`
+	BillingSubjectType         string     `gorm:"column:billing_subject_type;size:16;not null;default:node" json:"billing_subject_type"`
+	BillingSubjectID           *uint64    `gorm:"column:billing_subject_id" json:"billing_subject_id,omitempty"`
+	BillingDisplayName         string     `gorm:"column:billing_display_name;size:128" json:"billing_display_name"`
 	Region                     string     `gorm:"column:region;size:32;not null" json:"region"`
 	CP                         string     `gorm:"column:cp;size:32;not null" json:"cp"`
 	SettlementMode             string     `gorm:"column:settlement_mode;size:24;not null" json:"settlement_mode"`
@@ -101,6 +107,36 @@ type RateFinalNode struct {
 }
 
 func (RateFinalNode) TableName() string { return "rate_final_node" }
+
+// EDCNodeSettlementGroup 对应 edc_node_settlement_groups 表
+// EDC 节点结算分组，用于把多个采集节点聚合成一个计费主体
+type EDCNodeSettlementGroup struct {
+	ID        uint64                         `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+	GroupName string                         `gorm:"column:group_name;size:128;not null" json:"group_name"`
+	Region    string                         `gorm:"column:region;size:32;not null" json:"region"`
+	CP        string                         `gorm:"column:cp;size:32;not null" json:"cp"`
+	Enabled   bool                           `gorm:"column:enabled;not null;default:true" json:"enabled"`
+	Remark    *string                        `gorm:"column:remark;size:255" json:"remark,omitempty"`
+	Members   []EDCNodeSettlementGroupMember `gorm:"foreignKey:GroupID" json:"members,omitempty"`
+	CreatedAt time.Time                      `gorm:"column:created_at;autoCreateTime" json:"created_at"`
+	UpdatedAt time.Time                      `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
+}
+
+func (EDCNodeSettlementGroup) TableName() string { return "edc_node_settlement_groups" }
+
+// EDCNodeSettlementGroupMember 对应 edc_node_settlement_group_members 表
+type EDCNodeSettlementGroupMember struct {
+	ID        uint64    `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+	GroupID   uint64    `gorm:"column:group_id;not null" json:"group_id"`
+	EntityID  uint64    `gorm:"column:entity_id;not null" json:"entity_id"`
+	Entity    EDCEntity `gorm:"foreignKey:EntityID" json:"entity,omitempty"`
+	CreatedAt time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at"`
+	UpdatedAt time.Time `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
+}
+
+func (EDCNodeSettlementGroupMember) TableName() string {
+	return "edc_node_settlement_group_members"
+}
 
 // RateFinalCustomer 对应 rate_final_customer 表
 // 最终客户费率（手工/自动）
@@ -242,6 +278,9 @@ type SettlementNodeDaily95 struct {
 	ID                         uint64    `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
 	EntityID                   uint64    `gorm:"column:entity_id;not null" json:"entity_id"`
 	DisplayName                string    `gorm:"column:display_name;size:128;not null" json:"display_name"`
+	BillingSubjectType         string    `gorm:"column:billing_subject_type;size:16;not null;default:node" json:"billing_subject_type"`
+	BillingSubjectID           uint64    `gorm:"column:billing_subject_id;not null" json:"billing_subject_id"`
+	BillingDisplayName         string    `gorm:"column:billing_display_name;size:128;not null" json:"billing_display_name"`
 	Region                     string    `gorm:"column:region;size:32;not null" json:"region"`
 	CP                         string    `gorm:"column:cp;size:32;not null" json:"cp"`
 	ServiceMonth               string    `gorm:"column:service_month;size:7;not null" json:"service_month"`
@@ -279,6 +318,9 @@ type SettlementNodeMonthly95 struct {
 	ID                         uint64    `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
 	EntityID                   uint64    `gorm:"column:entity_id;not null" json:"entity_id"`
 	DisplayName                string    `gorm:"column:display_name;size:128;not null" json:"display_name"`
+	BillingSubjectType         string    `gorm:"column:billing_subject_type;size:16;not null;default:node" json:"billing_subject_type"`
+	BillingSubjectID           uint64    `gorm:"column:billing_subject_id;not null" json:"billing_subject_id"`
+	BillingDisplayName         string    `gorm:"column:billing_display_name;size:128;not null" json:"billing_display_name"`
 	Region                     string    `gorm:"column:region;size:32;not null" json:"region"`
 	CP                         string    `gorm:"column:cp;size:32;not null" json:"cp"`
 	ServiceMonth               string    `gorm:"column:service_month;size:7;not null" json:"service_month"`

@@ -17,19 +17,28 @@
         <el-form-item label="CP">
           <SearchSelect v-model="filter.cp" :options="cps" clearable placeholder="选择 CP" class="field-w-160" @change="onCPChange" />
         </el-form-item>
-        <el-form-item label="节点">
+        <el-form-item label="节点/分组">
           <SearchSelect
             v-model="filter.nodeNames"
             :options="nodes"
-            label-key="display_name"
+            label-key="label"
             value-key="display_name"
             multiple
             clearable
             collapse-tags
             collapse-tags-tooltip
-            placeholder="选择节点（可多选）"
+            placeholder="选择节点或结算分组（可多选）"
             class="field-w-320"
-          />
+          >
+            <template #option="{ option }">
+              <div class="node-option">
+                <span>{{ (option as any).display_name }}</span>
+                <el-tag size="small" :type="(option as any).subject_type === 'group' ? 'warning' : 'info'" effect="plain">
+                  {{ (option as any).subject_type === 'group' ? '分组' : '节点' }}
+                </el-tag>
+              </div>
+            </template>
+          </SearchSelect>
         </el-form-item>
         <el-form-item label="结算方式">
           <el-select v-model="filter.settlementMode" class="field-w-140">
@@ -72,7 +81,7 @@
 
       <!-- 明细视图 -->
       <el-table v-if="!isMonthlyColumnView" v-loading="loading" :data="pagedRows" border stripe class="field-w-full" empty-text="暂无数据">
-        <el-table-column prop="display_name" label="节点" min-width="180" />
+        <el-table-column prop="display_name" label="节点/分组" min-width="180" />
         <el-table-column prop="region" label="地区" width="110" />
         <el-table-column prop="cp" label="CP" width="110" />
         <el-table-column prop="service_month" label="服务月份" width="130">
@@ -112,7 +121,7 @@
         border
         class="field-w-full"
       >
-        <el-table-column prop="metric" label="节点" min-width="220" fixed="left" />
+        <el-table-column prop="metric" label="节点/分组" min-width="220" fixed="left" />
         <template v-for="month in monthlyColumnMonths" :key="month">
           <el-table-column :label="`${month} ${metricColumnLabel}`" min-width="150">
             <template #default="{ row }">{{ row.monthlyDaily95Values?.[month] || '-' }}</template>
@@ -210,8 +219,26 @@ async function loadNodes(region = '', cp = '') {
     const params: any = {}
     if (region) params.region = region
     if (cp) params.cp = cp
-    const resp = await (api as any).v2.edc.getEntities(params)
-    nodes.value = Array.isArray(resp) ? resp : Array.isArray(resp?.items) ? resp.items : []
+    const [entityResp, groupResp] = await Promise.all([
+      (api as any).v2.edc.getEntities(params),
+      api.settlementRates.nodeGroups.list({ ...params, enabled: true, page: 1, page_size: 1000 }),
+    ])
+    const entityItems = Array.isArray(entityResp) ? entityResp : Array.isArray(entityResp?.items) ? entityResp.items : []
+    const groupItems = Array.isArray(groupResp?.items) ? groupResp.items : []
+    const nodeOptions = entityItems.map((item: any) => ({
+      ...item,
+      subject_type: 'node',
+      label: `${item.display_name || item.id}（节点）`,
+    }))
+    const groupOptions = groupItems.map((item: any) => ({
+      id: `group:${item.id}`,
+      display_name: item.group_name,
+      region: item.region,
+      cp: item.cp,
+      subject_type: 'group',
+      label: `${item.group_name}（分组）`,
+    }))
+    nodes.value = [...groupOptions, ...nodeOptions]
   } catch {
     nodes.value = []
   }
@@ -295,7 +322,7 @@ function fmtMoney(v: unknown) {
 
 function validateBeforeQuery(): boolean {
   if (!filter.nodeNames.length) {
-    ElMessage.warning('请先选择节点')
+    ElMessage.warning('请先选择节点或结算分组')
     return false
   }
   if (!monthRange.value || !monthRange.value[0] || !monthRange.value[1]) {
@@ -460,7 +487,7 @@ async function handleExport() {
       })
       const exportRows = flattenMonthlyRows(pivotRows)
       const monthHeaders = months.flatMap((m) => [`${m} ${metricColumnLabel.value}`, `${m} 金额`])
-      const header = ['节点', ...monthHeaders]
+      const header = ['节点/分组', ...monthHeaders]
       const rowValues = exportRows.map((row: NodeMonthlyMetricRow) => [
         row.metric,
         ...months.flatMap((m) => [
@@ -472,7 +499,7 @@ async function handleExport() {
       const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
       triggerBlobDownload(blob, formatExportFilename(EXPORT_FILENAME_PREFIX.singleNodeMonthlyColumn, 'csv'))
     } else {
-      const header = ['节点', '地区', 'CP', '服务月份', '结算模式', '进制', metricColumnLabel.value, 'CP费', '流量金额', '机柜费', '其他费', '总金额']
+      const header = ['节点/分组', '地区', 'CP', '服务月份', '结算模式', '进制', metricColumnLabel.value, 'CP费', '流量金额', '机柜费', '其他费', '总金额']
       const rowValues = rows.value.map((r: any) => [
         r?.display_name ?? '',
         r?.region ?? '',
@@ -564,6 +591,13 @@ usePageRefresh(() => {
 
 .monthly-tip {
   margin-bottom: 10px;
+}
+
+.node-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
 }
 
 :deep(.monthly-total-row > td) {

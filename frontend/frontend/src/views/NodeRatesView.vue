@@ -8,6 +8,7 @@
           <div>
             <QueryActionButton :running="queryCtl.running.value" @trigger="onSearch" />
             <el-button @click="onReset">重置</el-button>
+            <el-button v-if="canWrite" type="primary" @click="openGroupDialog()">新建结算分组</el-button>
             <el-button v-if="canWrite" type="success" @click="openDialog()">新增/更新</el-button>
           </div>
         </div>
@@ -31,6 +32,36 @@
 
     <el-card shadow="never" class="box-card mt-2">
       <template #header>
+        <div class="card-header">
+          <span class="card-title">结算分组</span>
+          <el-button size="small" @click="loadGroups">刷新</el-button>
+        </div>
+      </template>
+
+      <el-table :data="groups" border stripe v-loading="groupLoading">
+        <el-table-column prop="group_name" label="分组名称" min-width="180" />
+        <el-table-column prop="region" label="区域" width="120" />
+        <el-table-column prop="cp" label="CP" width="120" />
+        <el-table-column label="成员节点" min-width="260">
+          <template #default="{ row }">{{ groupMemberNames(row).join('、') || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="90">
+          <template #default="{ row }">
+            <el-tag :type="row.enabled ? 'success' : 'info'" effect="plain">{{ row.enabled ? '启用' : '禁用' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="canWrite" label="操作" width="210" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="openDialogFromGroup(row)">配置费率</el-button>
+            <el-button link type="primary" @click="openGroupDialog(row)">编辑</el-button>
+            <el-button v-if="row.enabled" link type="danger" @click="disableGroup(row)">禁用</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <el-card shadow="never" class="box-card mt-2">
+      <template #header>
         <div class="card-header"><span class="card-title">费率列表</span></div>
       </template>
 
@@ -38,7 +69,12 @@
         <el-table-column prop="region" label="区域" width="120" />
         <el-table-column prop="cp" label="CP" width="120" />
         <el-table-column prop="display_name" label="节点" min-width="160">
-          <template #default="{ row }">{{ row.display_name || '区域+CP默认' }}</template>
+          <template #default="{ row }">
+            <el-tag v-if="row.billing_subject_type === 'group'" size="small" type="warning" effect="plain">分组</el-tag>
+            <el-tag v-else-if="!row.entity_id" size="small" type="info" effect="plain">默认</el-tag>
+            <el-tag v-else size="small" effect="plain">节点</el-tag>
+            <span class="rate-subject-name">{{ row.billing_display_name || row.display_name || '区域+CP默认' }}</span>
+          </template>
         </el-table-column>
         <el-table-column prop="entity_id" label="实体ID" width="90" />
         <el-table-column label="已配置模式" width="170">
@@ -112,6 +148,7 @@
           <el-form-item label="节点">
             <SearchSelect
               v-model="selectedEntityID"
+              :disabled="isGroupRateForm"
               clearable
               remote
               :remote-method="remoteSearchEntities"
@@ -134,7 +171,10 @@
             </SearchSelect>
           </el-form-item>
           <el-form-item label="节点展示名">
-            <el-input v-model="form.display_name" placeholder="留空表示区域+CP默认费率" />
+            <el-input v-model="form.display_name" :disabled="isGroupRateForm" placeholder="留空表示区域+CP默认费率" />
+          </el-form-item>
+          <el-form-item v-if="isGroupRateForm" label="计费主体">
+            <el-tag type="warning" effect="plain">{{ form.billing_display_name }}</el-tag>
           </el-form-item>
         </div>
 
@@ -225,6 +265,46 @@
         <el-button type="primary" :loading="saving" @click="onSave">保存</el-button>
       </template>
     </el-drawer>
+
+    <el-dialog v-model="groupDialogVisible" :title="groupForm.id ? '编辑结算分组' : '新建结算分组'" width="680px">
+      <el-form :model="groupForm" label-width="110px">
+        <el-form-item label="分组名称" required>
+          <el-input v-model="groupForm.group_name" placeholder="例如 GD-Bilibili" />
+        </el-form-item>
+        <el-form-item label="区域" required>
+          <SearchSelect v-model="groupForm.region" :options="regionOptions" placeholder="选择区域" class="field-w-300" @change="onGroupScopeChange" />
+        </el-form-item>
+        <el-form-item label="CP" required>
+          <SearchSelect v-model="groupForm.cp" :options="cpOptions" placeholder="选择 CP" class="field-w-300" @change="onGroupScopeChange" />
+        </el-form-item>
+        <el-form-item label="成员节点">
+          <SearchSelect
+            v-model="groupForm.member_entity_ids"
+            multiple
+            clearable
+            remote
+            :remote-method="remoteSearchGroupEntities"
+            :loading="groupEntityLoading"
+            :options="groupEntityOptions"
+            label-key="label"
+            value-key="id"
+            placeholder="搜索并选择需要合并结算的 EDC 节点"
+            class="field-w-420"
+            @visible-change="onGroupEntityDropdownVisible"
+          />
+        </el-form-item>
+        <el-form-item label="启用">
+          <el-switch v-model="groupForm.enabled" />
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="groupForm.remark" type="textarea" :rows="2" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="groupDialogVisible=false">取消</el-button>
+        <el-button type="primary" :loading="groupSaving" @click="saveGroup">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -232,7 +312,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api'
-import type { RateNode, PaginatedData, UpsertRateNodeRequest } from '@/types/api'
+import type { RateNode, PaginatedData, UpsertRateNodeRequest, EDCNodeSettlementGroup } from '@/types/api'
 import { useAuthStore } from '@/stores/auth'
 import QueryActionButton from '@/components/ui/QueryActionButton.vue'
 import SearchSelect from '@/components/ui/SearchSelect.vue'
@@ -246,6 +326,8 @@ const canWrite = computed(() => auth.hasPermission('rates.node.write'))
 const loading = ref(false)
 const items = ref<RateNode[]>([])
 const displayItems = computed(() => aggregateNodeRateRows(items.value))
+const groups = ref<EDCNodeSettlementGroup[]>([])
+const groupLoading = ref(false)
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
@@ -292,8 +374,23 @@ async function fetchData(signal?: AbortSignal) {
   }
 }
 
-function onSearch() { page.value = 1; queryCtl.run((signal) => fetchData(signal), { toggleIfRunning: true }) }
-function onReset() { Object.assign(query, { region: undefined, cp: undefined, settlement_type: undefined }); page.value=1; pageSize.value=10; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
+async function loadGroups() {
+  groupLoading.value = true
+  try {
+    const params: any = { page: 1, page_size: 1000 }
+    if (query.region) params.region = query.region
+    if (query.cp) params.cp = query.cp
+    const res = await api.settlementRates.nodeGroups.list(params)
+    groups.value = res.items || []
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '加载结算分组失败')
+  } finally {
+    groupLoading.value = false
+  }
+}
+
+function onSearch() { page.value = 1; queryCtl.run((signal) => fetchData(signal), { toggleIfRunning: true }); loadGroups() }
+function onReset() { Object.assign(query, { region: undefined, cp: undefined, settlement_type: undefined }); page.value=1; pageSize.value=10; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }); loadGroups() }
 function onPageChange(p: number) { page.value = p; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
 function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false }) }
 
@@ -301,11 +398,25 @@ function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; que
 const dialogVisible = ref(false)
 const dialogKey = ref(0)
 const saving = ref(false)
-const form = reactive<Pick<UpsertRateNodeRequest, 'entity_id' | 'display_name' | 'region' | 'cp'>>({ region: '', cp: '' })
+const form = reactive<Pick<UpsertRateNodeRequest, 'entity_id' | 'display_name' | 'billing_subject_type' | 'billing_subject_id' | 'billing_display_name' | 'region' | 'cp'>>({ region: '', cp: '', billing_subject_type: 'node' })
 const selectedEntityID = ref<number | null>(null)
+const isGroupRateForm = computed(() => form.billing_subject_type === 'group')
 const modeForm = reactive<NodeRateModeForm>({
   daily_95_avg: defaultModeFields(),
   range_95: defaultModeFields(),
+})
+const groupDialogVisible = ref(false)
+const groupSaving = ref(false)
+const groupEntityLoading = ref(false)
+const groupEntityOptions = ref<EDCEntityOption[]>([])
+const groupForm = reactive({
+  id: 0,
+  group_name: '',
+  region: '',
+  cp: '',
+  enabled: true,
+  remark: '',
+  member_entity_ids: [] as number[],
 })
 
 function defaultModeFields(): NodeRateModeFields {
@@ -520,6 +631,9 @@ function clearSelectedEntity() {
   selectedEntityID.value = null
   form.entity_id = undefined
   form.display_name = ''
+  form.billing_subject_type = 'node'
+  form.billing_subject_id = undefined
+  form.billing_display_name = undefined
 }
 
 function onEntityScopeChange() {
@@ -543,6 +657,9 @@ function onEntityChange(value: number | null) {
   }
   form.entity_id = selected.id
   form.display_name = selected.display_name
+  form.billing_subject_type = 'node'
+  form.billing_subject_id = selected.id
+  form.billing_display_name = selected.display_name
   form.region = selected.region
   form.cp = selected.cp
 }
@@ -577,12 +694,20 @@ function openDialog(row?: AggregatedNodeRateRow) {
   dialogKey.value += 1
   resetModeForm()
   selectedEntityID.value = row?.entity_id ? Number(row.entity_id) : null
-  Object.assign(form, { entity_id: row?.entity_id || undefined, display_name: row?.display_name || '', region: row?.region || '', cp: row?.cp || '' })
+  Object.assign(form, {
+    entity_id: row?.entity_id || undefined,
+    display_name: row?.display_name || '',
+    billing_subject_type: row?.billing_subject_type || 'node',
+    billing_subject_id: row?.billing_subject_id || undefined,
+    billing_display_name: row?.billing_display_name || row?.display_name || '',
+    region: row?.region || '',
+    cp: row?.cp || '',
+  })
   if (row) {
     const related = Object.values(row.mode_rates || {}).filter(Boolean) as RateNode[]
     for (const item of related.length ? related : [row]) applyRateToMode(item)
     loadUsersByIDs(collectOwnerIDsFromRates(related.length ? related : [row]), { mergeOptions: true })
-    if (row.entity_id) {
+    if (row.entity_id && row.billing_subject_type !== 'group') {
       entityOptions.value = [{
         id: Number(row.entity_id),
         label: `${row.display_name || row.entity_id} (${row.region} / ${row.cp})`,
@@ -619,8 +744,123 @@ async function onSave() {
   }
 }
 
+function groupMemberNames(row: EDCNodeSettlementGroup): string[] {
+  return (row.members || []).map((member) => String(member.entity?.display_name || member.entity_id)).filter(Boolean)
+}
+
+function openDialogFromGroup(row: EDCNodeSettlementGroup) {
+  const aggregated = displayItems.value.find((item) => item.billing_subject_type === 'group' && Number(item.billing_subject_id) === Number(row.id))
+  if (aggregated) {
+    openDialog(aggregated)
+    return
+  }
+  openDialog({
+    id: 0,
+    entity_id: null,
+    display_name: row.group_name,
+    billing_subject_type: 'group',
+    billing_subject_id: row.id,
+    billing_display_name: row.group_name,
+    region: row.region,
+    cp: row.cp,
+    settlement_type: 'daily_95_avg',
+    settlement_mode: 'daily_95_avg',
+    configured_modes: [],
+    mode_rates: {},
+  } as AggregatedNodeRateRow)
+}
+
+function openGroupDialog(row?: EDCNodeSettlementGroup) {
+  Object.assign(groupForm, {
+    id: row?.id || 0,
+    group_name: row?.group_name || '',
+    region: row?.region || '',
+    cp: row?.cp || '',
+    enabled: row?.enabled ?? true,
+    remark: row?.remark || '',
+    member_entity_ids: (row?.members || []).map((member) => Number(member.entity_id)).filter((id) => Number.isFinite(id) && id > 0),
+  })
+  groupEntityOptions.value = (row?.members || [])
+    .map((member) => member.entity)
+    .filter(Boolean)
+    .map((entity: any) => ({
+      id: Number(entity.id),
+      label: `${entity.display_name || entity.id} (${entity.region || ''} / ${entity.cp || ''})`,
+      display_name: entity.display_name || '',
+      region: entity.region || '',
+      cp: entity.cp || '',
+      edc_name: entity.edc_name || '',
+      sn: entity.sn || '',
+    }))
+  groupDialogVisible.value = true
+}
+
+function onGroupScopeChange() {
+  groupForm.member_entity_ids = []
+  groupEntityOptions.value = []
+  remoteSearchGroupEntities('')
+}
+
+async function remoteSearchGroupEntities(keyword = '') {
+  groupEntityLoading.value = true
+  try {
+    const params: any = { limit: 100, offset: 0 }
+    if (keyword) params.display_name = keyword
+    if (groupForm.region) params.region = groupForm.region
+    if (groupForm.cp) params.cp = groupForm.cp
+    groupEntityOptions.value = normalizeEDCEntities(await api.v2.edc.getEntities(params))
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '加载 EDC 节点失败')
+    groupEntityOptions.value = []
+  } finally {
+    groupEntityLoading.value = false
+  }
+}
+
+function onGroupEntityDropdownVisible(visible: boolean) {
+  if (visible) remoteSearchGroupEntities('')
+}
+
+async function saveGroup() {
+  if (!groupForm.group_name || !groupForm.region || !groupForm.cp) {
+    ElMessage.warning('分组名称、区域、CP为必填')
+    return
+  }
+  groupSaving.value = true
+  try {
+    const payload = {
+      group_name: groupForm.group_name,
+      region: groupForm.region,
+      cp: groupForm.cp,
+      enabled: groupForm.enabled,
+      remark: groupForm.remark || null,
+      member_entity_ids: groupForm.member_entity_ids,
+    }
+    if (groupForm.id) await api.settlementRates.nodeGroups.update(groupForm.id, payload)
+    else await api.settlementRates.nodeGroups.create(payload)
+    ElMessage.success('保存成功')
+    groupDialogVisible.value = false
+    await loadGroups()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '保存失败')
+  } finally {
+    groupSaving.value = false
+  }
+}
+
+async function disableGroup(row: EDCNodeSettlementGroup) {
+  try {
+    await api.settlementRates.nodeGroups.remove(row.id)
+    ElMessage.success('已禁用')
+    await loadGroups()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '禁用失败')
+  }
+}
+
 onMounted(() => {
   loadScopeOptions()
+  loadGroups()
   queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
 })
 usePageRefresh(() => {
@@ -634,6 +874,7 @@ usePageRefresh(() => {
 .filter-form { row-gap: var(--form-item-gap); }
 .pagination { display: flex; justify-content: flex-end; margin-top: 12px; }
 .mode-tag { margin-left: 6px; }
+.rate-subject-name { margin-left: 8px; vertical-align: middle; }
 .owner-summary { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; white-space: nowrap; cursor: default; }
 .owner-tooltip { min-width: 220px; display: grid; gap: 10px; }
 .owner-tooltip-mode + .owner-tooltip-mode { padding-top: 8px; border-top: 1px solid var(--el-border-color-lighter); }
