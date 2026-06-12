@@ -232,8 +232,8 @@ func TestEDCNodeTrafficGroupingUsesVisibleNode(t *testing.T) {
 		t.Fatalf("unexpected node key: %+v", keys)
 	}
 	raw, ok := computeNodeRange95Raw(grouped[keys[0]])
-	if !ok || raw != 100 {
-		t.Fatalf("raw95=%f ok=%v, want 100/true", raw, ok)
+	if !ok || raw != 200 {
+		t.Fatalf("raw95=%f ok=%v, want 200/true", raw, ok)
 	}
 }
 
@@ -252,16 +252,31 @@ func TestEDCDaily95AvgAndRange95Calculations(t *testing.T) {
 	if !ok {
 		t.Fatalf("computeDaily95AvgRaw() returned no value")
 	}
-	if daily != 1100 {
-		t.Fatalf("daily average raw=%f, want 1100", daily)
+	if daily != 1650 {
+		t.Fatalf("daily average raw=%f, want 1650", daily)
 	}
 
 	ranged, ok := computeRange95Raw(points)
 	if !ok {
 		t.Fatalf("computeRange95Raw() returned no value")
 	}
-	if ranged != 2000 {
-		t.Fatalf("range95 raw=%f, want 2000", ranged)
+	if ranged != 3000 {
+		t.Fatalf("range95 raw=%f, want 3000", ranged)
+	}
+}
+
+func TestPercentile95RawUsesNfatoolRank(t *testing.T) {
+	values := make([]int64, 288)
+	for i := range values {
+		values[i] = int64(i + 1)
+	}
+
+	raw, ok := percentile95Raw(values)
+	if !ok {
+		t.Fatalf("percentile95Raw() returned no value")
+	}
+	if raw != 274 {
+		t.Fatalf("raw95=%f, want 274 from descending rank index 14", raw)
 	}
 }
 
@@ -595,8 +610,8 @@ func TestCalculateMonthlyAggregatesSettlementGroupAndSkipsMemberRows(t *testing.
 		if row.EntityID != 0 || row.DisplayName != "GD-Bilibili" {
 			t.Fatalf("group row should not be stored as a member node: entity_id=%d display=%s", row.EntityID, row.DisplayName)
 		}
-		if row.Raw95 != 400 {
-			t.Fatalf("raw95=%f, want aggregated bucket 400", row.Raw95)
+		if row.Raw95 != 600 {
+			t.Fatalf("raw95=%f, want aggregated bucket 600", row.Raw95)
 		}
 		if row.RackBill == nil || *row.RackBill != 50 {
 			t.Fatalf("rack_bill=%v, want one group rack fee 50", row.RackBill)

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"nfa-dashboard/internal/model"
+	"nfa-dashboard/internal/settlement95"
 
 	"gorm.io/gorm"
 )
@@ -981,17 +982,8 @@ func (r *settlementRepository) CalculateDaily95WithRegionAndCP(date time.Time, s
 		return nil, fmt.Errorf("没有有效的流量数据点")
 	}
 
-	// 计算需要排除的数据点数量（前5%）
-	excludeCount := int(math.Ceil(float64(totalPoints) * 0.05))
-	if excludeCount >= totalPoints {
-		excludeCount = totalPoints - 1
-	}
-
 	// 获取95百分位的流量值和对应的时间
-	index95 := excludeCount
-	if index95 >= len(trafficPoints) {
-		index95 = len(trafficPoints) - 1
-	}
+	index95 := settlement95.DescendingIndex(totalPoints)
 	settlement95Value := trafficPoints[index95].Value
 	settlement95Time := trafficPoints[index95].Time
 
@@ -1167,18 +1159,9 @@ func (r *settlementRepository) CalculateDaily95WithRegionAndCPForAllRegionsAndCP
 			continue
 		}
 
-		// 计算需要排除的数据点数量（前5%）
-		excludeCount := int(math.Ceil(float64(totalPoints) * 0.05))
-		if excludeCount >= totalPoints {
-			excludeCount = totalPoints - 1
-		}
-		log.Printf("总数据点数量=%d, 排除前 %d 个数据点", totalPoints, excludeCount)
-
 		// 获取95百分位的流量值和对应的时间
-		index95 := excludeCount
-		if index95 >= len(trafficPoints) {
-			index95 = len(trafficPoints) - 1
-		}
+		index95 := settlement95.DescendingIndex(totalPoints)
+		log.Printf("总数据点数量=%d, 95值降序索引=%d", totalPoints, index95)
 		settlement95Value := trafficPoints[index95].Value
 		settlement95Time := trafficPoints[index95].Time
 		log.Printf("计算得到日95值: 值=%d, 时间=%s",

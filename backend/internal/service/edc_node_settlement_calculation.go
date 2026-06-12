@@ -2,11 +2,11 @@ package service
 
 import (
 	"fmt"
-	"math"
 	"sort"
 	"time"
 
 	"nfa-dashboard/internal/model"
+	"nfa-dashboard/internal/settlement95"
 )
 
 const (
@@ -108,11 +108,8 @@ func percentile95Raw(values []int64) (float64, bool) {
 	}
 	sorted := append([]int64(nil), values...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i] > sorted[j] })
-	excludeCount := int(math.Ceil(float64(len(sorted)) * 0.05))
-	if excludeCount >= len(sorted) {
-		excludeCount = len(sorted) - 1
-	}
-	return float64(sorted[excludeCount]), true
+	index95 := settlement95.DescendingIndex(len(sorted))
+	return float64(sorted[index95]), true
 }
 
 func computeRange95Raw(points []model.EDCTraffic5m) (float64, bool) {
