@@ -30,7 +30,7 @@ nfa-dashboard/
 │       ├── stores/       # Pinia (auth, theme, tagsView, tasks, counter)
 │       ├── types/        # TypeScript 类型
 │       ├── utils/        # 工具函数
-│       └── views/        # 22 个页面视图
+│       └── views/        # 23 个页面视图（含 SettlementNodeQueryView 单节点结算查询）
 ├── cli/                  # Go CLI (独立 go.mod, HTTP API 客户端)
 ├── sql/migrations/       # 增量 SQL 迁移
 ├── scripts/              # 部署 & 迁移守卫脚本
@@ -139,6 +139,14 @@ API 两个版本：
 - "是否有流量" 检查用 `SELECT 1 ... LIMIT 1` 而非 `COUNT(*)`
 - 节点日/月 95 任务：日 95 逐天处理，月 95 逐月处理，范围任务在单个任务内顺序执行已有逐期计算
 - 用户可见的 fee-owner 字段显示系统用户的 alias/display name/username，而非原始数字 ID
+- 95 百分位排名口径必须前后端对齐（见 `settlement-node-query-utils.ts` 与后端计算），避免单节点查询与结算任务结果出现 off-by-one 偏差
+
+### Node Settlement Groups (节点结算分组)
+
+- EDC 节点结算支持把多个采集节点（`edc_entity`）聚合为一个**计费主体**结算，分组表为 `edc_node_settlement_groups` / `edc_node_settlement_group_members`（迁移 `046`）
+- `billing_subject_type`（默认 `node`，可为 `group`）+ `billing_subject_id` + `billing_display_name` 贯穿 `rate_node`、`rate_final_node`、`settlement_node_daily95`、`settlement_node_monthly95`
+- 分组管理走 `/api/v1/.../rates/node-groups`（GET/POST/PUT/DELETE，权限 `rates.node.read` / `rates.node.write`），前端在 `NodeRatesView.vue` 维护
+- 一个 entity 仅能属于一个分组（`uk_..._members_entity` 唯一约束）
 
 ### Node Daily95/Monthly95 Task Creation
 
