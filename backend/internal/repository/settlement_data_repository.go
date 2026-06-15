@@ -1372,56 +1372,6 @@ func createTmpSourceAndKeys(
 	return
 }
 
-func copyHitKeysFromActiveSlot(tx *gorm.DB, month string, activeSlot, inactiveSlot int8) (rowsDeleted, rowsCopied int64, err error) {
-	delRes := tx.Exec(`
-		DELETE scv
-		FROM tmp_key tk
-		JOIN settlement_customer_v scv FORCE INDEX (uk_scv_month_slot_region_cp_school_date)
-		  ON scv.service_month = ?
-		 AND scv.slot = ?
-		 AND scv.region = tk.region
-		 AND scv.cp = tk.cp
-		 AND scv.school_name = tk.school_name
-		 AND scv.service_date = tk.service_date
-	`, month, inactiveSlot)
-	if delRes.Error != nil {
-		err = delRes.Error
-		return
-	}
-	rowsDeleted = delRes.RowsAffected
-
-	copyRes := tx.Exec(`
-		INSERT INTO settlement_customer_v (
-			region,cp,school_name,service_month,slot,settlement_value,settlement_time,service_date,
-			recalculated,last_recalc_time,customer_fee,customer_bill,customer_fee_owner_id,
-			network_line_fee,network_line_bill,network_line_fee_owner_id,node_deduction_fee,node_deduction_bill,node_deduction_fee_owner_id,
-			channel_rate,channel_bill,channel_owner_user_id,stock_ratio,increment_ratio,daily_increment_value,discount_rule_id,service_year_index,
-			created_at,updated_at
-		)
-		SELECT
-			scv.region,scv.cp,scv.school_name,scv.service_month,?,
-			scv.settlement_value,scv.settlement_time,scv.service_date,
-			scv.recalculated,scv.last_recalc_time,scv.customer_fee,scv.customer_bill,scv.customer_fee_owner_id,
-			scv.network_line_fee,scv.network_line_bill,scv.network_line_fee_owner_id,scv.node_deduction_fee,scv.node_deduction_bill,scv.node_deduction_fee_owner_id,
-			scv.channel_rate,scv.channel_bill,scv.channel_owner_user_id,scv.stock_ratio,scv.increment_ratio,scv.daily_increment_value,scv.discount_rule_id,scv.service_year_index,
-			scv.created_at,scv.updated_at
-		FROM tmp_key tk
-		JOIN settlement_customer_v scv FORCE INDEX (uk_scv_month_slot_region_cp_school_date)
-		  ON scv.service_month = ?
-		 AND scv.slot = ?
-		 AND scv.region = tk.region
-		 AND scv.cp = tk.cp
-		 AND scv.school_name = tk.school_name
-		 AND scv.service_date = tk.service_date
-	`, inactiveSlot, month, activeSlot)
-	if copyRes.Error != nil {
-		err = copyRes.Error
-		return
-	}
-	rowsCopied = copyRes.RowsAffected
-	return
-}
-
 func copyFullMonthFromActiveSlot(tx *gorm.DB, month string, activeSlot, inactiveSlot int8) (rowsDeleted, rowsCopied int64, err error) {
 	delRes := tx.Exec(`
 		DELETE FROM settlement_customer_v
@@ -1854,20 +1804,19 @@ func (r *settlementDataRepository) backfillFromSchoolSettlementWithSlot(region, 
 		stageMetrics["rows_active_month"] += activeMonthRows
 
 		copyStageStart := time.Now()
-		useFullMonthCopy := rowsKey > 0 && activeMonthRows > 0 && rowsKey*100 >= activeMonthRows*80
-		var rowsDeletedInactive int64
-		var rowsCopiedFromActive int64
-		if useFullMonthCopy {
-			rowsDeletedInactive, rowsCopiedFromActive, err = copyFullMonthFromActiveSlot(tx, month, activeSlot, inactiveSlot)
-			stageMetrics["copy_mode_full_month"]++
-		} else {
-			rowsDeletedInactive, rowsCopiedFromActive, err = copyHitKeysFromActiveSlot(tx, month, activeSlot, inactiveSlot)
-			stageMetrics["copy_mode_hit_key"]++
-		}
+		// The inactive slot must be a COMPLETE mirror of the active slot before we
+		// overlay the changed keys via the pipeline below. Under ping-pong double
+		// buffering the inactive slot is always one generation stale (it is missing
+		// whatever was written during the previous flip), so a partial "hit-key"
+		// copy that only brings over the current day's keys silently drops the days
+		// added in earlier flips — producing alternating-date gaps in the published
+		// data. Always rebuild the inactive slot as a full month copy.
+		rowsDeletedInactive, rowsCopiedFromActive, err := copyFullMonthFromActiveSlot(tx, month, activeSlot, inactiveSlot)
 		if err != nil {
 			tx.Rollback()
 			return totalAffected, err
 		}
+		stageMetrics["copy_mode_full_month"]++
 		stageMetrics["copy_slot_ms"] += time.Since(copyStageStart).Milliseconds()
 
 		computeStageStart := time.Now()
