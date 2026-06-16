@@ -30,7 +30,7 @@ nfa-dashboard/
 │       ├── stores/       # Pinia (auth, theme, tagsView, tasks, counter)
 │       ├── types/        # TypeScript 类型
 │       ├── utils/        # 工具函数
-│       └── views/        # 23 个页面视图（含 SettlementNodeQueryView 单节点结算查询）
+│       └── views/        # 页面视图（NFA: SettlementUserQueryView 单用户结算查询；EDC: SettlementNodeQueryView 单节点结算查询）
 ├── cli/                  # Go CLI (独立 go.mod, HTTP API 客户端)
 ├── sql/migrations/       # 增量 SQL 迁移
 ├── scripts/              # 部署 & 迁移守卫脚本
@@ -140,6 +140,17 @@ API 两个版本：
 - 节点日/月 95 任务：日 95 逐天处理，月 95 逐月处理，范围任务在单个任务内顺序执行已有逐期计算
 - 用户可见的 fee-owner 字段显示系统用户的 alias/display name/username，而非原始数字 ID
 - 95 百分位排名口径必须前后端对齐（见 `settlement-node-query-utils.ts` 与后端计算），避免单节点查询与结算任务结果出现 off-by-one 偏差
+
+### Settlement Pages (结算页面结构)
+
+- **两条数据链路**：NFA（院校，`nfa-extractor` → `school_settlement`，仅**日95**）与 EDC（节点，`edc-extractor` → `settlement_node_daily95`/`settlement_node_monthly95`，**日95 + 月95**）相互独立。`流量监控`(TrafficView) 用 `data_source` 开关统一承载两源。
+- **结算中心（SettlementView）只保留 4 个 Tab**：结算数据、结算任务、结算配置、结算公式。
+  - `结算数据`(SettlementDataTab) 是 NFA/EDC × 日/月 的**唯一明细视图**，靠 `数据源` + `聚合粒度` 两个开关切换，自带导出与（NFA）复算 / 重建月度快照。
+  - **禁止**再新增按数据源或按粒度拆分的独立"明细"Tab/页面。历史上的 院校日95明细 / 节点日95明细 / 节点月95明细 与 `结算数据` 读同一张表、同一后端 handler（`ListNodeDaily`/`ListNodeMonthly`），已合并；对应后端 `daily-details`、`node-daily-details`、`node-monthly-details` 路由随之下线。
+- **消费 / 对账面板**（独立路由，权限 `settlement.data.read`，带 traffic-scope 过滤、按月列对账视图、导出）：
+  - `单用户结算查询`(SettlementUserQueryView) = NFA 院校；
+  - `单节点结算查询`(SettlementNodeQueryView) = EDC 节点 / 结算分组。
+- 运营视图（`结算数据`，需 `settlement.calculate`）与消费面板（需 `settlement.data.read`）权限与职责不同，**不要互相合并**。
 
 ### Node Settlement Groups (节点结算分组)
 

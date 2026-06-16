@@ -102,61 +102,6 @@ func (c *SettlementController) GetSettlementConfig(ctx *gin.Context) {
 	})
 }
 
-// GetDailySettlementDetailsV2 获取日95明细数据列表（v2：按 user_id 过滤，普通用户强制为自身）
-func (c *SettlementController) GetDailySettlementDetailsV2(ctx *gin.Context) {
-	var filter model.SettlementFilter
-
-	startDateStr := ctx.Query("start_date")
-	endDateStr := ctx.Query("end_date")
-	filter.SchoolID = ctx.Query("school_id")
-	filter.Region = ctx.Query("region")
-	filter.CP = ctx.Query("cp")
-	limitStr := ctx.DefaultQuery("limit", "10")
-	offsetStr := ctx.DefaultQuery("offset", "0")
-
-	if startDateStr != "" {
-		if t, err := parseDateBoundary(startDateStr, false); err == nil {
-			filter.StartDate = t
-		}
-	}
-	if endDateStr != "" {
-		if t, err := parseDateBoundary(endDateStr, true); err == nil {
-			filter.EndDate = t
-		}
-	}
-
-	if n, err := strconv.Atoi(limitStr); err == nil {
-		filter.Limit = n
-	} else {
-		filter.Limit = 10
-	}
-	if n, err := strconv.Atoi(offsetStr); err == nil {
-		filter.Offset = n
-	} else {
-		filter.Offset = 0
-	}
-
-	var reqUserID *uint64
-	if v := ctx.Query("user_id"); v != "" {
-		if uv, err := strconv.ParseUint(v, 10, 64); err == nil && uv > 0 {
-			reqUserID = &uv
-		}
-	}
-	if !hasAnyPermission(ctx, "system.user.manage") {
-		if uid, ok := currentUserID(ctx); ok {
-			reqUserID = &uid
-		}
-	}
-	filter.UserID = reqUserID
-
-	details, total, err := c.settlementService.GetDailySettlementDetails(filter)
-	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取日95明细数据列表失败", "error": err.Error()})
-		return
-	}
-	ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取日95明细数据列表成功", "data": gin.H{"total": total, "items": details}})
-}
-
 // GetSettlementsV2 获取结算数据列表（v2：按 user_id 过滤，普通用户强制为自身）
 func (c *SettlementController) GetSettlementsV2(ctx *gin.Context) {
 	var filter model.SettlementFilter
@@ -612,56 +557,6 @@ func (c *SettlementController) GetSettlements(ctx *gin.Context) {
 			"items": settlements,
 		},
 	})
-}
-
-// GetDailySettlementDetails 获取日95明细数据列表
-func (c *SettlementController) GetDailySettlementDetails(ctx *gin.Context) {
-	var filter model.SettlementFilter // 可以复用 SettlementFilter，或者为其创建一个新的类型
-
-	// 获取查询参数
-	startDateStr := ctx.Query("start_date")
-	endDateStr := ctx.Query("end_date")
-	filter.SchoolID = ctx.Query("school_id")
-	filter.Region = ctx.Query("region")
-	filter.CP = ctx.Query("cp")
-
-	limitStr := ctx.DefaultQuery("limit", "10")
-	offsetStr := ctx.DefaultQuery("offset", "0")
-
-	// 解析日期
-	var err error
-	if startDateStr != "" {
-		filter.StartDate, err = parseDateBoundary(startDateStr, false)
-		if err != nil {
-			ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "开始日期格式错误，应为YYYY-MM-DD或YYYY-MM-DD HH:mm:ss", "error": err.Error()})
-			return
-		}
-	}
-	if endDateStr != "" {
-		filter.EndDate, err = parseDateBoundary(endDateStr, true)
-		if err != nil {
-			ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "结束日期格式错误，应为YYYY-MM-DD或YYYY-MM-DD HH:mm:ss", "error": err.Error()})
-			return
-		}
-	}
-
-	// 解析分页参数
-	filter.Limit, err = strconv.Atoi(limitStr)
-	if err != nil {
-		filter.Limit = 10
-	}
-	filter.Offset, err = strconv.Atoi(offsetStr)
-	if err != nil {
-		filter.Offset = 0
-	}
-
-	// 获取日95明细数据列表
-	dailyDetails, total, err := c.settlementService.GetDailySettlementDetails(filter)
-	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取日95明细数据列表失败", "error": err.Error()})
-		return
-	}
-	ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取日95明细数据列表成功", "data": gin.H{"total": total, "items": dailyDetails}})
 }
 
 // CreateDailySettlementTask 创建日结算任务

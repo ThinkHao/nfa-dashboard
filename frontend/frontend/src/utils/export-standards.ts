@@ -1,7 +1,6 @@
 export const EXPORT_HEADERS = {
   singleUserDetail: ['学校名称', '地区', 'CP', '服务日期', '日95流量值(Mbps)', '客户金额', '线路金额', '节点金额', '渠道金额', '总归属金额'],
   singleUserMonthlyColumnPrefix: ['学校', '存量起算时间', '增量起算时间', 'YYYY-MM日95均值(Mbps)', 'YYYY-MM金额'],
-  daily95Detail: ['日期', '学校名称', '地区', 'CP', '95值(Mbps)'],
   operationLogs: ['时间', '用户ID', '方法', '路径', '状态码', '成功', '耗时(ms)', 'IP', '错误信息'],
   finalCustomerRates: ['区域', 'CP', '学校', '服务日期', '客户费', '客户费(折后)', '线路费', '渠道费率', '客户费归属', '线路费归属', '渠道费归属'],
   customerRatesImportErrors: ['行号', '错误信息'],
@@ -17,7 +16,6 @@ export const EXPORT_FILENAME_PREFIX = {
   singleNodeDaily: '单节点结算_日95',
   singleNodeMonthly: '单节点结算_月95',
   singleNodeMonthlyColumn: '单节点结算_按月列视图',
-  daily95Detail: '日95明细',
   operationLogs: '操作日志',
   customerRates: '客户业务费率',
   customerRatesTemplate: '客户业务费率_导入模板',

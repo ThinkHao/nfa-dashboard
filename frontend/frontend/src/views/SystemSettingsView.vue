@@ -26,8 +26,8 @@
 
       <div class="setting-row">
         <div>
-          <div class="setting-title">结算结果 G 单位进制</div>
-          <div class="setting-desc">用于结算结果接口 unit_base 默认值（GB/GiB 口径）。</div>
+          <div class="setting-title">院校结算结果 G 单位进制</div>
+          <div class="setting-desc">仅作用于院校（NFA）结算结果：单用户结算查询的日95流量值与金额按此 GB(1000)/GiB(1024) 口径换算，二者同口径便于对账。EDC 节点结算使用各自的进制设置，不受此项影响。</div>
         </div>
         <el-select v-model="form.settlement_result_unit_base" class="field-w-180">
           <el-option :value="1000" label="1000（GB）" />
@@ -46,16 +46,6 @@
         </el-select>
       </div>
 
-      <div class="setting-row">
-        <div>
-          <div class="setting-title">日95明细页 95 值单位</div>
-          <div class="setting-desc">影响结算中心“日95明细”页的 95 值显示与导出。</div>
-        </div>
-        <el-select v-model="form.settlement_daily_detail_rate_unit" class="field-w-180">
-          <el-option value="Mbps" label="Mbps" />
-          <el-option value="Gbps" label="Gbps" />
-        </el-select>
-      </div>
 
       <div class="setting-row">
         <div>
