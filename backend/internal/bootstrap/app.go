@@ -145,7 +145,6 @@ func BuildEngine() *gin.Engine {
 			settlementV2 := v2.Group("/settlement", authMW.AuthRequired())
 			{
 				settlementV2.GET("/data", authMW.PermissionRequired("settlement.read"), settlementController.GetSettlementsV2)
-				settlementV2.GET("/daily-details", authMW.PermissionRequired("settlement.read"), settlementController.GetDailySettlementDetailsV2)
 			}
 		}
 
@@ -169,7 +168,6 @@ func BuildEngine() *gin.Engine {
 			settlement.DELETE("/tasks/:id", authMW.PermissionRequired("settlement.calculate"), settlementController.DeleteSettlementTask)
 
 			settlement.GET("/data", authMW.PermissionRequired("settlement.read"), settlementController.GetSettlements)
-			settlement.GET("/daily-details", authMW.PermissionRequired("settlement.read"), settlementController.GetDailySettlementDetails)
 			settlement.GET("/results", authMW.PermissionRequired("settlement.results.read"), settlementController.GetSettlementResults)
 			settlement.GET("/results/channels", authMW.PermissionRequired("settlement.results.read"), settlementController.GetChannelSettlementResults)
 
@@ -183,8 +181,6 @@ func BuildEngine() *gin.Engine {
 			settlement.GET("/data/customer/owner-subjects", authMW.PermissionRequired("settlement.data.read"), settlementDataController.ListUsedOwnerSubjects)
 			settlement.GET("/data/node", authMW.PermissionRequired("settlement.data.read"), edcNodeSettlementController.ListNodeDaily)
 			settlement.GET("/data/node/monthly", authMW.PermissionRequired("settlement.data.read"), edcNodeSettlementController.ListNodeMonthly)
-			settlement.GET("/node-daily-details", authMW.PermissionRequired("settlement.read"), edcNodeSettlementController.ListNodeDaily)
-			settlement.GET("/node-monthly-details", authMW.PermissionRequired("settlement.read"), edcNodeSettlementController.ListNodeMonthly)
 
 			formulas := settlement.Group("/formulas")
 			{

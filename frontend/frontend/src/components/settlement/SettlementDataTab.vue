@@ -25,7 +25,16 @@
           />
         </el-form-item>
         <el-form-item v-else label="节点" class="min-w-300">
-          <el-input v-model="filterForm.display_name" clearable placeholder="输入节点名称" class="field-w-250" @change="onSearch" />
+          <SearchSelect
+            v-model="filterForm.display_name"
+            :options="nodes"
+            label-key="display_name"
+            value-key="display_name"
+            placeholder="选择节点"
+            clearable
+            class="field-w-250"
+            @change="onSearch"
+          />
         </el-form-item>
         <el-form-item v-if="dataSource === 'nfa'" label="费用归属" class="min-w-300">
           <el-select v-model="ownerSelect" placeholder="选择费用归属" clearable class="field-w-250" @change="handleOwnerChange">
@@ -264,6 +273,8 @@ import { sanitizeScopeOptionValues } from '@/utils/scope-options'
 const schools = ref<School[]>([])
 const regions = ref<string[]>([])
 const cps = ref<string[]>([])
+// EDC 节点下拉（仅 dataSource==='edc' 使用）
+const nodes = ref<any[]>([])
 const queryCtl = useCancelableQuery()
 const trafficSettings = useSystemTrafficSettings()
 // 费用归属（统一：仅用户）下拉
@@ -756,32 +767,58 @@ const loadSchools = async (region: string = '', cp: string = ''): Promise<number
   }
 }
 
+// 加载 EDC 节点列表（结算数据 EDC 视图的节点下拉，按 region/cp 联动）
+const loadNodes = async (region: string = '', cp: string = ''): Promise<void> => {
+  try {
+    const params: { region?: string; cp?: string } = {}
+    if (region) params.region = region
+    if (cp) params.cp = cp
+    const response = await (api as any).v2.edc.getEntities(params)
+    nodes.value = Array.isArray(response) ? response : Array.isArray(response?.items) ? response.items : []
+  } catch (e) {
+    console.warn('加载节点列表失败:', e)
+    nodes.value = []
+  }
+}
+
 // 处理地区选择变化
 const handleRegionChange = (region: string): void => {
   console.log('地区选择变化:', region)
-  // 当地区变化时，重新加载学校列表
-  if (region) {
-    loadSchools(region, filterForm.cp)
+  if (dataSource.value === 'edc') {
+    // EDC：联动刷新节点下拉
+    filterForm.display_name = ''
+    loadNodes(region, filterForm.cp)
   } else {
-    loadSchools('', filterForm.cp)
+    // NFA：重新加载学校列表
+    if (region) {
+      loadSchools(region, filterForm.cp)
+    } else {
+      loadSchools('', filterForm.cp)
+    }
+    loadOwnerOptions()
   }
   // 当地区变化时自动刷新数据
   queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
-  loadOwnerOptions()
 }
 
 // 处理运营商选择变化
 const handleCPChange = (cp: string): void => {
   console.log('运营商选择变化:', cp)
-  // 当运营商变化时，重新加载学校列表
-  if (cp) {
-    loadSchools(filterForm.region, cp)
+  if (dataSource.value === 'edc') {
+    // EDC：联动刷新节点下拉
+    filterForm.display_name = ''
+    loadNodes(filterForm.region, cp)
   } else {
-    loadSchools(filterForm.region, '')
+    // NFA：重新加载学校列表
+    if (cp) {
+      loadSchools(filterForm.region, cp)
+    } else {
+      loadSchools(filterForm.region, '')
+    }
+    loadOwnerOptions()
   }
   // 当运营商变化时自动刷新数据
   queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
-  loadOwnerOptions()
 }
 
 // 处理学校选择变化
@@ -862,6 +899,10 @@ const handleDataSourceChange = () => {
   filterForm.school_id = ''
   filterForm.display_name = ''
   filterForm.channel_owner_user_id = null
+  // 切到 EDC 时按当前 region/cp 加载节点下拉
+  if (dataSource.value === 'edc') {
+    loadNodes(filterForm.region, filterForm.cp)
+  }
   queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
 }
 
@@ -987,6 +1028,9 @@ const resetFilter = () => {
   syncDateRangeFromFilter()
   currentPage.value = 1
   pageSize.value = 10
+  if (dataSource.value === 'edc') {
+    loadNodes()
+  }
   queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   loadOwnerOptions()
 }
@@ -1362,7 +1406,7 @@ const onRecalculate = async () => {
     const taskNumericId: number = await (api as any).settlementData.recalculate(body)
     const taskId = `settlement:${taskNumericId}`
     const tasks = useTasksStore()
-    // 2) 预估总量：用 v2 日95明细列表的 total 作为复算任务的总工作量
+    // 2) 预估总量：用 v2 结算数据列表的 total 作为复算任务的总工作量
     let estTotal: number | null = null
     try {
       const params: any = {
@@ -1377,7 +1421,7 @@ const onRecalculate = async () => {
         const s = (schools.value || []).find(x => x.school_id === filterForm.school_id)
         if (s && s.school_name) params.school_name = s.school_name
       }
-      const res: any = await (api as any).v2.settlement.getDailySettlementDetails(params)
+      const res: any = await (api as any).v2.settlement.getSettlements(params)
       if (res && typeof res === 'object' && 'total' in res) estTotal = Number((res as any).total) || null
     } catch {}
     // 3) 在全局浮层启动任务展示

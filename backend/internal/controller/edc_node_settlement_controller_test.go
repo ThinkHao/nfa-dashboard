@@ -49,9 +49,6 @@ func (s *settlementServiceForNodeTaskTest) ExecuteWeeklySettlement(taskID int64,
 func (s *settlementServiceForNodeTaskTest) ExecuteWeeklySettlementWithDateRange(taskID int64, startDate, endDate time.Time) error {
 	return nil
 }
-func (s *settlementServiceForNodeTaskTest) GetDailySettlementDetails(filter model.SettlementFilter) ([]model.DailySettlementDetail, int64, error) {
-	return nil, 0, nil
-}
 func (s *settlementServiceForNodeTaskTest) GetValidSchoolComboCount(userID *uint64) (int64, error) {
 	return 0, nil
 }

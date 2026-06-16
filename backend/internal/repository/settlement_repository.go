@@ -46,8 +46,6 @@ type SettlementRepository interface {
 	CalculateDaily95WithRegionAndCP(date time.Time, schoolID string, region string, cp string) (*model.SchoolSettlement, error)
 	// 为指定学校计算所有区域和运营商的日95值
 	CalculateDaily95WithRegionAndCPForAllRegionsAndCPs(date time.Time, schoolID string) ([]model.SchoolSettlement, error)
-	// GetDailySettlementDetails 获取日95明细数据列表
-	GetDailySettlementDetails(filter model.SettlementFilter) ([]model.DailySettlementDetail, int64, error)
 	// CountValidSchoolCombos 统计有效学校-地区-运营商组合数量
 	CountValidSchoolCombos(userID *uint64) (int64, error)
 	// ListValidSchoolCombos 列出有效学校-地区-运营商组合
@@ -625,62 +623,6 @@ func (r *settlementRepository) GetSettlements(filter model.SettlementFilter) ([]
 
 	log.Printf("返回 %d 条结算数据响应", len(responses))
 	return responses, count, nil
-}
-
-// getAggregatedSettlements 获取聚合的结算数据
-// GetDailySettlementDetails 获取日95明细数据列表
-func (r *settlementRepository) GetDailySettlementDetails(filter model.SettlementFilter) ([]model.DailySettlementDetail, int64, error) {
-	var details []model.DailySettlementDetail
-	var count int64
-
-	query := model.DB.Model(&model.SchoolSettlement{})
-
-	// 应用过滤条件
-	if !filter.StartDate.IsZero() {
-		query = query.Where("DATE(settlement_date) >= ?", filter.StartDate.Format("2006-01-02"))
-	}
-	if !filter.EndDate.IsZero() {
-		query = query.Where("DATE(settlement_date) <= ?", filter.EndDate.Format("2006-01-02"))
-	}
-	if filter.SchoolID != "" {
-		query = query.Where("school_id = ?", filter.SchoolID)
-	}
-	if filter.SchoolName != "" {
-		query = query.Where("school_name LIKE ?", "%"+filter.SchoolName+"%")
-	}
-	if filter.Region != "" {
-		query = query.Where("region = ?", filter.Region)
-	}
-	if filter.CP != "" {
-		query = query.Where("cp = ?", filter.CP)
-	}
-
-	// v2：按用户过滤可见院校范围
-	if filter.UserID != nil && *filter.UserID > 0 {
-		query = query.Where("school_id IN (SELECT school_id FROM user_schools WHERE user_id = ?)", *filter.UserID)
-	}
-
-	// 获取总数
-	err := query.Count(&count).Error
-	if err != nil {
-		return nil, 0, err
-	}
-
-	// 获取分页数据
-	// 注意：这里需要将 SchoolSettlement 的字段映射到 DailySettlementDetail
-	// GORM 可以通过 .Scan() 实现这一点，或者如果字段名和类型兼容，可以直接 Find
-	// 为了清晰，我们显式地 Select 字段并 Scan
-	// 注意：gorm tag 在 DailySettlementDetail 中已经定义了 column 映射
-	result := query.Order("settlement_date DESC, id DESC").
-		Limit(filter.Limit).
-		Offset(filter.Offset).
-		Find(&details) // GORM 会自动将 nfa_school_settlement 的列映射到 details 的字段
-
-	if result.Error != nil {
-		return nil, 0, result.Error
-	}
-
-	return details, count, nil
 }
 
 func (r *settlementRepository) CountValidSchoolCombos(userID *uint64) (int64, error) {

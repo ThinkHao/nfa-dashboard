@@ -33,15 +33,8 @@ type SettlementService interface {
 	ExecuteWeeklySettlement(taskID int64, weekStartDate time.Time) error
 	// 执行周结算任务（支持日期范围）
 	ExecuteWeeklySettlementWithDateRange(taskID int64, startDate, endDate time.Time) error
-	// GetDailySettlementDetails 获取日95明细数据列表
-	GetDailySettlementDetails(filter model.SettlementFilter) ([]model.DailySettlementDetail, int64, error) // 假设 model.DailySettlementDetail 存在
 	// GetValidSchoolComboCount 获取有效院校组合数
 	GetValidSchoolComboCount(userID *uint64) (int64, error)
-}
-
-// GetDailySettlementDetails 获取日95明细数据列表
-func (s *settlementService) GetDailySettlementDetails(filter model.SettlementFilter) ([]model.DailySettlementDetail, int64, error) {
-	return s.repo.GetDailySettlementDetails(filter)
 }
 
 func (s *settlementService) GetValidSchoolComboCount(userID *uint64) (int64, error) {

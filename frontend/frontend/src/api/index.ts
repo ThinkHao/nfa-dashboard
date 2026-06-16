@@ -204,13 +204,6 @@ export default {
         .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
 
-    // 获取日95明细数据列表
-    getDailySettlementDetails(params?: any, config?: AxiosRequestConfig) {
-      return api
-        .get('/api/v1/settlement/daily-details', { params, ...(config || {}) })
-        .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
-    },
-
     // 结算公式管理
     formulas: {
       list(params?: { limit?: number; offset?: number }): Promise<PaginatedData<SettlementFormulaItem>> {
@@ -758,11 +751,6 @@ export default {
       // 获取结算数据列表（v2）
       getSettlements(params?: any, config?: AxiosRequestConfig) {
         return api.get('/api/v2/settlement/data', { params, ...(config || {}) })
-          .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
-      },
-      // 获取日95明细数据列表（v2）
-      getDailySettlementDetails(params?: any, config?: AxiosRequestConfig) {
-        return api.get('/api/v2/settlement/daily-details', { params, ...(config || {}) })
           .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
       },
     },
