@@ -579,44 +579,6 @@ export interface DiscountedFinalCustomerRate {
 }
 
 // ------------------------------
-// Settlement Formulas
-// ------------------------------
-
-export type SettlementFormulaTokenType = 'field' | 'operator' | 'number';
-
-export interface SettlementFormulaToken {
-  id: string;
-  type: SettlementFormulaTokenType;
-  value: string;
-  label: string;
-}
-
-export interface SettlementFormulaItem {
-  id: number;
-  name: string;
-  description?: string | null;
-  tokens: string | SettlementFormulaToken[];
-  enabled: boolean;
-  updated_by?: string | null;
-  create_time?: string;
-  update_time?: string;
-}
-
-export interface CreateSettlementFormulaRequest {
-  name: string;
-  description?: string;
-  tokens: SettlementFormulaToken[];
-  enabled?: boolean;
-}
-
-export interface UpdateSettlementFormulaRequest {
-  name: string;
-  description?: string;
-  tokens?: SettlementFormulaToken[];
-  enabled?: boolean;
-}
-
-// ------------------------------
 // Settlement Rates - Sync Rules
 // ------------------------------
 

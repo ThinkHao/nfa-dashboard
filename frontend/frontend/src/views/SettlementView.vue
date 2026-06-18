@@ -11,9 +11,6 @@
       <el-tab-pane label="结算配置" name="config">
         <settlement-config-tab />
       </el-tab-pane>
-      <el-tab-pane label="结算公式" name="formula">
-        <settlement-formula-tab />
-      </el-tab-pane>
     </el-tabs>
   </div>
 </template>
@@ -23,7 +20,6 @@ import { ref } from 'vue'
 import SettlementDataTab from '../components/settlement/SettlementDataTab.vue'
 import SettlementTasksTab from '../components/settlement/SettlementTasksTab.vue'
 import SettlementConfigTab from '../components/settlement/SettlementConfigTab.vue'
-import SettlementFormulaTab from '../components/settlement/SettlementFormulaTab.vue'
 
 // 当前激活的标签页
 const activeTab = ref('data')

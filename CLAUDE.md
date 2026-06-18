@@ -144,9 +144,10 @@ API 两个版本：
 ### Settlement Pages (结算页面结构)
 
 - **两条数据链路**：NFA（院校，`nfa-extractor` → `school_settlement`，仅**日95**）与 EDC（节点，`edc-extractor` → `settlement_node_daily95`/`settlement_node_monthly95`，**日95 + 月95**）相互独立。`流量监控`(TrafficView) 用 `data_source` 开关统一承载两源。
-- **结算中心（SettlementView）只保留 4 个 Tab**：结算数据、结算任务、结算配置、结算公式。
+- **结算中心（SettlementView）只保留 3 个 Tab**：结算数据、结算任务、结算配置。
   - `结算数据`(SettlementDataTab) 是 NFA/EDC × 日/月 的**唯一明细视图**，靠 `数据源` + `聚合粒度` 两个开关切换，自带导出与（NFA）复算 / 重建月度快照。
   - **禁止**再新增按数据源或按粒度拆分的独立"明细"Tab/页面。历史上的 院校日95明细 / 节点日95明细 / 节点月95明细 与 `结算数据` 读同一张表、同一后端 handler（`ListNodeDaily`/`ListNodeMonthly`），已合并；对应后端 `daily-details`、`node-daily-details`、`node-monthly-details` 路由随之下线。
+  - **结算公式 Tab 已下线**（迁移 `047`）：拖拽式公式构建器（`SettlementFormulaTab`）及其唯一消费者 `/settlement/results`、`/settlement/results/channels` 端点从未接入真实结算链路（实际金额由 `rate_final_*` 费率表按固定公式直接算出，不读 `nfa_settlement_formulas`）。已移除前端 Tab、`settlement_formula*` / `settlement_result*` 后端 controller/service/repo/model、对应路由与 CLI 命令、RBAC 权限 `settlement.formula.read/write` 与 `settlement.results.read`。底层表 `nfa_settlement_formulas` / `nfa_settlement_results` 保留未删。**禁止**重新引入该公式链路。
 - **消费 / 对账面板**（独立路由，权限 `settlement.data.read`，带 traffic-scope 过滤、按月列对账视图、导出）：
   - `单用户结算查询`(SettlementUserQueryView) = NFA 院校；
   - `单节点结算查询`(SettlementNodeQueryView) = EDC 节点 / 结算分组。

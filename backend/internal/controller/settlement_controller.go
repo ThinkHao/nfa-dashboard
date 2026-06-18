@@ -15,71 +15,12 @@ import (
 
 // SettlementController 结算控制器
 type SettlementController struct {
-	settlementService       service.SettlementService
-	settlementResultService service.SettlementResultService
+	settlementService service.SettlementService
 }
 
-// GetChannelSettlementResults 获取渠道维度结算结果（聚合到渠道/账户）
-func (c *SettlementController) GetChannelSettlementResults(ctx *gin.Context) {
-	var filter model.ChannelResultFilter
-
-	filter.ChannelName = ctx.Query("channel_name")
-	filter.UserName = ctx.Query("user_name")
-	startDateStr := ctx.Query("start_date")
-	endDateStr := ctx.Query("end_date")
-
-	if startDateStr == "" || endDateStr == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "start_date 与 end_date 必填"})
-		return
-	}
-	var err error
-	if filter.StartDate, err = parseDateBoundary(startDateStr, false); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "开始日期格式错误，应为YYYY-MM-DD或YYYY-MM-DD HH:mm:ss", "error": err.Error()})
-		return
-	}
-	if filter.EndDate, err = parseDateBoundary(endDateStr, true); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "结束日期格式错误，应为YYYY-MM-DD或YYYY-MM-DD HH:mm:ss", "error": err.Error()})
-		return
-	}
-
-	if v := ctx.Query("formula_id"); v != "" {
-		if id, parseErr := strconv.ParseUint(v, 10, 64); parseErr == nil {
-			filter.FormulaID = id
-		} else {
-			ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "公式ID格式错误", "error": parseErr.Error()})
-			return
-		}
-	}
-	if v := ctx.DefaultQuery("limit", "50"); v != "" {
-		if n, parseErr := strconv.Atoi(v); parseErr == nil {
-			filter.Limit = n
-		}
-	}
-	if v := ctx.DefaultQuery("offset", "0"); v != "" {
-		if n, parseErr := strconv.Atoi(v); parseErr == nil {
-			filter.Offset = n
-		}
-	}
-	if filter.Limit <= 0 {
-		filter.Limit = 50
-	}
-	if filter.Offset < 0 {
-		filter.Offset = 0
-	}
-
-	items, total, svcErr := c.settlementResultService.CalculateChannelResults(filter)
-	if svcErr != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取渠道结算结果失败", "error": svcErr.Error()})
-		return
-	}
-
-	ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取渠道结算结果成功", "data": gin.H{"total": total, "items": items}})
-}
-
-func NewSettlementController(settlementService service.SettlementService, settlementResultService service.SettlementResultService) *SettlementController {
+func NewSettlementController(settlementService service.SettlementService) *SettlementController {
 	return &SettlementController{
-		settlementService:       settlementService,
-		settlementResultService: settlementResultService,
+		settlementService: settlementService,
 	}
 }
 
@@ -155,85 +96,6 @@ func (c *SettlementController) GetSettlementsV2(ctx *gin.Context) {
 		return
 	}
 	ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取结算数据列表成功", "data": gin.H{"total": total, "items": settlements}})
-}
-
-// GetSettlementResults 获取结算结果（应用公式后的汇总）
-func (c *SettlementController) GetSettlementResults(ctx *gin.Context) {
-	var filter model.SettlementResultFilter
-	filter.Region = ctx.Query("region")
-	filter.CP = ctx.Query("cp")
-	filter.SchoolName = ctx.Query("school_name")
-	filter.SchoolID = ctx.Query("school_id")
-	// 解析日期
-	startDateStr := ctx.Query("start_date")
-	endDateStr := ctx.Query("end_date")
-	if startDateStr == "" || endDateStr == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "start_date 与 end_date 必填"})
-		return
-	}
-	var err error
-	if filter.StartDate, err = parseDateBoundary(startDateStr, false); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "开始日期格式错误，应为YYYY-MM-DD或YYYY-MM-DD HH:mm:ss", "error": err.Error()})
-		return
-	}
-	if filter.EndDate, err = parseDateBoundary(endDateStr, true); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "结束日期格式错误，应为YYYY-MM-DD或YYYY-MM-DD HH:mm:ss", "error": err.Error()})
-		return
-	}
-	// 解析公式ID
-	if v := ctx.Query("formula_id"); v != "" {
-		if id, parseErr := strconv.ParseUint(v, 10, 64); parseErr == nil {
-			filter.FormulaID = id
-		} else {
-			ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "公式ID格式错误", "error": parseErr.Error()})
-			return
-		}
-	}
-	if v := ctx.DefaultQuery("limit", "50"); v != "" {
-		if n, parseErr := strconv.Atoi(v); parseErr == nil {
-			filter.Limit = n
-		}
-	}
-	if v := ctx.DefaultQuery("offset", "0"); v != "" {
-		if n, parseErr := strconv.Atoi(v); parseErr == nil {
-			filter.Offset = n
-		}
-	}
-	if v := ctx.Query("unit_base"); v != "" {
-		if n, parseErr := strconv.Atoi(v); parseErr == nil && (n == 1000 || n == 1024) {
-			filter.UnitBase = n
-		}
-	}
-	if filter.UnitBase == 0 { // 默认 IEC
-		filter.UnitBase = 1024
-	}
-	if filter.Limit <= 0 {
-		filter.Limit = 50
-	}
-	if filter.Offset < 0 {
-		filter.Offset = 0
-	}
-
-	var reqUserID *uint64
-	if v := ctx.Query("user_id"); v != "" {
-		if uv, parseErr := strconv.ParseUint(v, 10, 64); parseErr == nil && uv > 0 {
-			reqUserID = &uv
-		}
-	}
-	if !hasAnyPermission(ctx, "system.user.manage") {
-		if uid, ok := currentUserID(ctx); ok {
-			reqUserID = &uid
-		}
-	}
-	filter.UserID = reqUserID
-
-	results, total, err := c.settlementResultService.CalculateResults(filter)
-	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取结算结果失败", "error": err.Error()})
-		return
-	}
-
-	ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取结算结果成功", "data": gin.H{"total": total, "items": results}})
 }
 
 // UpdateSettlementConfig 更新结算配置

@@ -33,13 +33,7 @@ func BuildEngine() *gin.Engine {
 	settlementRepo := repository.NewSettlementRepository()
 	settlementService := service.NewSettlementService(settlementRepo)
 
-	formulaRepo := repository.NewSettlementFormulaRepository()
-	formulaService := service.NewSettlementFormulaService(formulaRepo)
-	formulaController := controller.NewSettlementFormulaController(formulaService)
-
-	settlementResultRepo := repository.NewSettlementResultRepository()
-	settlementResultService := service.NewSettlementResultService(settlementResultRepo, formulaRepo)
-	settlementController := controller.NewSettlementController(settlementService, settlementResultService)
+	settlementController := controller.NewSettlementController(settlementService)
 
 	entitiesRepo := repository.NewEntitiesRepository()
 	userRepo := repository.NewUserRepository()
@@ -168,8 +162,6 @@ func BuildEngine() *gin.Engine {
 			settlement.DELETE("/tasks/:id", authMW.PermissionRequired("settlement.calculate"), settlementController.DeleteSettlementTask)
 
 			settlement.GET("/data", authMW.PermissionRequired("settlement.read"), settlementController.GetSettlements)
-			settlement.GET("/results", authMW.PermissionRequired("settlement.results.read"), settlementController.GetSettlementResults)
-			settlement.GET("/results/channels", authMW.PermissionRequired("settlement.results.read"), settlementController.GetChannelSettlementResults)
 
 			settlement.GET("/data/customer", authMW.PermissionRequired("settlement.data.read"), settlementDataController.ListCustomerData)
 			settlement.GET("/data/customer/monthly", authMW.PermissionRequired("settlement.data.read"), settlementDataController.ListCustomerMonthlyData)
@@ -181,15 +173,6 @@ func BuildEngine() *gin.Engine {
 			settlement.GET("/data/customer/owner-subjects", authMW.PermissionRequired("settlement.data.read"), settlementDataController.ListUsedOwnerSubjects)
 			settlement.GET("/data/node", authMW.PermissionRequired("settlement.data.read"), edcNodeSettlementController.ListNodeDaily)
 			settlement.GET("/data/node/monthly", authMW.PermissionRequired("settlement.data.read"), edcNodeSettlementController.ListNodeMonthly)
-
-			formulas := settlement.Group("/formulas")
-			{
-				formulas.GET("", authMW.PermissionRequired("settlement.formula.read"), formulaController.List)
-				formulas.GET("/:id", authMW.PermissionRequired("settlement.formula.read"), formulaController.Get)
-				formulas.POST("", authMW.PermissionRequired("settlement.formula.write"), formulaController.Create)
-				formulas.PUT("/:id", authMW.PermissionRequired("settlement.formula.write"), formulaController.Update)
-				formulas.DELETE("/:id", authMW.PermissionRequired("settlement.formula.write"), formulaController.Delete)
-			}
 
 			rates := settlement.Group("/rates")
 			{

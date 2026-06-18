@@ -41,9 +41,6 @@ import type {
   FilterRule,
   CreateFilterRuleRequest,
   UpdateFilterRuleRequest,
-  SettlementFormulaItem,
-  CreateSettlementFormulaRequest,
-  UpdateSettlementFormulaRequest,
   DiscountedFinalCustomerRate,
   TrafficScopePreview,
   TrafficScopeOptionItem,
@@ -55,13 +52,6 @@ import type {
 } from '@/types/api'
 import type { AxiosRequestConfig } from 'axios'
 import { api, raw } from './httpClient'
-
-let latestTrafficSettings: SystemTrafficSettings | null = null
-
-function normalizeSettlementResultUnitBase(value: unknown): 1000 | 1024 | null {
-  if (value === 1000 || value === 1024) return value
-  return null
-}
 
 // API接口
 export default {
@@ -184,66 +174,6 @@ export default {
         .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
 
-    // 获取结算结果列表
-    getResults(params?: any, config?: AxiosRequestConfig) {
-      const normalizedParams = { ...(params || {}) }
-      const hasUnitBase = normalizedParams.unit_base === 1000 || normalizedParams.unit_base === 1024
-      if (!hasUnitBase) {
-        const fallback = normalizeSettlementResultUnitBase(latestTrafficSettings?.settlement_result_unit_base)
-        if (fallback != null) normalizedParams.unit_base = fallback
-      }
-      return api
-        .get('/api/v1/settlement/results', { params: normalizedParams, ...(config || {}) })
-        .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
-    },
-
-    // 获取渠道维度结算结果列表
-    getChannelResults(params?: any, config?: AxiosRequestConfig) {
-      return api
-        .get('/api/v1/settlement/results/channels', { params, ...(config || {}) })
-        .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
-    },
-
-    // 结算公式管理
-    formulas: {
-      list(params?: { limit?: number; offset?: number }): Promise<PaginatedData<SettlementFormulaItem>> {
-        return api
-          .get('/api/v1/settlement/formulas', { params })
-          .then((d: any) => {
-            const data = d && typeof d === 'object' && 'data' in d ? (d as any).data : d
-            if (data && typeof data === 'object' && 'items' in data) {
-              const items = Array.isArray((data as any).items) ? (data as any).items : []
-              const total = Number((data as any).total ?? items.length)
-              return { items: items as SettlementFormulaItem[], total }
-            }
-            if (Array.isArray(data)) {
-              return { items: data as SettlementFormulaItem[], total: (data as SettlementFormulaItem[]).length }
-            }
-            return { items: [], total: 0 }
-          })
-      },
-      get(id: number): Promise<SettlementFormulaItem | null> {
-        return api
-          .get(`/api/v1/settlement/formulas/${id}`)
-          .then((d: any) => (d && typeof d === 'object' && 'data' in d ? ((d as any).data as SettlementFormulaItem) : (d as SettlementFormulaItem)))
-          .catch(() => null)
-      },
-      create(payload: CreateSettlementFormulaRequest): Promise<SettlementFormulaItem> {
-        return api
-          .post('/api/v1/settlement/formulas', payload)
-          .then((d: any) => (d && typeof d === 'object' && 'data' in d ? ((d as any).data as SettlementFormulaItem) : (d as SettlementFormulaItem)))
-      },
-      update(id: number, payload: UpdateSettlementFormulaRequest): Promise<void> {
-        return api
-          .put(`/api/v1/settlement/formulas/${id}`, payload)
-          .then(() => undefined)
-      },
-      remove(id: number): Promise<void> {
-        return api
-          .delete(`/api/v1/settlement/formulas/${id}`)
-          .then(() => undefined)
-      },
-    },
   }
   ,
   // 操作日志 API
@@ -313,16 +243,10 @@ export default {
     },
     settings: {
       getTraffic(): Promise<SystemTrafficSettings> {
-        return api.get('/api/v1/system/settings/traffic').then((d: any) => {
-          latestTrafficSettings = d as SystemTrafficSettings
-          return d as SystemTrafficSettings
-        })
+        return api.get('/api/v1/system/settings/traffic').then((d: any) => d as SystemTrafficSettings)
       },
       updateTraffic(data: SystemTrafficSettings): Promise<SystemTrafficSettings> {
-        return api.put('/api/v1/system/settings/traffic', data).then((d: any) => {
-          latestTrafficSettings = d as SystemTrafficSettings
-          return d as SystemTrafficSettings
-        })
+        return api.put('/api/v1/system/settings/traffic', data).then((d: any) => d as SystemTrafficSettings)
       },
     },
     roles: {
