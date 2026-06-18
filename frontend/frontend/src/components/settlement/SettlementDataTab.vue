@@ -265,7 +265,7 @@ import QueryActionButton from '@/components/ui/QueryActionButton.vue'
 import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import { useSystemTrafficSettings } from '@/composables/useSystemTrafficSettings'
-import { bitsPerSecondToRate, type TrafficRateUnit } from '@/utils/traffic-units'
+import { bitsPerSecondToRate, normalizeByteUnitBase, type TrafficRateUnit } from '@/utils/traffic-units'
 import { sanitizeScopeOptionValues } from '@/utils/scope-options'
 
 // 学校、地区和运营商数据
@@ -304,6 +304,11 @@ const dataSourceOptions = [
 const granularity = ref<SettlementGranularity>('daily')
 const settlementDataRateUnit = computed<TrafficRateUnit>(() => (
   trafficSettings.settings.value.settlement_data_rate_unit === 'Gbps' ? 'Gbps' : 'Mbps'
+))
+// 流量比特率换算的进制（1000/1024）取自 settlement_result_unit_base，
+// 与单用户结算查询（SettlementUserQueryView，正确基准）保持一致。
+const settlementDataUnitBase = computed(() => (
+  normalizeByteUnitBase(trafficSettings.settings.value.settlement_result_unit_base, 1024)
 ))
 const serviceDateColumnLabel = computed(() => (granularity.value === 'monthly' ? '服务月份' : '服务日期'))
 const trafficColumnLabel = computed(() => (granularity.value === 'monthly' ? `月均95值(${settlementDataRateUnit.value})` : `日95值(${settlementDataRateUnit.value})`))
@@ -399,9 +404,10 @@ function ruleAffectsField(rule: any, rateField: string): boolean {
 function amountDetail(row: any, rateField: string, billField: string, rateLabel: string): string {
   try {
     const sv = Number(row?.settlement_value ?? 0)
+    const base = settlementDataUnitBase.value
     const bps = (sv * 8) / 60
-    const mbps = bps / 1_000_000
-    const gbps = bps / 1_000_000_000
+    const mbps = bps / (base * base)
+    const gbps = bps / (base * base * base)
     const rateRaw = row ? row[rateField] : null
     const rate = rateRaw != null ? Number(rateRaw) : NaN
     const days = daysInMonthFrom(row?.service_date)
@@ -412,8 +418,8 @@ function amountDetail(row: any, rateField: string, billField: string, rateLabel:
     lines.push(`日期：${row?.service_date ?? ''}`)
     lines.push(`日95原值：${sv}`)
     lines.push(`换算：bits/s = 日95 * 8 / 60 = ${(sv*8).toFixed(2)} / 60 = ${toFixedNum(bps, 2)}`)
-    lines.push(`换算：Mbps = bits/s / 1e6 = ${toFixedNum(bps,2)} / 1e6 = ${toFixedNum(mbps, 2)}`)
-    lines.push(`换算：Gbps = bits/s / 1e9 = ${toFixedNum(bps,2)} / 1e9 = ${toFixedNum(gbps, 6)}`)
+    lines.push(`换算(${base}进制)：Mbps = bits/s / ${base}² = ${toFixedNum(bps,2)} / ${base * base} = ${toFixedNum(mbps, 2)}`)
+    lines.push(`换算(${base}进制)：Gbps = bits/s / ${base}³ = ${toFixedNum(bps,2)} / ${base * base * base} = ${toFixedNum(gbps, 6)}`)
     let extra: string[] = []
     const rid = Number(row?.discount_rule_id || 0)
     const yi = Number(row?.service_year_index || 0)
@@ -584,7 +590,7 @@ const formatBitRate = (bitsPerSecond: number | null | undefined, withUnit = true
     return withUnit ? `0.00 ${settlementDataRateUnit.value}` : '0.00'
   }
 
-  const rate = bitsPerSecondToRate(bitsPerSecond, settlementDataRateUnit.value)
+  const rate = bitsPerSecondToRate(bitsPerSecond, settlementDataRateUnit.value, settlementDataUnitBase.value)
   return withUnit ? `${rate.toFixed(2)} ${settlementDataRateUnit.value}` : rate.toFixed(2)
 }
 
@@ -681,11 +687,11 @@ async function hydrateRowCalcMeta(rows: any[]) {
 const getTrafficMetricValue = (row: any, key: string): number | null => {
   if (!row) return null
   if (key === 'daily_95_mbps') {
-    return Number(bitsPerSecondToRate(convertToBitsPerSecond(Number(row?.settlement_value ?? 0)), settlementDataRateUnit.value).toFixed(9))
+    return Number(bitsPerSecondToRate(convertToBitsPerSecond(Number(row?.settlement_value ?? 0)), settlementDataRateUnit.value, settlementDataUnitBase.value).toFixed(9))
   }
   if (key === 'daily_increment_mbps') {
     if (row?.daily_increment_value == null) return null
-    return Number(bitsPerSecondToRate(convertToBitsPerSecond(Number(row.daily_increment_value)), settlementDataRateUnit.value).toFixed(9))
+    return Number(bitsPerSecondToRate(convertToBitsPerSecond(Number(row.daily_increment_value)), settlementDataRateUnit.value, settlementDataUnitBase.value).toFixed(9))
   }
   return null
 }
@@ -1068,8 +1074,8 @@ const allFieldDefs = computed<FieldDef[]>(() => [
   { key: 'region', label: '地区', type: 'base', getter: (r:any)=> r?.region ?? '' },
   { key: 'cp', label: 'CP', type: 'base', getter: (r:any)=> r?.cp ?? '' },
   { key: 'service_date', label: '服务日期', type: 'base', getter: (r:any)=> r?.service_date ? formatDateDisplay(String(r.service_date)) : '' },
-  { key: 'daily_95_mbps', label: `日95(${settlementDataRateUnit.value})`, type: 'traffic', getter: (r:any)=> bitsPerSecondToRate(convertToBitsPerSecond(Number(r?.settlement_value ?? 0)), settlementDataRateUnit.value).toFixed(2) },
-  { key: 'daily_increment_mbps', label: `当日增量(${settlementDataRateUnit.value})`, type: 'traffic', getter: (r:any)=> r?.daily_increment_value != null ? bitsPerSecondToRate(convertToBitsPerSecond(Number(r.daily_increment_value)), settlementDataRateUnit.value).toFixed(2) : '' },
+  { key: 'daily_95_mbps', label: `日95(${settlementDataRateUnit.value})`, type: 'traffic', getter: (r:any)=> bitsPerSecondToRate(convertToBitsPerSecond(Number(r?.settlement_value ?? 0)), settlementDataRateUnit.value, settlementDataUnitBase.value).toFixed(2) },
+  { key: 'daily_increment_mbps', label: `当日增量(${settlementDataRateUnit.value})`, type: 'traffic', getter: (r:any)=> r?.daily_increment_value != null ? bitsPerSecondToRate(convertToBitsPerSecond(Number(r.daily_increment_value)), settlementDataRateUnit.value, settlementDataUnitBase.value).toFixed(2) : '' },
   { key: 'customer_fee', label: '客户费率', type: 'base', getter: (r:any)=> r?.customer_fee },
   { key: 'customer_bill', label: '客户金额', type: 'money', getter: (r:any)=> r?.customer_bill },
   { key: 'customer_fee_owner_name', label: '客户费归属', type: 'base', getter: (r:any)=> displayUser(r?.customer_fee_owner_id) },

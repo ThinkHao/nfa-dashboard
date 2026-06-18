@@ -110,8 +110,9 @@ API 两个版本：
 - **禁止**在输出中打印 access/refresh token；使用环境变量 `NFA_DASHBOARD_BASE_URL`, `NFA_DASHBOARD_TOKEN`, `NFA_DASHBOARD_REFRESH_TOKEN`
 - 写操作支持 `--dry-run`（显示 method, path, query, body 而不发送）
 - 默认输出为人类/agent 可读摘要，JSON 保存到文件；仅 `--print-body` 时输出完整 JSON
-- 流量数据转换：`raw_bytes * 8 / 60 / 1_000_000` = Mbps（不要用 `/300`）
-- 比特率单位使用十进制 `1000`（`Mbps = bits/s / 1_000_000`），`traffic_byte_unit_base` 仅影响字节大小显示（B/KB/MB/GB），不影响 bps/Kbps/Mbps
+- **流量监控原始点**（`traffic data` / `edc data`，TrafficView）转换：`raw_bytes * 8 / 60 / 1_000_000` = Mbps（NFA 采样 60s，不要用 `/300`）。此场景比特率**固定十进制 `1000`**；`traffic_byte_unit_base` 仅影响字节大小显示（B/KB/MB/GB），不影响 bps/Kbps/Mbps。
+- **结算 95 流量值**（节点日/月95、院校日95、单用户/单节点结算查询）：`settlement_result_unit_base`（1000/1024）**作用于流量数值本身**，不只作用于结算金额。换算 `Mbps = raw * 8 / 采样周期 / base²`、`Gbps = … / base³`，`base` 取 1000 或 1024，**整条换算链路必须统一同一进制**（1024 与 1000 相差 1.024²≈1.0486）。采样周期按数据源各取：NFA 院校 60s、EDC 节点 300s（288 点/天）。**单用户结算查询（SettlementUserQueryView）的单位换算逻辑为正确基准**，其它结算视图（含 `结算数据` NFA 侧"日95值"列）必须与之对齐。
+- 区分两个设置：`traffic_byte_unit_base`（仅流量监控页字节大小显示）vs `settlement_result_unit_base`（结算 95 流量口径，影响 Mbps/Gbps 数值）。
 
 ### SQL & Migrations
 
