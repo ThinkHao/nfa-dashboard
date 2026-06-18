@@ -263,9 +263,12 @@ func dispatch(c *client, args []string, stdout io.Writer) (*responseData, error)
 		return dispatchAuth(c, args[1:], stdout)
 	case "api":
 		return dispatchRawAPI(c, args[1:])
-	case "traffic", "settlement", "rates", "system", "logs":
+	case "traffic", "edc", "settlement", "rates", "system", "logs":
 		if args[0] == "settlement" && len(args) > 1 && args[1] == "user-panel" {
 			return dispatchSettlementUserPanel(c, args[2:])
+		}
+		if args[0] == "settlement" && len(args) > 1 && args[1] == "node-panel" {
+			return dispatchSettlementNodePanel(c, args[2:])
 		}
 		spec, err := typedSpec(args)
 		if err != nil {
@@ -433,6 +436,43 @@ func dispatchSettlementUserPanel(c *client, args []string) (*responseData, error
 	return &responseData{Body: raw, ContentType: "application/json", Spec: spec}, nil
 }
 
+func dispatchSettlementNodePanel(c *client, args []string) (*responseData, error) {
+	fs := flag.NewFlagSet("settlement node-panel", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	query := multiFlag{}
+	fs.Var(&query, "query", "query key=value")
+	if err := fs.Parse(args); err != nil {
+		return nil, err
+	}
+	filter := parseQueryFlags(query)
+
+	dailySpec := requestSpec{Method: http.MethodGet, Path: "/api/v1/settlement/data/node", Query: copyQuery(filter), Command: "settlement node-panel"}
+	monthlySpec := requestSpec{Method: http.MethodGet, Path: "/api/v1/settlement/data/node/monthly", Query: copyQuery(filter), Command: "settlement node-panel"}
+	if c.opts.DryRun {
+		raw, _ := json.MarshalIndent(map[string]any{
+			"command":  "settlement node-panel",
+			"requests": []requestSpec{dailySpec, monthlySpec},
+		}, "", "  ")
+		return &responseData{Body: raw, ContentType: "application/json", Spec: requestSpec{Method: http.MethodGet, Path: dailySpec.Path + " + " + monthlySpec.Path, Query: filter, Command: "settlement node-panel"}}, nil
+	}
+
+	dailyRows, dailyTotal, err := c.fetchAllRows(dailySpec.Path, filter)
+	if err != nil {
+		return nil, err
+	}
+	monthlyRows, monthlyTotal, err := c.fetchAllRows(monthlySpec.Path, filter)
+	if err != nil {
+		return nil, err
+	}
+	panel := buildNodePanelResponse(filter, monthlyRows, dailyRows, monthlyTotal, dailyTotal)
+	raw, err := json.Marshal(panel)
+	if err != nil {
+		return nil, err
+	}
+	spec := requestSpec{Method: http.MethodGet, Path: dailySpec.Path + " + " + monthlySpec.Path, Query: filter, Command: "settlement node-panel"}
+	return &responseData{Body: raw, ContentType: "application/json", Spec: spec}, nil
+}
+
 func parseRequestFlags(method, path string, args []string) (requestSpec, error) {
 	fs := flag.NewFlagSet("request", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -542,27 +582,29 @@ func typedRoutes() map[string]route {
 		"traffic data":    {http.MethodGet, "/api/v2/traffic"},
 		"traffic summary": {http.MethodGet, "/api/v2/traffic/summary"},
 
+		"edc entities": {http.MethodGet, "/api/v2/edc/entities"},
+		"edc regions":  {http.MethodGet, "/api/v2/edc/regions"},
+		"edc cps":      {http.MethodGet, "/api/v2/edc/cps"},
+		"edc data":     {http.MethodGet, "/api/v2/edc/traffic"},
+		"edc summary":  {http.MethodGet, "/api/v2/edc/traffic/summary"},
+
 		"settlement config get":                    {http.MethodGet, "/api/v1/settlement/config"},
 		"settlement config update":                 {http.MethodPut, "/api/v1/settlement/config"},
 		"settlement tasks list":                    {http.MethodGet, "/api/v1/settlement/tasks"},
 		"settlement tasks get":                     {http.MethodGet, "/api/v1/settlement/tasks/{id}"},
 		"settlement tasks create-daily":            {http.MethodPost, "/api/v1/settlement/tasks/daily"},
 		"settlement tasks create-weekly":           {http.MethodPost, "/api/v1/settlement/tasks/weekly"},
+		"settlement tasks create-node-daily95":     {http.MethodPost, "/api/v1/settlement/tasks/node-daily95"},
+		"settlement tasks create-node-monthly95":   {http.MethodPost, "/api/v1/settlement/tasks/node-monthly95"},
 		"settlement tasks delete":                  {http.MethodDelete, "/api/v1/settlement/tasks/{id}"},
 		"settlement data list":                     {http.MethodGet, "/api/v1/settlement/data"},
-		"settlement daily-details list":            {http.MethodGet, "/api/v1/settlement/daily-details"},
-		"settlement results list":                  {http.MethodGet, "/api/v1/settlement/results"},
-		"settlement channel-results list":          {http.MethodGet, "/api/v1/settlement/results/channels"},
 		"settlement data customer":                 {http.MethodGet, "/api/v1/settlement/data/customer"},
+		"settlement data node":                     {http.MethodGet, "/api/v1/settlement/data/node"},
+		"settlement data node-monthly":             {http.MethodGet, "/api/v1/settlement/data/node/monthly"},
 		"settlement data monthly":                  {http.MethodGet, "/api/v1/settlement/data/customer/monthly"},
 		"settlement owner-subjects":                {http.MethodGet, "/api/v1/settlement/data/customer/owner-subjects"},
 		"settlement data recalculate":              {http.MethodPost, "/api/v1/settlement/data/customer/recalculate"},
 		"settlement data rebuild-monthly":          {http.MethodPost, "/api/v1/settlement/data/customer/monthly/rebuild"},
-		"settlement formulas list":                 {http.MethodGet, "/api/v1/settlement/formulas"},
-		"settlement formulas get":                  {http.MethodGet, "/api/v1/settlement/formulas/{id}"},
-		"settlement formulas create":               {http.MethodPost, "/api/v1/settlement/formulas"},
-		"settlement formulas update":               {http.MethodPut, "/api/v1/settlement/formulas/{id}"},
-		"settlement formulas delete":               {http.MethodDelete, "/api/v1/settlement/formulas/{id}"},
 		"settlement entities list":                 {http.MethodGet, "/api/v1/settlement/entities"},
 		"settlement entities create":               {http.MethodPost, "/api/v1/settlement/entities"},
 		"settlement entities update":               {http.MethodPut, "/api/v1/settlement/entities/{id}"},
@@ -584,6 +626,14 @@ func typedRoutes() map[string]route {
 		"rates customer import-task created-users": {http.MethodGet, "/api/v1/settlement/rates/customer/import/tasks/{id}/created-users.csv"},
 		"rates node list":                          {http.MethodGet, "/api/v1/settlement/rates/node"},
 		"rates node upsert":                        {http.MethodPost, "/api/v1/settlement/rates/node"},
+		"rates node-groups list":                   {http.MethodGet, "/api/v1/settlement/rates/node-groups"},
+		"rates node-groups create":                 {http.MethodPost, "/api/v1/settlement/rates/node-groups"},
+		"rates node-groups update":                 {http.MethodPut, "/api/v1/settlement/rates/node-groups/{id}"},
+		"rates node-groups delete":                 {http.MethodDelete, "/api/v1/settlement/rates/node-groups/{id}"},
+		"rates final-node list":                    {http.MethodGet, "/api/v1/settlement/rates/final-node"},
+		"rates final-node upsert":                  {http.MethodPost, "/api/v1/settlement/rates/final-node"},
+		"rates final-node init-from-node":          {http.MethodPost, "/api/v1/settlement/rates/final-node/init-from-node"},
+		"rates final-node refresh":                 {http.MethodPost, "/api/v1/settlement/rates/final-node/refresh"},
 		"rates final list":                         {http.MethodGet, "/api/v1/settlement/rates/final"},
 		"rates final discounted":                   {http.MethodGet, "/api/v1/settlement/rates/final-discounted"},
 		"rates final upsert":                       {http.MethodPost, "/api/v1/settlement/rates/final"},
@@ -634,6 +684,8 @@ func typedRoutes() map[string]route {
 		"system traffic-scopes list":               {http.MethodGet, "/api/v1/system/traffic-scopes/{user_id}"},
 		"system traffic-scopes replace":            {http.MethodPut, "/api/v1/system/traffic-scopes/{user_id}"},
 		"system traffic-scopes preview":            {http.MethodGet, "/api/v1/system/traffic-scopes/{user_id}/preview"},
+		"system edc-traffic-scopes list":           {http.MethodGet, "/api/v1/system/edc-traffic-scopes/{user_id}"},
+		"system edc-traffic-scopes replace":        {http.MethodPut, "/api/v1/system/edc-traffic-scopes/{user_id}"},
 		"system settings traffic get":              {http.MethodGet, "/api/v1/system/settings/traffic"},
 		"system settings traffic update":           {http.MethodPut, "/api/v1/system/settings/traffic"},
 		"logs list":                                {http.MethodGet, "/api/v1/system/operation-logs"},
@@ -974,6 +1026,161 @@ func buildUserPanelResponse(filter map[string]string, view string, settings user
 	}
 }
 
+type nodePanelRow struct {
+	DisplayName  string  `json:"display_name"`
+	Region       string  `json:"region,omitempty"`
+	CP           string  `json:"cp,omitempty"`
+	ServiceMonth string  `json:"service_month"`
+	Mbps95       float64 `json:"mbps_95"`
+	Amount       float64 `json:"amount"`
+	Source       string  `json:"source"` // monthly | daily-avg
+}
+
+type nodePanelSummary struct {
+	Months       []string `json:"months"`
+	NodeCount    int      `json:"node_count"`
+	MonthlyRows  int      `json:"monthly_rows"`
+	DailyRows    int      `json:"daily_rows"`
+	MonthlyTotal int      `json:"monthly_total"`
+	DailyTotal   int      `json:"daily_total"`
+	Mbps95Total  float64  `json:"mbps95_total"`
+	AmountTotal  float64  `json:"amount_total"`
+	RateUnit     string   `json:"rate_unit"`
+}
+
+// buildNodePanelResponse mirrors SettlementNodeQueryView's monthly-column view:
+// per node+month the 月95 prefers the monthly row's mbps_95, falling back to the
+// average of the daily mbps_95 values, and the amount comes from the monthly
+// total_bill. Node mbps_95 is already in Mbps, so no unit conversion is applied.
+func buildNodePanelResponse(filter map[string]string, monthlyRows, dailyRows []map[string]any, monthlyTotal, dailyTotal int) map[string]any {
+	type nodeMonthAgg struct {
+		region    string
+		cp        string
+		monthly95 float64
+		amount    float64
+		hasMonth  bool
+		dailySum  float64
+		dailyCnt  int
+	}
+	aggs := map[string]*nodeMonthAgg{}
+	monthSet := map[string]struct{}{}
+	key := func(name, month string) string { return name + "\x00" + month }
+	get := func(name, month, region, cp string) *nodeMonthAgg {
+		k := key(name, month)
+		a := aggs[k]
+		if a == nil {
+			a = &nodeMonthAgg{region: region, cp: cp}
+			aggs[k] = a
+		}
+		if a.region == "" {
+			a.region = region
+		}
+		if a.cp == "" {
+			a.cp = cp
+		}
+		return a
+	}
+
+	for _, row := range monthlyRows {
+		name := strings.TrimSpace(stringValue(row["display_name"]))
+		if name == "" {
+			name = "-"
+		}
+		month := serviceMonth(firstNonNil(row["service_month"], row["settlement_time"]))
+		if month == "" {
+			continue
+		}
+		monthSet[month] = struct{}{}
+		a := get(name, month, stringValue(row["region"]), stringValue(row["cp"]))
+		a.monthly95 += numberValue(row["mbps_95"])
+		a.amount += numberValue(row["total_bill"])
+		a.hasMonth = true
+	}
+	for _, row := range dailyRows {
+		name := strings.TrimSpace(stringValue(row["display_name"]))
+		if name == "" {
+			name = "-"
+		}
+		month := serviceMonth(firstNonNil(row["settlement_time"], row["service_month"]))
+		if month == "" {
+			continue
+		}
+		monthSet[month] = struct{}{}
+		a := get(name, month, stringValue(row["region"]), stringValue(row["cp"]))
+		a.dailySum += numberValue(row["mbps_95"])
+		a.dailyCnt++
+	}
+
+	months := make([]string, 0, len(monthSet))
+	for m := range monthSet {
+		months = append(months, m)
+	}
+	sort.Strings(months)
+
+	panelRows := make([]nodePanelRow, 0, len(aggs))
+	nodeNames := map[string]struct{}{}
+	summary := nodePanelSummary{
+		Months:       months,
+		MonthlyRows:  len(monthlyRows),
+		DailyRows:    len(dailyRows),
+		MonthlyTotal: monthlyTotal,
+		DailyTotal:   dailyTotal,
+		RateUnit:     "Mbps",
+	}
+	for k, a := range aggs {
+		name := strings.SplitN(k, "\x00", 2)[0]
+		month := strings.SplitN(k, "\x00", 2)[1]
+		nodeNames[name] = struct{}{}
+		row := nodePanelRow{
+			DisplayName:  name,
+			Region:       a.region,
+			CP:           a.cp,
+			ServiceMonth: month,
+			Amount:       round2(a.amount),
+		}
+		if a.hasMonth {
+			row.Mbps95 = round2(a.monthly95)
+			row.Source = "monthly"
+		} else if a.dailyCnt > 0 {
+			row.Mbps95 = round2(a.dailySum / float64(a.dailyCnt))
+			row.Source = "daily-avg"
+		}
+		panelRows = append(panelRows, row)
+		summary.Mbps95Total += row.Mbps95
+		summary.AmountTotal += row.Amount
+	}
+	sort.Slice(panelRows, func(i, j int) bool {
+		if panelRows[i].ServiceMonth != panelRows[j].ServiceMonth {
+			return panelRows[i].ServiceMonth > panelRows[j].ServiceMonth
+		}
+		return panelRows[i].DisplayName < panelRows[j].DisplayName
+	})
+	summary.NodeCount = len(nodeNames)
+	summary.Mbps95Total = round2(summary.Mbps95Total)
+	summary.AmountTotal = round2(summary.AmountTotal)
+	return map[string]any{
+		"command":      "settlement node-panel",
+		"filters":      filter,
+		"summary":      summary,
+		"panel_rows":   panelRows,
+		"monthly_rows": monthlyRows,
+		"daily_rows":   dailyRows,
+	}
+}
+
+func firstNonNil(values ...any) any {
+	for _, v := range values {
+		if v == nil {
+			continue
+		}
+		if s, ok := v.(string); ok && strings.TrimSpace(s) == "" {
+			continue
+		}
+		return v
+	}
+	return nil
+}
+
 func monthlyDaily95BySchool(dailyRows []map[string]any, settings userPanelSettings) map[string]map[string]float64 {
 	grouped := map[string]map[string]float64{}
 	for _, row := range dailyRows {
@@ -1180,7 +1387,7 @@ func buildSummary(data *responseData, jsonFile, svgFile string) string {
 	if svgFile != "" {
 		fmt.Fprintf(&b, "svg: %s\n", svgFile)
 	}
-	if data.Spec.Command == "traffic data" {
+	if data.Spec.Command == "traffic data" || data.Spec.Command == "edc data" {
 		if s, err := trafficSummary(data.Body); err == nil {
 			b.WriteString(s)
 			return b.String()
@@ -1188,6 +1395,12 @@ func buildSummary(data *responseData, jsonFile, svgFile string) string {
 	}
 	if data.Spec.Command == "settlement user-panel" {
 		if s, err := userPanelSummaryText(data.Body); err == nil {
+			b.WriteString(s)
+			return b.String()
+		}
+	}
+	if data.Spec.Command == "settlement node-panel" {
+		if s, err := nodePanelSummaryText(data.Body); err == nil {
 			b.WriteString(s)
 			return b.String()
 		}
@@ -1217,6 +1430,24 @@ func userPanelSummaryText(data []byte) (string, error) {
 	fmt.Fprintf(&b, "network_line_bill_total: %.2f\n", payload.Summary.NetworkLineBillTotal)
 	fmt.Fprintf(&b, "node_deduction_bill_total: %.2f\n", payload.Summary.NodeDeductionBillTotal)
 	fmt.Fprintf(&b, "channel_bill_total: %.2f\n", payload.Summary.ChannelBillTotal)
+	return b.String(), nil
+}
+
+func nodePanelSummaryText(data []byte) (string, error) {
+	var payload struct {
+		Summary nodePanelSummary `json:"summary"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "months: %s\n", strings.Join(payload.Summary.Months, ","))
+	fmt.Fprintf(&b, "node_count: %d\n", payload.Summary.NodeCount)
+	fmt.Fprintf(&b, "monthly_rows: %d\n", payload.Summary.MonthlyRows)
+	fmt.Fprintf(&b, "daily_rows: %d\n", payload.Summary.DailyRows)
+	fmt.Fprintf(&b, "rate_unit: %s\n", payload.Summary.RateUnit)
+	fmt.Fprintf(&b, "mbps95_total: %.2f\n", payload.Summary.Mbps95Total)
+	fmt.Fprintf(&b, "amount_total: %.2f\n", payload.Summary.AmountTotal)
 	return b.String(), nil
 }
 
@@ -1282,11 +1513,26 @@ func trafficRows(data []byte) ([]trafficPoint, error) {
 		if !ok {
 			continue
 		}
+		// NFA traffic points expose total_recv/total_send; EDC traffic points
+		// expose service_size/cache_size. Mirror the web TrafficView aliasing so
+		// EDC data reuses the same 服务流速/回源流速 chart and 95 summary.
+		recv := numberValue(m["total_recv"])
+		if _, ok := m["total_recv"]; !ok {
+			recv = numberValue(m["service_size"])
+		}
+		send := numberValue(m["total_send"])
+		if _, ok := m["total_send"]; !ok {
+			send = numberValue(m["cache_size"])
+		}
+		total := numberValue(m["total"])
+		if v, ok := m["total"]; !ok || numberValue(v) == 0 {
+			total = recv + send
+		}
 		p := trafficPoint{
 			Time:  stringValue(m["create_time"]),
-			Total: numberValue(m["total"]),
-			Recv:  numberValue(m["total_recv"]),
-			Send:  numberValue(m["total_send"]),
+			Total: total,
+			Recv:  recv,
+			Send:  send,
 		}
 		p.TotalMbps = bytesToMbps(p.Total)
 		p.RecvMbps = bytesToMbps(p.Recv)
@@ -1630,14 +1876,26 @@ func printHelp(w io.Writer, args []string) {
 			"traffic data --query region=北京市 --query school_name=北京航空航天大学 --query cp=bilibili --query start_time=\"2026-05-08 00:00:00\" --query end_time=\"2026-05-14 23:59:59\" --query granularity=5m --svg",
 			"traffic summary --query region=北京市 --query cp=bilibili",
 		})
+	case "edc":
+		printTypedHelp(w, "edc", []string{
+			"edc entities --query region=北京市 --query cp=bilibili --query limit=20",
+			"edc data --query display_name=节点A --query start_time=\"2026-05-08 00:00:00\" --query end_time=\"2026-05-14 23:59:59\" --svg",
+			"edc summary --query region=北京市 --query cp=bilibili",
+		})
 	case "settlement":
 		if hasHelpToken(args, "user-panel") {
 			printSettlementUserPanelHelp(w)
 			return
 		}
+		if hasHelpToken(args, "node-panel") {
+			printSettlementNodePanelHelp(w)
+			return
+		}
 		printTypedHelp(w, "settlement", []string{
 			"settlement owner-subjects --query region=北京市 --query cp=bilibili --query start_service_date=\"2026-04-01 00:00:00\" --query end_service_date=\"2026-04-30 23:59:59\"",
 			"settlement user-panel --query channel_owner_user_id=9 --query region=北京市 --query cp=bilibili --query start_service_date=\"2026-04-01 00:00:00\" --query end_service_date=\"2026-04-30 23:59:59\"",
+			"settlement node-panel --query region=北京市 --query cp=bilibili --query start_date=2026-04-01 --query end_date=2026-04-30",
+			"settlement tasks create-node-daily95 --body '{\"start_date\":\"2026-04-01\",\"end_date\":\"2026-04-30\"}' --dry-run",
 			"settlement tasks list --query limit=20",
 			"settlement data rebuild-monthly --body \"{}\" --dry-run",
 		})
@@ -1666,7 +1924,7 @@ func printHelp(w io.Writer, args []string) {
 func helpTopic(args []string) string {
 	for _, arg := range args {
 		switch arg {
-		case "auth", "api", "traffic", "settlement", "rates", "system", "logs":
+		case "auth", "api", "traffic", "edc", "settlement", "rates", "system", "logs":
 			return arg
 		}
 	}
@@ -1696,10 +1954,11 @@ Usage:
 Commands:
   auth        login, profile, refresh, change-password
   api         raw API get/post/put/delete for endpoints without typed commands
-  traffic     schools, regions, cps, data, summary
-  settlement  config, tasks, data, user-panel, formulas, entities
-  rates       customer, node, final, sync/filter/discount rules
-  system      users, roles, permissions, traffic scopes, settings
+  traffic     NFA schools, regions, cps, data, summary
+  edc         EDC entities, regions, cps, data, summary
+  settlement  config, tasks (incl. node-daily95/node-monthly95), data, user-panel, node-panel, entities
+  rates       customer, node, node-groups, final, final-node, sync/filter/discount rules
+  system      users, roles, permissions, traffic scopes, edc-traffic-scopes, settings
   logs        operation-log list/export
   version     print CLI version, commit, and build date
 
@@ -1720,7 +1979,9 @@ Examples:
   nfa-dashboard-cli auth profile
   nfa-dashboard-cli version
   nfa-dashboard-cli traffic data --query region=北京市 --query cp=bilibili --query granularity=5m --svg
+  nfa-dashboard-cli edc data --query region=北京市 --query cp=bilibili --svg
   nfa-dashboard-cli settlement user-panel --query channel_owner_user_id=9 --query cp=bilibili
+  nfa-dashboard-cli settlement node-panel --query region=北京市 --query cp=bilibili --query start_date=2026-04-01 --query end_date=2026-04-30
   nfa-dashboard-cli api get --path /api/v1/auth/profile --print-body
 
 Run "nfa-dashboard-cli <command> --help" for command-specific examples.`)
@@ -1808,13 +2069,17 @@ func typedRouteLines(group string) []string {
 		}
 	}
 	if group == "settlement" {
-		keys = append(keys, "settlement user-panel")
+		keys = append(keys, "settlement user-panel", "settlement node-panel")
 	}
 	sort.Strings(keys)
 	lines := make([]string, 0, len(keys))
 	for _, key := range keys {
 		if key == "settlement user-panel" {
 			lines = append(lines, fmt.Sprintf("%-45s %s", key, "GET /api/v1/settlement/data/customer/monthly + /api/v1/settlement/data/customer"))
+			continue
+		}
+		if key == "settlement node-panel" {
+			lines = append(lines, fmt.Sprintf("%-45s %s", key, "GET /api/v1/settlement/data/node + /api/v1/settlement/data/node/monthly"))
 			continue
 		}
 		route := typedRoutes()[key]
@@ -1852,4 +2117,34 @@ Examples:
   nfa-dashboard-cli settlement owner-subjects --query region=北京市 --query cp=bilibili --query start_service_date="2026-04-01 00:00:00" --query end_service_date="2026-04-30 23:59:59"
   nfa-dashboard-cli settlement user-panel --query channel_owner_user_id=9 --query region=北京市 --query cp=bilibili --query start_service_date="2026-04-01 00:00:00" --query end_service_date="2026-04-30 23:59:59"
   nfa-dashboard-cli settlement user-panel --query channel_owner_user_id=9 --query cp=bilibili --dry-run`)
+}
+
+func printSettlementNodePanelHelp(w io.Writer) {
+	_, _ = fmt.Fprintln(w, `nfa-dashboard-cli settlement node-panel
+
+EDC node settlement panel query. This mirrors the frontend 单节点结算查询 page:
+it fetches node daily95 rows from /api/v1/settlement/data/node and node monthly95
+rows from /api/v1/settlement/data/node/monthly, then aggregates per node+month.
+Each node+month 月95 prefers the monthly mbps_95, falling back to the average of
+daily mbps_95 values; amount comes from the monthly total_bill. Node mbps_95 is
+already in Mbps, so no unit conversion is applied. Requires settlement.data.read.
+
+Usage:
+  nfa-dashboard-cli [global flags] settlement node-panel --query KEY=VALUE...
+
+Common query keys:
+  region                  region filter, for example 北京市
+  cp                      business filter, for example bilibili
+  display_name            optional node / billing-subject name filter
+  settlement_mode         optional, for example daily_95_avg
+  unit_base               1000 (GB) or 1024 (GiB)
+  start_date / end_date   for example 2026-04-01 / 2026-04-30
+  service_month           optional month filter for the monthly side
+
+Flags:
+  --dry-run               show the two backend requests without sending
+
+Examples:
+  nfa-dashboard-cli settlement node-panel --query region=北京市 --query cp=bilibili --query start_date=2026-04-01 --query end_date=2026-04-30
+  nfa-dashboard-cli settlement node-panel --query display_name=节点A --dry-run`)
 }

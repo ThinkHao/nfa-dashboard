@@ -411,6 +411,138 @@ func TestDownloadWritesFile(t *testing.T) {
 	}
 }
 
+func TestTypedEDCDataUsesV2EndpointAndQuery(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/edc/traffic" {
+			t.Fatalf("path=%s", r.URL.Path)
+		}
+		if r.URL.Query().Get("region") != "北京市" || r.URL.Query().Get("cp") != "bilibili" {
+			t.Fatalf("query=%s", r.URL.RawQuery)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []any{map[string]any{"display_name": "节点A"}}})
+	}))
+	defer srv.Close()
+
+	out, errOut, code := runTestCLI(t, "--base-url", srv.URL, "--token", "access-1", "--print-body", "edc", "data", "--query", "region=北京市", "--query", "cp=bilibili")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, errOut)
+	}
+	if !strings.Contains(out, `"display_name": "节点A"`) {
+		t.Fatalf("unexpected output: %s", out)
+	}
+}
+
+func TestTrafficSummaryAliasesEDCServiceAndCacheSize(t *testing.T) {
+	// EDC traffic points expose service_size/cache_size instead of total_recv/total_send.
+	// The summary must alias them and reuse the same 60-second divisor as NFA.
+	body := []byte(`{"data":[{"create_time":"2026-05-06T00:00:00+08:00","service_size":60000000,"cache_size":0}]}`)
+	summary, err := trafficSummary(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(summary, "p95_recv_mbps: 8.00") || !strings.Contains(summary, "p95_total_mbps: 8.00") {
+		t.Fatalf("expected EDC service_size aliased to 服务流速 with 60s divisor, got:\n%s", summary)
+	}
+}
+
+func TestEDCDataSummaryRendersForEDCCommand(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []any{
+			map[string]any{"create_time": "2026-05-06T00:00:00+08:00", "service_size": 60000000, "cache_size": 0},
+			map[string]any{"create_time": "2026-05-06T00:05:00+08:00", "service_size": 120000000, "cache_size": 0},
+		}})
+	}))
+	defer srv.Close()
+
+	out, errOut, code := runTestCLI(t, "--base-url", srv.URL, "--token", "access-1", "--out-dir", t.TempDir(), "edc", "data", "--query", "region=北京市")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, errOut)
+	}
+	if !strings.Contains(out, "points: 2") || !strings.Contains(out, "p95_recv_mbps") {
+		t.Fatalf("edc data should render a traffic summary, got: %s", out)
+	}
+}
+
+func TestNodeDailyTaskSendsSingleRangePayload(t *testing.T) {
+	// CLAUDE.md: range tasks must create exactly one task row; the CLI must pass the
+	// range payload straight through without expanding it into per-day requests.
+	out, errOut, code := runTestCLI(t,
+		"--base-url", "http://example.invalid",
+		"--dry-run", "--print-body",
+		"settlement", "tasks", "create-node-daily95",
+		"--body", `{"start_date":"2026-04-01","end_date":"2026-04-30"}`,
+	)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, errOut)
+	}
+	if !strings.Contains(out, `"method": "POST"`) ||
+		!strings.Contains(out, `"path": "/api/v1/settlement/tasks/node-daily95"`) ||
+		!strings.Contains(out, `\"start_date\":\"2026-04-01\",\"end_date\":\"2026-04-30\"`) {
+		t.Fatalf("node daily task should send one range payload, got: %s", out)
+	}
+}
+
+func TestSettlementNodePanelFetchesNodeEndpointsAndAggregates(t *testing.T) {
+	outDir := t.TempDir()
+	var dailySeen, monthlySeen bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/settlement/data/node":
+			if r.URL.Query().Get("region") != "北京市" || r.URL.Query().Get("cp") != "bilibili" {
+				t.Fatalf("unexpected query for %s: %s", r.URL.Path, r.URL.RawQuery)
+			}
+			dailySeen = true
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{
+				map[string]any{"display_name": "节点A", "region": "北京市", "cp": "bilibili", "settlement_time": "2026-04-01 00:00:00", "mbps_95": 90.0},
+				map[string]any{"display_name": "节点A", "region": "北京市", "cp": "bilibili", "settlement_time": "2026-04-02 00:00:00", "mbps_95": 110.0},
+			}, "total": 2})
+		case "/api/v1/settlement/data/node/monthly":
+			monthlySeen = true
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{
+				map[string]any{"display_name": "节点A", "region": "北京市", "cp": "bilibili", "service_month": "2026-04", "mbps_95": 100.0, "total_bill": 50.0},
+			}, "total": 1})
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	out, errOut, code := runTestCLI(t,
+		"--base-url", srv.URL,
+		"--token", "access-1",
+		"--out-dir", outDir,
+		"settlement", "node-panel",
+		"--query", "region=北京市",
+		"--query", "cp=bilibili",
+	)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, errOut)
+	}
+	if !dailySeen || !monthlySeen {
+		t.Fatalf("dailySeen=%v monthlySeen=%v", dailySeen, monthlySeen)
+	}
+	// Monthly mbps_95 is preferred over the daily average; amount comes from total_bill.
+	if !strings.Contains(out, "summary: settlement node-panel") ||
+		!strings.Contains(out, "node_count: 1") ||
+		!strings.Contains(out, "monthly_rows: 1") ||
+		!strings.Contains(out, "daily_rows: 2") ||
+		!strings.Contains(out, "mbps95_total: 100.00") ||
+		!strings.Contains(out, "amount_total: 50.00") {
+		t.Fatalf("missing node panel summary: %s", out)
+	}
+	files, _ := filepath.Glob(filepath.Join(outDir, "*.json"))
+	if len(files) != 1 {
+		t.Fatalf("expected one JSON result, got %v", files)
+	}
+	raw, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"panel_rows"`) || !strings.Contains(string(raw), `"source": "monthly"`) {
+		t.Fatalf("combined node panel JSON missing expected fields: %s", raw)
+	}
+}
+
 func TestTableAndCSVOutput(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{

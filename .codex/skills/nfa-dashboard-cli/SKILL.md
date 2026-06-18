@@ -1,6 +1,6 @@
 ---
 name: nfa-dashboard-cli
-description: Use when operating nfa-dashboard through its project CLI: querying traffic, settlement, rates, users, roles, permissions, traffic scopes, settings, or audit logs; exporting JSON/SVG/CSV/XLSX; or calling backend HTTP APIs through the generic raw API command.
+description: Use when operating nfa-dashboard through its project CLI: querying NFA (school) traffic and EDC (node) traffic, settlement (incl. node daily95/monthly95 tasks and data), rates (customer/node/node-groups/final/final-node), users, roles, permissions, traffic scopes and EDC traffic scopes, settings, or audit logs; exporting JSON/SVG/CSV/XLSX; or calling backend HTTP APIs through the generic raw API command.
 ---
 
 # nfa-dashboard CLI
@@ -59,7 +59,7 @@ Handle auth and permission failures this way:
    - `go run . <group> --help`
    - `nfa-dashboard-cli <group> --help`
    - `go run . settlement user-panel --help`
-2. Prefer typed commands when available: `auth`, `traffic`, `settlement`, `rates`, `system`, and `logs`.
+2. Prefer typed commands when available: `auth`, `traffic` (NFA schools), `edc` (EDC nodes), `settlement`, `rates`, `system`, and `logs`.
 3. If no typed command exists, use raw API coverage:
    - `go run . api get --path /api/v1/...`
    - `go run . api post --path /api/v1/... --body "{}" --dry-run`
@@ -71,6 +71,20 @@ Handle auth and permission failures this way:
 - Traffic units: NFA raw points convert to Mbps with `raw_bytes * 8 / 60 / 1_000_000`; bit-rate units are decimal 1000, matching the web traffic page.
 - Traffic chart/report wording: the SVG chart plots blue `服务流速` from `total_recv` and green `回源流速` from `total_send`; it does not plot `total`. Unless the user explicitly asks for `总流速` or `回源流速`, traffic reports and P95 values should use `服务流速` (`total_recv`) only.
 - Traffic 95 defaults: unless the user explicitly asks for a different 95th-percentile mode, treat "95值" as `服务流速日95值`, meaning compute one P95 from `total_recv` per natural day in the requested range. If the user asks for `月95值`, compute P95 over all `total_recv` points in the specified time range as a single sorted population; do not split by calendar month unless the user explicitly asks for each month separately. For example, "4到5月的月95值" means sort all service-flow points from April 1 through May 31 together and take one P95. In concise summaries, report only the relevant service-flow P95 values and omit total/backflow, average, and peak/max values unless the user explicitly asks for them. Do not print daily detail rows by default; save daily details to JSON/CSV and show the file path unless the user asks for daily details, a per-day list, or a full table.
+- EDC vs NFA are two independent data links. NFA (school) traffic uses the `traffic` group (`/api/v2/traffic`); EDC (node) traffic uses the `edc` group (`/api/v2/edc/traffic`). The web `流量监控` page unifies them with a `data_source` switch, but the CLI keeps them as separate command groups. Use `edc entities`/`edc regions`/`edc cps` to discover EDC filters, and `edc data`/`edc summary` for node traffic.
+- EDC traffic units: EDC points expose `service_size` (服务流速) and `cache_size` (回源流速) instead of NFA's `total_recv`/`total_send`. The CLI aliases them automatically, so `edc data --svg` and its summary use the same `服务流速`/`回源流速` two-series chart and the same `raw_bytes * 8 / 60 / 1_000_000` Mbps conversion. As with NFA, report only `服务流速` (`service_size`) P95 by default unless the user asks for 回源/总.
+- Node 95 settlement: list results with `settlement data node` (日95) and `settlement data node-monthly` (月95). Rows already carry a precomputed `mbps_95` (already in Mbps — do not re-divide). Amounts use `元/G` with `unit_base` (1000=GB, 1024=GiB). Grouped billing subjects appear via `billing_subject_type=group` / `billing_display_name`.
+- Node 95 tasks: create with `settlement tasks create-node-daily95` / `create-node-monthly95`. Prefer the range payload `{"start_date","end_date"}` / `{"start_month","end_month"}`. The backend creates exactly one task row for the whole range — never expand a range into per-day/per-month CLI calls.
+- Node settlement panel: use `settlement node-panel` (mirrors the frontend 单节点结算查询). It fetches `data/node` + `data/node/monthly` and aggregates per node+month, preferring monthly `mbps_95` and falling back to the daily average; amount comes from `total_bill`.
+- Node rates and groups: `rates node` / `rates final-node` for per-node rates, `rates node-groups` for settlement groups. `final-node` runtime rates back the node 95 amount (not raw `rate_node` alone).
+- EDC visibility scopes: `system edc-traffic-scopes list --user-id N` and `... replace --user-id N --body '{"rules":[...]}'`. These are separate from the NFA `system traffic-scopes` commands.
+- Permission codes for these commands (enforced by the backend, inherited through the CLI):
+  - `edc *` → `traffic.read` (plus per-user EDC traffic-scope filtering; an empty/`none` scope returns an empty set, not a 403).
+  - `settlement tasks create-node-daily95` / `create-node-monthly95` → `settlement.calculate`.
+  - `settlement data node` / `node-monthly` / `node-panel` → `settlement.data.read`.
+  - `rates node-groups list` / `rates final-node list` → `rates.node.read`; their create/update/delete/upsert/init/refresh forms → `rates.node.write`.
+  - `system edc-traffic-scopes list` / `replace` → `traffic.scope.manage`.
+  - On 403, preserve the backend status, message, and `missing` field; do not invent permission codes.
 - Single-user settlement page: use `settlement user-panel`. Do not reconstruct the result manually from channel/monthly/daily endpoints unless the user explicitly asks for investigation.
 - Owner lookup before single-user settlement: do not use `system users list` to infer `channel_owner_user_id`. Query the settlement owner dropdown source instead:
   - `settlement owner-subjects --query region=... --query cp=... --query start_service_date="YYYY-MM-DD 00:00:00" --query end_service_date="YYYY-MM-DD 23:59:59"`

@@ -63,14 +63,23 @@ By default, JSON responses are saved to a file under the temp directory and stdo
 
 ```powershell
 .\nfa-dashboard-cli.exe traffic data --query region=湖北 --query granularity=5m --svg
+.\nfa-dashboard-cli.exe edc data --query region=北京市 --query cp=bilibili --svg
+.\nfa-dashboard-cli.exe edc entities --query region=北京市 --query limit=20
 .\nfa-dashboard-cli.exe settlement tasks list --query limit=20
+.\nfa-dashboard-cli.exe settlement tasks create-node-daily95 --body '{"start_date":"2026-04-01","end_date":"2026-04-30"}' --dry-run
+.\nfa-dashboard-cli.exe settlement data node --query region=北京市 --query cp=bilibili --query start_date=2026-04-01 --query end_date=2026-04-30
 .\nfa-dashboard-cli.exe settlement user-panel --query channel_owner_user_id=5 --query region=北京市 --query cp=bilibili --query start_service_date="2026-04-01 00:00:00" --query end_service_date="2026-04-30 23:59:59"
+.\nfa-dashboard-cli.exe settlement node-panel --query region=北京市 --query cp=bilibili --query start_date=2026-04-01 --query end_date=2026-04-30
 .\nfa-dashboard-cli.exe rates customer export --download .\customer-rates.csv
 .\nfa-dashboard-cli.exe rates customer import-task continue --id 42
 .\nfa-dashboard-cli.exe system roles list --output table
 .\nfa-dashboard-cli.exe logs export --download .\operation-logs.csv
 ```
 
-All commands support `--output json|table|csv`; `json` is the summary-and-save default, while `table` and `csv` print transformed response data to stdout. Traffic data can also write an SVG chart with `--svg` or `--svg-file PATH`; the summary includes point count, time bounds, average, max, and 95th percentile Mbps values. NFA traffic monitor points are converted with `raw_bytes * 8 / 60 / 1_000_000`, matching the web traffic page's decimal bit-rate formatter. The `traffic_byte_unit_base` setting is for byte-size display such as B/KB/MB/GB, not Mbps/Gbps.
+All commands support `--output json|table|csv`; `json` is the summary-and-save default, while `table` and `csv` print transformed response data to stdout. Traffic data (`traffic data` for NFA, `edc data` for EDC) can also write an SVG chart with `--svg` or `--svg-file PATH`; the summary includes point count, time bounds, average, max, and 95th percentile Mbps values. NFA traffic monitor points are converted with `raw_bytes * 8 / 60 / 1_000_000`, matching the web traffic page's decimal bit-rate formatter. The `traffic_byte_unit_base` setting is for byte-size display such as B/KB/MB/GB, not Mbps/Gbps.
+
+NFA (school) and EDC (node) traffic are two independent data links. `traffic *` queries NFA via `/api/v2/traffic`; `edc *` queries EDC via `/api/v2/edc/traffic`. EDC points expose `service_size` (服务流速) and `cache_size` (回源流速) instead of NFA's `total_recv`/`total_send`; the CLI aliases them so `edc data` reuses the same two-series chart, summary, and `*8/60/1_000_000` conversion.
 
 `settlement user-panel` mirrors the frontend single-user settlement page. It fetches both monthly amount rows and daily rows, then writes a combined JSON file with `summary`, `panel_rows`, `monthly_rows`, and `daily_rows`. The default summary includes monthly row count, daily row count, single-user 95 unit/base, monthly 95 total, and amount totals.
+
+`settlement node-panel` mirrors the frontend 单节点结算查询 (EDC) page. It fetches `settlement data node` (日95) plus `settlement data node-monthly` (月95) and aggregates per node+month, preferring the monthly `mbps_95` and falling back to the daily average; amounts come from `total_bill`. Node `mbps_95` is already in Mbps, so no unit conversion is applied. Node 95 tasks (`settlement tasks create-node-daily95` / `create-node-monthly95`) take a range payload and create exactly one task row for the whole range.
