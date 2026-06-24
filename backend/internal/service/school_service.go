@@ -10,9 +10,9 @@ import (
 // SchoolService 学校服务接口
 type SchoolService interface {
 	// 获取所有学校
-	GetAllSchools(schoolName, region, cp string, limit, offset int) ([]model.School, int64, error)
+	GetAllSchools(schoolName, region, cp, isKeySchool string, limit, offset int) ([]model.School, int64, error)
 	// v2：按院校范围过滤的学校列表（为空时不过滤）
-	GetAllSchoolsWithScope(schoolName, region, cp, sort string, allowedSchoolKeys []model.TrafficScopeSchoolKey, limit, offset int) ([]model.School, int64, error)
+	GetAllSchoolsWithScope(schoolName, region, cp, sort, isKeySchool string, allowedSchoolKeys []model.TrafficScopeSchoolKey, limit, offset int) ([]model.School, int64, error)
 	// 获取所有地区
 	GetAllRegions() ([]string, error)
 	// 获取所有运营商
@@ -40,7 +40,7 @@ func NewSchoolService(repo repository.SchoolRepository) SchoolService {
 }
 
 // GetAllSchools 获取所有学校
-func (s *schoolService) GetAllSchools(schoolName, region, cp string, limit, offset int) ([]model.School, int64, error) {
+func (s *schoolService) GetAllSchools(schoolName, region, cp, isKeySchool string, limit, offset int) ([]model.School, int64, error) {
 	// 构建过滤条件
 	filter := make(map[string]interface{})
 	if schoolName != "" {
@@ -52,12 +52,15 @@ func (s *schoolService) GetAllSchools(schoolName, region, cp string, limit, offs
 	if cp != "" {
 		filter["cp"] = cp
 	}
+	if isKeySchool != "" {
+		filter["is_key_school"] = isKeySchool
+	}
 
 	return s.repo.GetAllSchools(filter, limit, offset)
 }
 
 // GetAllSchoolsWithScope v2：支持按院校范围过滤
-func (s *schoolService) GetAllSchoolsWithScope(schoolName, region, cp, sort string, allowedSchoolKeys []model.TrafficScopeSchoolKey, limit, offset int) ([]model.School, int64, error) {
+func (s *schoolService) GetAllSchoolsWithScope(schoolName, region, cp, sort, isKeySchool string, allowedSchoolKeys []model.TrafficScopeSchoolKey, limit, offset int) ([]model.School, int64, error) {
 	filter := make(map[string]interface{})
 	if schoolName != "" {
 		filter["school_name"] = schoolName
@@ -70,6 +73,9 @@ func (s *schoolService) GetAllSchoolsWithScope(schoolName, region, cp, sort stri
 	}
 	if sort != "" {
 		filter["sort"] = sort
+	}
+	if isKeySchool != "" {
+		filter["is_key_school"] = isKeySchool
 	}
 	if len(allowedSchoolKeys) > 0 {
 		filter["allowed_school_keys"] = allowedSchoolKeys
