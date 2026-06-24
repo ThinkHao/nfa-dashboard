@@ -19,6 +19,7 @@ import {
   ElSelect, 
   ElOption, 
   ElButton,
+  ElTag,
   ElMessage
 } from 'element-plus'
 
@@ -36,7 +37,8 @@ const queryCtl = useCancelableQuery()
 const queryForm = reactive({
   school_name: '',
   region: '',
-  cp: ''
+  cp: '',
+  is_key_school: '' as '' | '0' | '1'
 })
 
 const router = useRouter()
@@ -80,12 +82,15 @@ async function loadSchools(signal?: AbortSignal) {
   try {
     loading.value = true
     
-    const params = {
-      ...queryForm,
+    const params: Record<string, any> = {
+      school_name: queryForm.school_name,
+      region: queryForm.region,
+      cp: queryForm.cp,
       limit: pageSize.value,
       offset: (currentPage.value - 1) * pageSize.value
     }
-    
+    if (queryForm.is_key_school !== '') params.is_key_school = queryForm.is_key_school
+
     const res = await (api as any).v2.getSchools(params, { signal }) as any
     console.log('学校数据原始响应:', res)
     
@@ -143,6 +148,7 @@ function handleReset() {
   queryForm.school_name = ''
   queryForm.region = ''
   queryForm.cp = ''
+  queryForm.is_key_school = ''
   currentPage.value = 1
   queryCtl.run((signal) => loadSchools(signal), { showCancelMessage: false })
 }
@@ -218,6 +224,13 @@ usePageRefresh(() => {
           </ElSelect>
         </ElFormItem>
         
+        <ElFormItem label="重点院校">
+          <ElSelect v-model="queryForm.is_key_school" placeholder="全部" clearable class="field-sm">
+            <ElOption label="是" value="1" />
+            <ElOption label="否" value="0" />
+          </ElSelect>
+        </ElFormItem>
+
         <ElFormItem label="学校名称">
           <ElInput v-model="queryForm.school_name" placeholder="输入学校名称" clearable class="field-sm" />
         </ElFormItem>
@@ -235,6 +248,12 @@ usePageRefresh(() => {
         <ElTableColumn prop="school_id" label="学校ID" width="100" />
         <ElTableColumn prop="school_name" label="学校名称" />
         <ElTableColumn prop="region" label="地区" />
+        <ElTableColumn label="重点院校" width="100">
+          <template #default="scope">
+            <ElTag v-if="Number(scope.row.is_key_school) === 1" type="danger" size="small">重点</ElTag>
+            <span v-else>-</span>
+          </template>
+        </ElTableColumn>
         <ElTableColumn prop="cp" label="CP" />
         <ElTableColumn prop="hash_count" label="Hash数量" width="100" />
         <ElTableColumn prop="update_time" label="更新时间" width="180">
