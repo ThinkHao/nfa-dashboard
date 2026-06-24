@@ -99,7 +99,13 @@
           </div>
         </template>
         <el-table-column v-if="dataSource === 'nfa'" prop="school_name" label="学校名称" min-width="160" />
-        <el-table-column v-else prop="display_name" label="节点" min-width="180" />
+        <el-table-column v-if="dataSource === 'nfa'" label="重点院校" width="90">
+          <template #default="scope">
+            <el-tag v-if="isKeySchool(keySchoolSet, scope.row.school_id)" type="danger" size="small">重点</el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="dataSource !== 'nfa'" prop="display_name" label="节点" min-width="180" />
         <el-table-column prop="region" label="地区" width="100" />
         <el-table-column prop="cp" label="CP" width="100" />
         <el-table-column prop="service_date" :label="serviceDateColumnLabel" width="120">
@@ -267,6 +273,7 @@ import { usePageRefresh } from '@/composables/usePageRefresh'
 import { useSystemTrafficSettings } from '@/composables/useSystemTrafficSettings'
 import { bitsPerSecondToRate, normalizeByteUnitBase, type TrafficRateUnit } from '@/utils/traffic-units'
 import { sanitizeScopeOptionValues } from '@/utils/scope-options'
+import { buildKeySchoolSet, isKeySchool } from '@/views/key-school-utils'
 
 // 学校、地区和运营商数据
 
@@ -275,6 +282,8 @@ const regions = ref<string[]>([])
 const cps = ref<string[]>([])
 // EDC 节点下拉（仅 dataSource==='edc' 使用）
 const nodes = ref<any[]>([])
+// 重点院校 school_id 集合（NFA 侧），初始化时一次性拉取
+const keySchoolSet = ref<Set<string>>(new Set())
 const queryCtl = useCancelableQuery()
 const trafficSettings = useSystemTrafficSettings()
 // 费用归属（统一：仅用户）下拉
@@ -712,6 +721,17 @@ const loadRegionCpOptions = async () => {
   }
 }
 
+// 加载重点院校集合（NFA 侧）：一次性按 is_key_school=1 拉取，按 school_id 标注
+async function loadKeySchoolSet() {
+  try {
+    const res: any = await (api as any).v2.getSchools({ is_key_school: 1, limit: 100000 })
+    const items = Array.isArray(res) ? res : (res?.items ?? [])
+    keySchoolSet.value = buildKeySchoolSet(items)
+  } catch {
+    keySchoolSet.value = new Set()
+  }
+}
+
 // 获取基础数据
 const fetchBaseData = async () => {
   try {
@@ -719,6 +739,8 @@ const fetchBaseData = async () => {
     await loadRegionCpOptions()
     // 学校仍按 region/cp 联动过滤
     await loadSchools()
+    // 加载重点院校集合
+    await loadKeySchoolSet()
     // 加载费用归属下拉
     await loadOwnerOptions()
   } catch (error) {
