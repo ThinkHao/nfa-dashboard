@@ -9,11 +9,13 @@ CREATE TABLE `nfa_school` (
   `hash_count` int(11) NOT NULL DEFAULT '0' COMMENT 'hash_uuid数量',
   `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   `data_hash` char(32) NOT NULL COMMENT '数据hash值，用于快速比较数据是否变化',
+  `is_key_school` tinyint(1) NOT NULL DEFAULT '0' COMMENT '是否重点院校(源 nfa_ipgroup.check_status OR 聚合)',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_school_cp` (`school_id`,`region`,`cp`),
   KEY `idx_school_name` (`school_name`),
   KEY `idx_region` (`region`),
   KEY `idx_cp` (`cp`),
   KEY `idx_primary_hash_uuid` (`primary_hash_uuid`),
-  KEY `idx_data_hash` (`data_hash`)
+  KEY `idx_data_hash` (`data_hash`),
+  KEY `idx_is_key_school` (`is_key_school`)
 ) ENGINE=InnoDB AUTO_INCREMENT=1040 DEFAULT CHARSET=utf8mb4 COMMENT='nfa院校关系表';
