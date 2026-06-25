@@ -7,6 +7,7 @@ export type MonthlyMetricRow = {
   rowType?: 'region' | 'school' | 'cp' | 'total'
   isTotal?: boolean
   region?: string
+  schoolId?: string
   schoolName?: string
   cp?: string
   stockStartAt?: string
@@ -119,6 +120,11 @@ function sumMonthlyAmount(row: any): number {
   return AMOUNT_FIELDS.reduce((acc, def) => acc + toAmount(row?.[def.key]), 0)
 }
 
+function normalizeSchoolId(row: any): string {
+  const id = row?.school_id
+  return id == null ? '' : String(id).trim()
+}
+
 function computeMonthlyDaily95AvgByGroup(
   dailyRows: any[],
   toGroupKey: (row: any) => string,
@@ -159,6 +165,7 @@ function computeMonthlyDaily95AvgByGroup(
 
 function buildFlatRows(months: string[], rawRows: any[], dailyRows: any[], rateUnit: TrafficRateUnit, unitBase: TrafficByteUnitBase): MonthlyMetricRow[] {
   const bySchool = new Map<string, {
+    schoolId: string
     monthValues: Record<string, number>
     stockStartAt: string
     incrementStartAt: string
@@ -171,6 +178,7 @@ function buildFlatRows(months: string[], rawRows: any[], dailyRows: any[], rateU
     const schoolName = String(row?.school_name || '').trim() || '-'
     if (!bySchool.has(schoolName)) {
       bySchool.set(schoolName, {
+        schoolId: normalizeSchoolId(row),
         monthValues: monthValuesTemplate(months),
         stockStartAt: normalizeDateText(row?.stock_start_at),
         incrementStartAt: normalizeDateText(row?.increment_start_at),
@@ -178,6 +186,7 @@ function buildFlatRows(months: string[], rawRows: any[], dailyRows: any[], rateU
     }
     const sum = sumMonthlyAmount(row)
     const schoolAgg = bySchool.get(schoolName)!
+    if (!schoolAgg.schoolId) schoolAgg.schoolId = normalizeSchoolId(row)
     schoolAgg.monthValues[month] += sum
     if (!schoolAgg.stockStartAt) schoolAgg.stockStartAt = normalizeDateText(row?.stock_start_at)
     if (!schoolAgg.incrementStartAt) schoolAgg.incrementStartAt = normalizeDateText(row?.increment_start_at)
@@ -207,6 +216,8 @@ function buildFlatRows(months: string[], rawRows: any[], dailyRows: any[], rateU
         id: `school:${schoolName}`,
         metric: schoolName,
         rowType: 'school',
+        schoolId: agg.schoolId || undefined,
+        schoolName,
         stockStartAt: agg.stockStartAt || '-',
         incrementStartAt: agg.incrementStartAt || '-',
         values: monthlyAmountValues,
@@ -239,6 +250,7 @@ function buildFlatRows(months: string[], rawRows: any[], dailyRows: any[], rateU
 function buildTreeRows(months: string[], rawRows: any[], dailyRows: any[], rateUnit: TrafficRateUnit, unitBase: TrafficByteUnitBase): MonthlyMetricRow[] {
   type CpAgg = {
     region: string
+    schoolId: string
     schoolName: string
     cp: string
     monthValues: Record<string, number>
@@ -247,6 +259,7 @@ function buildTreeRows(months: string[], rawRows: any[], dailyRows: any[], rateU
   }
   type SchoolAgg = {
     region: string
+    schoolId: string
     schoolName: string
     cpMap: Map<string, CpAgg>
   }
@@ -263,18 +276,21 @@ function buildTreeRows(months: string[], rawRows: any[], dailyRows: any[], rateU
     if (!month) continue
     const region = String(row?.region || '').trim() || '未知区域'
     const schoolName = String(row?.school_name || '').trim() || '-'
+    const schoolId = normalizeSchoolId(row)
     const cp = String(row?.cp || '').trim() || '未知CP'
     if (!regionMap.has(region)) {
       regionMap.set(region, { region, schoolMap: new Map<string, SchoolAgg>() })
     }
     const regionAgg = regionMap.get(region)!
     if (!regionAgg.schoolMap.has(schoolName)) {
-      regionAgg.schoolMap.set(schoolName, { region, schoolName, cpMap: new Map<string, CpAgg>() })
+      regionAgg.schoolMap.set(schoolName, { region, schoolId, schoolName, cpMap: new Map<string, CpAgg>() })
     }
     const schoolAgg = regionAgg.schoolMap.get(schoolName)!
+    if (!schoolAgg.schoolId) schoolAgg.schoolId = schoolId
     if (!schoolAgg.cpMap.has(cp)) {
       schoolAgg.cpMap.set(cp, {
         region,
+        schoolId,
         schoolName,
         cp,
         monthValues: monthValuesTemplate(months),
@@ -283,6 +299,7 @@ function buildTreeRows(months: string[], rawRows: any[], dailyRows: any[], rateU
       })
     }
     const cpAgg = schoolAgg.cpMap.get(cp)!
+    if (!cpAgg.schoolId) cpAgg.schoolId = schoolId
     const amount = sumMonthlyAmount(row)
     cpAgg.monthValues[month] += amount
     if (!cpAgg.stockStartAt) cpAgg.stockStartAt = normalizeDateText(row?.stock_start_at)
@@ -335,6 +352,7 @@ function buildTreeRows(months: string[], rawRows: any[], dailyRows: any[], rateU
           rowType: 'cp',
           metric: `CP：${cp}`,
           region,
+          schoolId: cpAgg.schoolId || undefined,
           schoolName,
           cp,
           stockStartAt: cpAgg.stockStartAt || '-',
@@ -360,6 +378,7 @@ function buildTreeRows(months: string[], rawRows: any[], dailyRows: any[], rateU
         rowType: 'school',
         metric: `学校：${schoolName}`,
         region,
+        schoolId: schoolAgg.schoolId || undefined,
         schoolName,
         stockStartAt: schoolStockStartAt || '-',
         incrementStartAt: schoolIncrementStartAt || '-',

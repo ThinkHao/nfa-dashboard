@@ -101,7 +101,7 @@
         <el-table-column v-if="dataSource === 'nfa'" prop="school_name" label="学校名称" min-width="160" />
         <el-table-column v-if="dataSource === 'nfa'" label="重点院校" width="90">
           <template #default="scope">
-            <el-tag v-if="isKeySchool(keySchoolSet, scope.row.school_id)" type="danger" size="small">重点</el-tag>
+            <el-tag v-if="isKeySchool(keySchoolSet, scope.row.school_name)" type="danger" size="small">重点</el-tag>
             <span v-else>-</span>
           </template>
         </el-table-column>
@@ -273,7 +273,7 @@ import { usePageRefresh } from '@/composables/usePageRefresh'
 import { useSystemTrafficSettings } from '@/composables/useSystemTrafficSettings'
 import { bitsPerSecondToRate, normalizeByteUnitBase, type TrafficRateUnit } from '@/utils/traffic-units'
 import { sanitizeScopeOptionValues } from '@/utils/scope-options'
-import { buildKeySchoolSet, isKeySchool } from '@/views/key-school-utils'
+import { buildKeySchoolNameSet, isKeySchool } from '@/views/key-school-utils'
 
 // 学校、地区和运营商数据
 
@@ -282,7 +282,8 @@ const regions = ref<string[]>([])
 const cps = ref<string[]>([])
 // EDC 节点下拉（仅 dataSource==='edc' 使用）
 const nodes = ref<any[]>([])
-// 重点院校 school_id 集合（NFA 侧），初始化时一次性拉取
+// 重点院校 school_name 集合（NFA 侧）：结算数据源（settlement_customer/_monthly）只有 school_name 无 school_id，
+// 故按校名标注；仅用于展示，不参与结算数值计算。初始化时一次性拉取。
 const keySchoolSet = ref<Set<string>>(new Set())
 const queryCtl = useCancelableQuery()
 const trafficSettings = useSystemTrafficSettings()
@@ -721,12 +722,12 @@ const loadRegionCpOptions = async () => {
   }
 }
 
-// 加载重点院校集合（NFA 侧）：一次性按 is_key_school=1 拉取，按 school_id 标注
+// 加载重点院校集合（NFA 侧）：一次性按 is_key_school=1 拉取，按 school_name 标注
 async function loadKeySchoolSet() {
   try {
     const res: any = await (api as any).v2.getSchools({ is_key_school: 1, limit: 100000 })
     const items = Array.isArray(res) ? res : (res?.items ?? [])
-    keySchoolSet.value = buildKeySchoolSet(items)
+    keySchoolSet.value = buildKeySchoolNameSet(items)
   } catch {
     keySchoolSet.value = new Set()
   }
