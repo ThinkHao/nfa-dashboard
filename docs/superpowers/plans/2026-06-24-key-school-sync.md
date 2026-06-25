@@ -663,6 +663,8 @@ git commit -m "feat(web): 院校列表展示重点院校标签并支持筛选"
 **Files:**
 - Modify: `frontend/frontend/src/components/settlement/SettlementDataTab.vue`
 - Modify: `frontend/frontend/src/views/SettlementUserQueryView.vue`
+- Modify: `frontend/frontend/src/views/settlement-user-query-utils.ts`
+- Modify: `frontend/frontend/src/views/__tests__/settlement-user-query-utils.spec.ts`
 
 > 数据源说明：两视图行数据仅含 `school_id`、不含 `is_key_school`，故进入视图时额外拉一次重点院校集合再标注（spec §6.6，前端关联方案）。仅 NFA 侧，EDC 不动。
 
@@ -703,20 +705,31 @@ async function loadKeySchoolSet() {
 
 （`isKeySchool`、`keySchoolSet` 需在 `<script setup>` 暴露给模板——已是顶层绑定即可；`ElTag` 按需 import。）
 
-- [ ] **Step 3: 类型检查**
+- [ ] **Step 3: 单用户按月列视图也标注**
+
+`SettlementUserQueryView.vue` 的按月列视图由 `buildMonthlyAmountColumnView` 生成 pivot 行，原始 NFA 行的 `school_id` 需要先透传到 `MonthlyMetricRow.schoolId`，再在「分组/学校」列旁渲染重点标签。
+
+实现要求：
+- `MonthlyMetricRow` 增加 `schoolId?: string`。
+- flat 模式学校行：从同 school 聚合的原始行取第一个非空 `school_id`。
+- tree 模式学校行与 CP 子行：从原始行取第一个非空 `school_id` 并透传；区域/总和行不标注。
+- 模板中对 `row.schoolId` 调用 `isKeySchool(keySchoolSet, row.schoolId)`，只在命中时显示「重点」标签。
+- `settlement-user-query-utils.spec.ts` 覆盖 flat/tree 两种模式的 `schoolId` 透传。
+
+- [ ] **Step 4: 类型检查**
 
 Run: `npm run type-check`
 Expected: 通过。
 
-- [ ] **Step 4: 全量前端单测**
+- [ ] **Step 5: 全量前端单测**
 
 Run: `npm run test:unit`
 Expected: 全绿（含 key-school-utils.spec.ts 与既有结算测试无回归）。
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add frontend/frontend/src/components/settlement/SettlementDataTab.vue frontend/frontend/src/views/SettlementUserQueryView.vue
+git add frontend/frontend/src/components/settlement/SettlementDataTab.vue frontend/frontend/src/views/SettlementUserQueryView.vue frontend/frontend/src/views/settlement-user-query-utils.ts frontend/frontend/src/views/__tests__/settlement-user-query-utils.spec.ts
 git commit -m "feat(web): 结算视图按 school_id 标注重点院校"
 ```
 

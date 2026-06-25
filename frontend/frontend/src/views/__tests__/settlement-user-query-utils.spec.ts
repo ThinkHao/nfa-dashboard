@@ -4,8 +4,8 @@ import { buildMonthlyAmountColumnView, resolveMonthRangeDateTime } from '@/views
 describe('buildMonthlyAmountColumnView', () => {
   it('builds month columns with school rows and bottom monthly total row', () => {
     const input = [
-      { school_name: '学校A', service_date: '2026-02-01', stock_start_at: '2024-01-01', increment_start_at: '2025-01-01', customer_bill: 10, network_line_bill: 20, node_deduction_bill: 30, channel_bill: 40 },
-      { school_name: '学校A', service_date: '2026-01-01', stock_start_at: '2024-01-01', increment_start_at: '2025-01-01', customer_bill: 1, network_line_bill: 2, node_deduction_bill: 3, channel_bill: 4 },
+      { school_id: 's1', school_name: '学校A', service_date: '2026-02-01', stock_start_at: '2024-01-01', increment_start_at: '2025-01-01', customer_bill: 10, network_line_bill: 20, node_deduction_bill: 30, channel_bill: 40 },
+      { school_id: 's1', school_name: '学校A', service_date: '2026-01-01', stock_start_at: '2024-01-01', increment_start_at: '2025-01-01', customer_bill: 1, network_line_bill: 2, node_deduction_bill: 3, channel_bill: 4 },
       { school_name: '学校B', service_date: '2026-02-28', stock_start_at: '2023-06-01', increment_start_at: '2024-06-01', customer_bill: 5, network_line_bill: null, node_deduction_bill: 6, channel_bill: 7 },
     ]
 
@@ -15,6 +15,7 @@ describe('buildMonthlyAmountColumnView', () => {
     expect(result.rows.map((r) => r.metric)).toEqual(['学校A', '学校B', '总和'])
 
     const schoolA = result.rows[0]
+    expect(schoolA.schoolId).toBe('s1')
     expect(schoolA.stockStartAt).toBe('2024-01-01')
     expect(schoolA.incrementStartAt).toBe('2025-01-01')
     expect(schoolA.monthlyDaily95Values['2026-01']).toBe('0.00')
@@ -107,8 +108,8 @@ describe('buildMonthlyAmountColumnView', () => {
 
   it('builds region-school-cp tree rows with subtotal and total in tree mode', () => {
     const monthlyRows = [
-      { region: '华北', cp: 'CT', school_name: '学校A', service_date: '2026-03', customer_bill: 10, network_line_bill: 1, node_deduction_bill: 1, channel_bill: 1, stock_start_at: '2024-01-01', increment_start_at: '2025-01-01' },
-      { region: '华北', cp: 'CM', school_name: '学校A', service_date: '2026-03', customer_bill: 20, network_line_bill: 2, node_deduction_bill: 2, channel_bill: 2, stock_start_at: '2024-01-01', increment_start_at: '2025-01-01' },
+      { school_id: 's1', region: '华北', cp: 'CT', school_name: '学校A', service_date: '2026-03', customer_bill: 10, network_line_bill: 1, node_deduction_bill: 1, channel_bill: 1, stock_start_at: '2024-01-01', increment_start_at: '2025-01-01' },
+      { school_id: 's1', region: '华北', cp: 'CM', school_name: '学校A', service_date: '2026-03', customer_bill: 20, network_line_bill: 2, node_deduction_bill: 2, channel_bill: 2, stock_start_at: '2024-01-01', increment_start_at: '2025-01-01' },
       { region: '华南', cp: 'CT', school_name: '学校B', service_date: '2026-03', customer_bill: 30, network_line_bill: 3, node_deduction_bill: 3, channel_bill: 3, stock_start_at: '2024-02-01', increment_start_at: '2025-02-01' },
     ]
     const dailyRows = [
@@ -128,8 +129,10 @@ describe('buildMonthlyAmountColumnView', () => {
 
     const schoolA = regionNorth.children?.[0]
     expect(schoolA?.metric).toBe('学校：学校A')
+    expect(schoolA?.schoolId).toBe('s1')
     expect(schoolA?.monthlyDaily95Values['2026-03']).toBe('30.00')
     expect(schoolA?.children?.map((r) => r.metric)).toEqual(['CP：CM', 'CP：CT'])
+    expect(schoolA?.children?.map((r) => r.schoolId)).toEqual(['s1', 's1'])
     expect(schoolA?.children?.[0]?.monthlyDaily95Values['2026-03']).toBe('20.00')
     expect(schoolA?.children?.[1]?.monthlyDaily95Values['2026-03']).toBe('10.00')
 
