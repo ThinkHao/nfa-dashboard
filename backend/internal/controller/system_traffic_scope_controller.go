@@ -173,7 +173,7 @@ func (ctl *SystemTrafficScopeController) ListOptions(c *gin.Context) {
 	case "school":
 		region := strings.TrimSpace(c.Query("region"))
 		cp := strings.TrimSpace(c.Query("cp"))
-		schools, total, err := ctl.schoolSvc.GetAllSchools(keyword, region, cp, limit, 0)
+		schools, total, err := ctl.schoolSvc.GetAllSchools(keyword, region, cp, "", limit, 0)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 			return

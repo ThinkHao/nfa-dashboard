@@ -10,6 +10,7 @@ import UnifiedDateRange from '@/components/ui/UnifiedDateRange.vue'
 import QueryActionButton from '@/components/ui/QueryActionButton.vue'
 import { buildRangeValue, splitRangeValue } from '@/components/ui/unified-date-range-utils'
 import { clearTrafficCustomRange, resolvePresetTrafficRange, type TrafficTimeRangeOption } from './traffic-time-range'
+import { calculateTrafficP95, type TrafficP95Result } from './traffic-percentile'
 import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import { useSystemTrafficSettings } from '@/composables/useSystemTrafficSettings'
@@ -18,7 +19,7 @@ import { sanitizeScopeOptionValues } from '@/utils/scope-options'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart } from 'echarts/charts'
-import { TooltipComponent, LegendComponent, GridComponent, DataZoomComponent, ToolboxComponent } from 'echarts/components'
+import { TooltipComponent, LegendComponent, GridComponent, DataZoomComponent, ToolboxComponent, MarkLineComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
 import { 
   ElForm, 
@@ -166,7 +167,8 @@ use([
   LegendComponent,
   GridComponent,
   DataZoomComponent,
-  ToolboxComponent
+  ToolboxComponent,
+  MarkLineComponent
 ])
 
 // 路由
@@ -328,6 +330,7 @@ const chartOption = computed(() => {
   const compareByCP = !!(queryForm.school_name && !queryForm.cp)
   let legendData: string[] = []
   let series: any[] = []
+  let p95Result: TrafficP95Result | null = null
 
   if (compareByCP) {
     const cpBuckets: Record<string, Array<{ t: number; recv: number; send: number }>> = {}
@@ -380,19 +383,54 @@ const chartOption = computed(() => {
       mergedByTime[p.t].send += Number(p.send) || 0
     })
     const timeline = Object.keys(mergedByTime).map((k) => Number(k)).sort((a, b) => a - b)
+    const shouldShowP95 = !!(queryForm.school_name && queryForm.cp)
+    p95Result = shouldShowP95
+      ? calculateTrafficP95(timeline.map((t) => ({ time: t, recvBps: mergedByTime[t].recv })))
+      : null
 
-    legendData = ['服务流速', '回源流速']
+    legendData = p95Result ? ['服务流速', '回源流速', '95值'] : ['服务流速', '回源流速']
     series = [
       {
         ...perSeriesBase,
         name: '服务流速',
         data: timeline.map((t) => [t, mergedByTime[t].recv]),
+        markLine: p95Result
+          ? {
+              symbol: 'none',
+              silent: true,
+              label: {
+                formatter: () => `95值: ${formatBitRate(p95Result?.valueBps || 0)}`,
+              },
+              lineStyle: {
+                color: '#e91e63',
+                width: 2,
+              },
+              data: [
+                {
+                  name: '95值',
+                  yAxis: p95Result.valueBps,
+                },
+              ],
+            }
+          : undefined,
       },
       {
         ...perSeriesBase,
         name: '回源流速',
         data: timeline.map((t) => [t, mergedByTime[t].send]),
-      }
+      },
+      ...(p95Result
+        ? [{
+            ...perSeriesBase,
+            name: '95值',
+            data: [],
+            color: '#e91e63',
+            lineStyle: { color: '#e91e63', width: 2 },
+            areaStyle: undefined,
+            tooltip: { show: false },
+            silent: true,
+          }]
+        : [])
     ]
   }
 
@@ -422,6 +460,10 @@ const chartOption = computed(() => {
           const v = Array.isArray(param.value) ? param.value[1] : param.value
           result += param.seriesName + ': ' + formatBitRate(Number(v || 0)) + '<br/>'
         })
+        if (p95Result) {
+          result += '95值: ' + formatBitRate(p95Result.valueBps) + '<br/>'
+          result += '95时间: ' + new Date(p95Result.timeMs).toLocaleString() + '<br/>'
+        }
         return result
       }
     },

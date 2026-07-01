@@ -73,7 +73,7 @@ func (r *schoolRepository) GetAllSchools(filter map[string]interface{}, limit, o
 		if strValue, ok := value.(string); ok && strValue != "" {
 			// 根据字段类型选择合适的查询方式
 			switch key {
-			case "school_id", "primary_hash_uuid", "data_hash":
+			case "school_id", "primary_hash_uuid", "data_hash", "is_key_school":
 				// 对于精确匹配的字段，使用等于查询
 				query = query.Where(key+" = ?", strValue)
 			case "region", "cp":

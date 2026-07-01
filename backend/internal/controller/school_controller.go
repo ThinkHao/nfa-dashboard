@@ -224,6 +224,7 @@ func (c *SchoolController) GetAllSchoolsV2(ctx *gin.Context) {
 	schoolName := ctx.Query("school_name")
 	region := ctx.Query("region")
 	cp := ctx.Query("cp")
+	isKeySchool, _ := normalizeIsKeySchoolFilter(ctx.Query("is_key_school"))
 	sort := ctx.DefaultQuery("sort", "")
 	// 分页
 	limitStr := ctx.DefaultQuery("limit", "10")
@@ -240,7 +241,7 @@ func (c *SchoolController) GetAllSchoolsV2(ctx *gin.Context) {
 		ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取学校列表成功", "data": gin.H{"total": 0, "items": []model.School{}, "limit": limit, "offset": offset}, "scope_source": scope.Source})
 		return
 	}
-	schools, total, err := c.schoolService.GetAllSchoolsWithScope(schoolName, region, cp, sort, scope.AllowedSchoolKeys, limit, offset)
+	schools, total, err := c.schoolService.GetAllSchoolsWithScope(schoolName, region, cp, sort, isKeySchool, scope.AllowedSchoolKeys, limit, offset)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取学校列表失败", "error": err.Error()})
 		return
@@ -348,12 +349,25 @@ func trafficScopeSchoolKeyString(key model.TrafficScopeSchoolKey) string {
 	return strings.TrimSpace(key.SchoolID) + "|" + strings.TrimSpace(key.Region) + "|" + strings.TrimSpace(key.CP)
 }
 
+// normalizeIsKeySchoolFilter 解析 is_key_school 查询参数为 "0"/"1"；空或非法返回 ok=false（即不过滤）
+func normalizeIsKeySchoolFilter(raw string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true":
+		return "1", true
+	case "0", "false":
+		return "0", true
+	default:
+		return "", false
+	}
+}
+
 // GetAllSchools 获取所有学校
 func (c *SchoolController) GetAllSchools(ctx *gin.Context) {
 	// 获取查询参数
 	schoolName := ctx.Query("school_name")
 	region := ctx.Query("region")
 	cp := ctx.Query("cp")
+	isKeySchool, _ := normalizeIsKeySchoolFilter(ctx.Query("is_key_school"))
 
 	// 获取分页参数
 	limitStr := ctx.DefaultQuery("limit", "10")
@@ -370,7 +384,7 @@ func (c *SchoolController) GetAllSchools(ctx *gin.Context) {
 	}
 
 	// 获取学校列表
-	schools, total, err := c.schoolService.GetAllSchools(schoolName, region, cp, limit, offset)
+	schools, total, err := c.schoolService.GetAllSchools(schoolName, region, cp, isKeySchool, limit, offset)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{
 			"code":    500,

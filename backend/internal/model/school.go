@@ -16,6 +16,7 @@ type School struct {
 	HashCount       int       `gorm:"column:hash_count;not null;default:0" json:"hash_count"`
 	UpdateTime      time.Time `gorm:"column:update_time;autoUpdateTime" json:"update_time"`
 	DataHash        string    `gorm:"column:data_hash;not null" json:"data_hash"`
+	IsKeySchool     int       `gorm:"column:is_key_school;not null;default:0" json:"is_key_school"`
 }
 
 // TableName 设置表名

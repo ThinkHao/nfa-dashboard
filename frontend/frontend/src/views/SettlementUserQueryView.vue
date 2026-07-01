@@ -71,6 +71,12 @@
       />
       <el-table v-if="!isMonthlyColumnView" v-loading="loading" :data="rows" border stripe class="field-w-full">
         <el-table-column prop="school_name" label="学校名称" min-width="180" />
+        <el-table-column label="重点院校" width="90">
+          <template #default="scope">
+            <el-tag v-if="isKeySchool(keySchoolSet, scope.row.school_name)" type="danger" size="small">重点</el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="region" label="地区" width="110" />
         <el-table-column prop="cp" label="CP" width="110" />
         <el-table-column prop="service_date" :label="serviceDateLabel" width="130" />
@@ -114,6 +120,7 @@
         <el-table-column prop="metric" label="分组/学校" min-width="220" fixed="left">
           <template #default="{ row }">
             <span>{{ row.metric }}</span>
+            <el-tag v-if="isKeySchool(keySchoolSet, row.schoolName)" type="danger" size="small" class="ml-8">重点</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="stockStartAt" label="存量起算时间" min-width="130" />
@@ -159,6 +166,7 @@ import { usePageRefresh } from '@/composables/usePageRefresh'
 import { useSystemTrafficSettings } from '@/composables/useSystemTrafficSettings'
 import { normalizeByteUnitBase, settlementValueToRate } from '@/utils/traffic-units'
 import { sanitizeScopeOptionValues } from '@/utils/scope-options'
+import { buildKeySchoolNameSet, isKeySchool } from './key-school-utils'
 
 type Granularity = 'daily' | 'monthly'
 type UserOption = { id: number; label: string }
@@ -187,6 +195,9 @@ const lastOwnerUsersQueryKey = ref('')
 const regions = ref<string[]>([])
 const cps = ref<string[]>([])
 const schools = ref<School[]>([])
+// 重点院校 school_name 集合（NFA 侧）：结算数据源只有 school_name 无 school_id，故按校名标注。
+// 仅用于展示，不参与结算数值计算。初始化时一次性拉取。
+const keySchoolSet = ref<Set<string>>(new Set())
 
 const filter = reactive({
   userId: null as number | null,
@@ -451,6 +462,16 @@ async function loadSchools() {
   }
 }
 
+async function loadKeySchoolSet() {
+  try {
+    const res: any = await (api as any).v2.getSchools({ is_key_school: 1, limit: 100000 })
+    const items = Array.isArray(res) ? res : (res?.items ?? [])
+    keySchoolSet.value = buildKeySchoolNameSet(items)
+  } catch {
+    keySchoolSet.value = new Set()
+  }
+}
+
 function validateBeforeQuery(): boolean {
   if (!filter.userId) {
     ElMessage.warning('请先选择用户')
@@ -673,6 +694,7 @@ onMounted(async () => {
   await trafficSettings.ensureLoaded()
   setDefaultMonthRange()
   await loadRegionCpSchool()
+  await loadKeySchoolSet()
   await loadOwnerUsers()
 })
 
