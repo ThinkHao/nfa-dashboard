@@ -185,6 +185,12 @@ const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(10)
 const currentGranularity = ref('5m') // 当前使用的时间粒度
+const P95_LINE_COLOR = '#fb7185'
+const P95_LINE_COLOR_SOFT = 'rgba(251, 113, 133, 0.72)'
+const P95_LABEL_COLOR = '#e11d48'
+const P95_LABEL_BG = 'rgba(251, 113, 133, 0.12)'
+// 95值图例是否处于选中状态（控制 tooltip 中的 95 信息行）
+const p95LegendVisible = ref(true)
 const queryCtl = useCancelableQuery()
 const trafficSettings = useSystemTrafficSettings()
 const trafficByteUnitBase = computed(() => normalizeByteUnitBase(trafficSettings.settings.value.traffic_byte_unit_base, 1024))
@@ -331,6 +337,7 @@ const chartOption = computed(() => {
   let legendData: string[] = []
   let series: any[] = []
   let p95Result: TrafficP95Result | null = null
+  const p95TooltipMarker = `<span style="display:inline-block;width:16px;height:0;border-top:1px dashed ${P95_LINE_COLOR};vertical-align:middle;margin-right:6px;"></span>`
 
   if (compareByCP) {
     const cpBuckets: Record<string, Array<{ t: number; recv: number; send: number }>> = {}
@@ -394,16 +401,42 @@ const chartOption = computed(() => {
         ...perSeriesBase,
         name: '服务流速',
         data: timeline.map((t) => [t, mergedByTime[t].recv]),
-        markLine: p95Result
-          ? {
+      },
+      {
+        ...perSeriesBase,
+        name: '回源流速',
+        data: timeline.map((t) => [t, mergedByTime[t].send]),
+      },
+      // 95值线挂在自己的 series 上，图例开关才能随之显隐
+      ...(p95Result
+        ? [{
+            ...perSeriesBase,
+            name: '95值',
+            data: [],
+            color: P95_LINE_COLOR,
+            lineStyle: { color: P95_LINE_COLOR_SOFT, width: 1.4, type: 'dashed', opacity: 0.82 },
+            areaStyle: undefined,
+            tooltip: { show: false },
+            silent: true,
+            markLine: {
               symbol: 'none',
               silent: true,
+              animation: false,
               label: {
-                formatter: () => `95值: ${formatBitRate(p95Result?.valueBps || 0)}`,
+                formatter: () => `95 ${formatBitRate(p95Result?.valueBps || 0)}`,
+                position: 'insideEndTop',
+                distance: 6,
+                color: P95_LABEL_COLOR,
+                backgroundColor: P95_LABEL_BG,
+                borderRadius: 4,
+                padding: [3, 6],
+                fontSize: 11,
               },
               lineStyle: {
-                color: '#e91e63',
-                width: 2,
+                color: P95_LINE_COLOR_SOFT,
+                width: 1.4,
+                type: 'dashed',
+                opacity: 0.82,
               },
               data: [
                 {
@@ -411,24 +444,7 @@ const chartOption = computed(() => {
                   yAxis: p95Result.valueBps,
                 },
               ],
-            }
-          : undefined,
-      },
-      {
-        ...perSeriesBase,
-        name: '回源流速',
-        data: timeline.map((t) => [t, mergedByTime[t].send]),
-      },
-      ...(p95Result
-        ? [{
-            ...perSeriesBase,
-            name: '95值',
-            data: [],
-            color: '#e91e63',
-            lineStyle: { color: '#e91e63', width: 2 },
-            areaStyle: undefined,
-            tooltip: { show: false },
-            silent: true,
+            },
           }]
         : [])
     ]
@@ -460,9 +476,9 @@ const chartOption = computed(() => {
           const v = Array.isArray(param.value) ? param.value[1] : param.value
           result += param.seriesName + ': ' + formatBitRate(Number(v || 0)) + '<br/>'
         })
-        if (p95Result) {
-          result += '95值: ' + formatBitRate(p95Result.valueBps) + '<br/>'
-          result += '95时间: ' + new Date(p95Result.timeMs).toLocaleString() + '<br/>'
+        if (p95Result && p95LegendVisible.value) {
+          result += `${p95TooltipMarker}95值: ${formatBitRate(p95Result.valueBps)}<br/>`
+          result += `${p95TooltipMarker}95时间: ${new Date(p95Result.timeMs).toLocaleString()}<br/>`
         }
         return result
       }
@@ -547,6 +563,45 @@ function applyRouteQueryFilters(q: RouteQueryLike, options: { autoQuery?: boolea
     currentPage.value = 1
     queryCtl.run((signal) => loadTrafficData(signal), { showCancelMessage: false })
   }
+}
+
+// 95值是被服务流速联动隐藏（而非用户手动隐藏）时置位，服务流速恢复时据此回显
+let p95AutoHidden = false
+// 程序化 dispatchAction 触发的图例事件不算用户手动操作
+let syncingP95Legend = false
+
+function toggleP95Legend(show: boolean) {
+  syncingP95Legend = true
+  try {
+    chartRef.value?.dispatchAction({ type: show ? 'legendSelect' : 'legendUnSelect', name: '95值' })
+  } finally {
+    syncingP95Legend = false
+  }
+}
+
+function handleLegendSelectChanged(params: any) {
+  const selected = params?.selected
+  if (!selected || !Object.prototype.hasOwnProperty.call(selected, '95值')) return
+
+  const serviceOn = selected['服务流速'] !== false
+  let p95On = selected['95值'] !== false
+
+  if (params?.name === '95值' && !syncingP95Legend) {
+    p95AutoHidden = false
+  } else if (params?.name === '服务流速') {
+    // 95值基于服务流速计算，隐藏服务流速时联动隐藏95值
+    if (!serviceOn && p95On) {
+      p95AutoHidden = true
+      p95On = false
+      toggleP95Legend(false)
+    } else if (serviceOn && !p95On && p95AutoHidden) {
+      p95AutoHidden = false
+      p95On = true
+      toggleP95Legend(true)
+    }
+  }
+
+  p95LegendVisible.value = p95On
 }
 
 function resizeTrafficChart() {
@@ -1259,7 +1314,14 @@ usePageRefresh(() => {
     
     <!-- 流量图表 -->
     <SectionCard title="趋势图" v-loading="chartLoading">
-      <v-chart ref="chartRef" class="traffic-chart" :option="chartOption" autoresize />
+      <v-chart
+        ref="chartRef"
+        class="traffic-chart"
+        :option="chartOption"
+        :update-options="{ replaceMerge: ['series'] }"
+        autoresize
+        @legendselectchanged="handleLegendSelectChanged"
+      />
     </SectionCard>
     
     <!-- 流量数据表格 -->
