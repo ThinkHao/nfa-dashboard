@@ -94,7 +94,7 @@ func (s *settlementService) UpdateSettlementConfig(config *model.SettlementConfi
 	return s.repo.UpdateSettlementConfig(config)
 }
 
-// CreateSettlementTask 创建结算任务
+// CreateSettlementTask 创建结算任务（GORM Create 会回填自增 ID）
 func (s *settlementService) CreateSettlementTask(taskType string, taskDate time.Time) (*model.SettlementTask, error) {
 	now := time.Now()
 	task := &model.SettlementTask{
@@ -105,26 +105,10 @@ func (s *settlementService) CreateSettlementTask(taskType string, taskDate time.
 		CreateTime:     now,
 		UpdateTime:     now,
 	}
-
-	err := s.repo.CreateSettlementTask(task)
-	if err != nil {
+	if err := s.repo.CreateSettlementTask(task); err != nil {
 		return nil, err
 	}
-
-	// 获取创建后的任务，确保有正确的ID
-	var tasks []model.SettlementTask
-	filter := map[string]interface{}{
-		"task_type": taskType,
-		"task_date": taskDate,
-	}
-	tasks, _, err = s.repo.GetSettlementTasks(filter, 1, 0)
-	if err != nil || len(tasks) == 0 {
-		// 如果查询失败，返回原始任务
-		return task, nil
-	}
-
-	// 返回最新创建的任务
-	return &tasks[0], nil
+	return task, nil
 }
 
 // UpdateSettlementTaskStatus 更新结算任务状态
