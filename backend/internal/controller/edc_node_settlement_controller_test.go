@@ -9,9 +9,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"nfa-dashboard/internal/model"
+	"nfa-dashboard/internal/service"
 )
 
 type settlementServiceForNodeTaskTest struct {
+	service.SettlementService
 	createdTypes []string
 	createdDates []time.Time
 }

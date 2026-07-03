@@ -1,6 +1,8 @@
 package bootstrap
 
 import (
+	"log"
+
 	"nfa-dashboard/config"
 	"nfa-dashboard/internal/controller"
 	"nfa-dashboard/internal/middleware"
@@ -113,8 +115,12 @@ func BuildEngine() *gin.Engine {
 	opLogService := service.NewOperationLogService(opLogRepo)
 	opLogController := controller.NewOperationLogController(opLogService)
 
-	settlementScheduler := scheduler.NewSettlementScheduler(settlementService, edcNodeSettlementSvc)
-	settlementScheduler.Start()
+	settlementScheduler := scheduler.NewSettlementScheduler(settlementService, edcNodeSettlementSvc, notifier)
+	if config.IsSchedulerEnabled() {
+		settlementScheduler.Start()
+	} else {
+		log.Println("scheduler.enabled=false，本实例不启动结算调度器")
+	}
 
 	api := r.Group("/api/v1")
 	{

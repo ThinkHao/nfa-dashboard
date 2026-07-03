@@ -36,10 +36,40 @@ type SettlementService interface {
 	ExecuteWeeklySettlementWithDateRange(taskID int64, startDate, endDate time.Time) error
 	// GetValidSchoolComboCount 获取有效院校组合数
 	GetValidSchoolComboCount(userID *uint64) (int64, error)
+	// TryAdvisoryLock 供调度器抢占执行权（透传 repository）
+	TryAdvisoryLock(name string) (release func(), ok bool, err error)
+	// HasActiveOrSuccessTask 同类型同日期是否已有 pending/running/success/partial 任务
+	HasActiveOrSuccessTask(taskType string, taskDate time.Time) (bool, error)
+	// MarkStaleRunningTasks 清扫卡死任务（透传 repository）
+	MarkStaleRunningTasks(staleAfter time.Duration) ([]model.SettlementTask, error)
 }
 
 func (s *settlementService) GetValidSchoolComboCount(userID *uint64) (int64, error) {
 	return s.repo.CountValidSchoolCombos(userID)
+}
+
+// TryAdvisoryLock 供调度器抢占执行权（透传 repository）
+func (s *settlementService) TryAdvisoryLock(name string) (func(), bool, error) {
+	return s.repo.TryAdvisoryLock(name)
+}
+
+// HasActiveOrSuccessTask 同类型同日期是否已有 pending/running/success/partial 任务
+func (s *settlementService) HasActiveOrSuccessTask(taskType string, taskDate time.Time) (bool, error) {
+	filter := map[string]interface{}{
+		"task_type":     taskType,
+		"task_date":     taskDate,
+		"status IN (?)": []string{"pending", "running", "success", "partial"},
+	}
+	_, count, err := s.repo.GetSettlementTasks(filter, 1, 0)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// MarkStaleRunningTasks 清扫卡死任务（透传 repository）
+func (s *settlementService) MarkStaleRunningTasks(staleAfter time.Duration) ([]model.SettlementTask, error) {
+	return s.repo.MarkStaleRunningTasks(staleAfter)
 }
 
 // settlementService 结算服务实现
