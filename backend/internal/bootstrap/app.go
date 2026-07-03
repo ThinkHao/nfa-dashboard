@@ -1,8 +1,10 @@
 package bootstrap
 
 import (
+	"nfa-dashboard/config"
 	"nfa-dashboard/internal/controller"
 	"nfa-dashboard/internal/middleware"
+	"nfa-dashboard/internal/notify"
 	"nfa-dashboard/internal/repository"
 	"nfa-dashboard/internal/scheduler"
 	"nfa-dashboard/internal/service"
@@ -31,14 +33,15 @@ func BuildEngine() *gin.Engine {
 	edcScopeRepo := repository.NewEDCTrafficScopeRepository()
 
 	settlementRepo := repository.NewSettlementRepository()
-	settlementService := service.NewSettlementService(settlementRepo)
+	settlementDataRepo := repository.NewSettlementDataRepository()
+	notifier := notify.NewFromConfig(config.GetFeishuWebhookURL())
+	settlementService := service.NewSettlementService(settlementRepo, settlementDataRepo, notifier)
 
 	settlementController := controller.NewSettlementController(settlementService)
 
 	entitiesRepo := repository.NewEntitiesRepository()
 	userRepo := repository.NewUserRepository()
 
-	settlementDataRepo := repository.NewSettlementDataRepository()
 	settlementDataService := service.NewSettlementDataService(settlementDataRepo, userRepo, entitiesRepo, settlementRepo)
 	settlementDataController := controller.NewSettlementDataController(settlementDataService)
 

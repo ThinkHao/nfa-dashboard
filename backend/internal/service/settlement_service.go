@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"nfa-dashboard/internal/model"
+	"nfa-dashboard/internal/notify"
 	"nfa-dashboard/internal/repository"
 )
 
@@ -43,14 +44,14 @@ func (s *settlementService) GetValidSchoolComboCount(userID *uint64) (int64, err
 
 // settlementService 结算服务实现
 type settlementService struct {
-	repo repository.SettlementRepository
+	repo     repository.SettlementRepository
+	dataRepo repository.SettlementDataRepository
+	notifier notify.Notifier
 }
 
 // NewSettlementService 创建结算服务实例
-func NewSettlementService(repo repository.SettlementRepository) SettlementService {
-	return &settlementService{
-		repo: repo,
-	}
+func NewSettlementService(repo repository.SettlementRepository, dataRepo repository.SettlementDataRepository, notifier notify.Notifier) SettlementService {
+	return &settlementService{repo: repo, dataRepo: dataRepo, notifier: notifier}
 }
 
 // GetSettlementConfig 获取结算配置
@@ -333,8 +334,7 @@ func (s *settlementService) ExecuteDailySettlement(taskID int64, date time.Time)
 		if err := s.repo.CreateSettlementTask(init); err != nil {
 			return
 		}
-		dataRepo := repository.NewSettlementDataRepository()
-		srcCount, cntErr := dataRepo.CountSchoolSettlementRows("", "", "", runDate, runDate)
+		srcCount, cntErr := s.dataRepo.CountSchoolSettlementRows("", "", "", runDate, runDate)
 		end := time.Now()
 		if cntErr != nil {
 			init.Status = "failed"
@@ -344,7 +344,7 @@ func (s *settlementService) ExecuteDailySettlement(taskID int64, date time.Time)
 			log.Printf("customer_init task failed: task_id=%d date=%s count source rows failed: %v", init.ID, runDate.Format("2006-01-02"), cntErr)
 			return
 		}
-		affected, recErr := dataRepo.BackfillFromSchoolSettlement("", "", "", runDate, runDate, false, nil)
+		affected, recErr := s.dataRepo.BackfillFromSchoolSettlement("", "", "", runDate, runDate, false, nil)
 		if recErr != nil {
 			init.Status = "failed"
 			init.EndTime = &end
@@ -425,8 +425,7 @@ func (s *settlementService) ExecuteWeeklySettlementWithDateRange(taskID int64, s
 		if err := s.repo.CreateSettlementTask(init); err != nil {
 			return
 		}
-		dataRepo := repository.NewSettlementDataRepository()
-		srcCount, cntErr := dataRepo.CountSchoolSettlementRows("", "", "", sdate, edate)
+		srcCount, cntErr := s.dataRepo.CountSchoolSettlementRows("", "", "", sdate, edate)
 		end := time.Now()
 		if cntErr != nil {
 			init.Status = "failed"
@@ -436,7 +435,7 @@ func (s *settlementService) ExecuteWeeklySettlementWithDateRange(taskID int64, s
 			log.Printf("customer_init task failed: task_id=%d range=%s~%s count source rows failed: %v", init.ID, sdate.Format("2006-01-02"), edate.Format("2006-01-02"), cntErr)
 			return
 		}
-		affected, recErr := dataRepo.BackfillFromSchoolSettlement("", "", "", sdate, edate, false, nil)
+		affected, recErr := s.dataRepo.BackfillFromSchoolSettlement("", "", "", sdate, edate, false, nil)
 		if recErr != nil {
 			init.Status = "failed"
 			init.EndTime = &end
