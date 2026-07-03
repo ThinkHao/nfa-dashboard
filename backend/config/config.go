@@ -16,6 +16,18 @@ type Config struct {
 	Auth            AuthConfig            `mapstructure:"auth"`
 	Binding         BindingConfig         `mapstructure:"binding"`
 	RatesOwnerRoles RatesOwnerRolesConfig `mapstructure:"rates_owner_roles"`
+	Scheduler       SchedulerConfig       `mapstructure:"scheduler"`
+	Alert           AlertConfig           `mapstructure:"alert"`
+}
+
+// SchedulerConfig 结算调度器开关（多实例部署时只允许一个实例开启，或全部开启依赖 DB 锁互斥）
+type SchedulerConfig struct {
+	Enabled bool `mapstructure:"enabled"`
+}
+
+// AlertConfig 告警通道配置
+type AlertConfig struct {
+	FeishuWebhookURL string `mapstructure:"feishu_webhook_url"`
 }
 
 type ServerConfig struct {
@@ -95,6 +107,7 @@ func LoadConfig() {
 	}
 
 	viper.SetDefault("server.port", 8081)
+	viper.SetDefault("scheduler.enabled", true)
 	viper.AutomaticEnv()
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	_ = viper.BindEnv("server.port", "APP_PORT", "NFA_SERVER_PORT")
@@ -116,6 +129,8 @@ func LoadConfig() {
 	_ = viper.BindEnv("auth.secret", "AUTH_SECRET")
 	_ = viper.BindEnv("auth.access_token_ttl_minutes", "AUTH_ACCESS_TOKEN_TTL_MINUTES")
 	_ = viper.BindEnv("auth.refresh_token_ttl_minutes", "AUTH_REFRESH_TOKEN_TTL_MINUTES")
+	_ = viper.BindEnv("scheduler.enabled", "SCHEDULER_ENABLED")
+	_ = viper.BindEnv("alert.feishu_webhook_url", "ALERT_FEISHU_WEBHOOK_URL")
 
 	if err := viper.ReadInConfig(); err != nil {
 		log.Printf("config file not found, using env only: %v", err)
@@ -275,4 +290,14 @@ func GetOwnerRoles(t string) []string {
 	default:
 		return nil
 	}
+}
+
+// IsSchedulerEnabled 是否在本实例启动结算调度器
+func IsSchedulerEnabled() bool {
+	return AppConfig.Scheduler.Enabled
+}
+
+// GetFeishuWebhookURL 飞书告警 webhook 地址，空串表示未配置
+func GetFeishuWebhookURL() string {
+	return AppConfig.Alert.FeishuWebhookURL
 }
