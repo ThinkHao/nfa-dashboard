@@ -1,6 +1,8 @@
 package service
 
 import (
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -58,5 +60,56 @@ func TestCreateSettlementTaskReturnsInsertedID(t *testing.T) {
 	}
 	if stub.listCalled {
 		t.Fatal("不应再按 type+date 反查任务列表")
+	}
+}
+
+type recordingNotifier struct {
+	mu     sync.Mutex
+	titles []string
+}
+
+func (r *recordingNotifier) Send(title, text string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.titles = append(r.titles, title)
+	return nil
+}
+
+func (r *recordingNotifier) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.titles)
+}
+
+type statusRepoStub struct {
+	repository.SettlementRepository
+	task *model.SettlementTask
+}
+
+func (s *statusRepoStub) GetSettlementTaskByID(id int64) (*model.SettlementTask, error) {
+	return s.task, nil
+}
+
+func (s *statusRepoStub) UpdateSettlementTask(task *model.SettlementTask) error {
+	s.task = task
+	return nil
+}
+
+func TestUpdateTaskStatusFailedTriggersAlert(t *testing.T) {
+	rec := &recordingNotifier{}
+	stub := &statusRepoStub{task: &model.SettlementTask{ID: 7, TaskType: "daily", TaskDate: time.Now(), Status: "running"}}
+	svc := NewSettlementService(stub, nil, rec)
+	if err := svc.UpdateSettlementTaskStatus(7, "failed", "mock 错误"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for rec.count() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if rec.count() != 1 {
+		t.Fatalf("failed 状态应触发一次告警, got %d", rec.count())
+	}
+	if !strings.Contains(stub.task.ErrorMessage, "mock 错误") {
+		t.Fatalf("error message 未落库: %s", stub.task.ErrorMessage)
 	}
 }

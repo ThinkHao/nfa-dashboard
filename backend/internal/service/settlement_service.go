@@ -131,7 +131,14 @@ func (s *settlementService) UpdateSettlementTaskStatus(taskID int64, status stri
 		task.ErrorMessage = errorMsg
 	}
 
-	return s.repo.UpdateSettlementTask(task)
+	if err := s.repo.UpdateSettlementTask(task); err != nil {
+		return err
+	}
+	if status == "failed" {
+		notify.SendAsync(s.notifier, "结算任务失败",
+			fmt.Sprintf("任务 #%d (%s, %s) 执行失败：%s", task.ID, task.TaskType, task.TaskDate.Format("2006-01-02"), errorMsg))
+	}
+	return nil
 }
 
 // DeleteSettlementTask 删除结算任务
