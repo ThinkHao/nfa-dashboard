@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"math"
@@ -50,6 +52,10 @@ type SettlementRepository interface {
 	CountValidSchoolCombos(userID *uint64) (int64, error)
 	// ListValidSchoolCombos 列出有效学校-地区-运营商组合
 	ListValidSchoolCombos(userID *uint64) ([]model.SchoolRegionCP, error)
+	// TryAdvisoryLock 尝试获取 MySQL 命名锁（不等待）；成功时返回释放函数
+	TryAdvisoryLock(name string) (release func(), ok bool, err error)
+	// MarkStaleRunningTasks 将超过 staleAfter 无进度更新的 running 任务标记为 interrupted，返回被标记的任务
+	MarkStaleRunningTasks(staleAfter time.Duration) ([]model.SettlementTask, error)
 }
 
 // settlementRepository 结算数据仓库实现
@@ -1137,4 +1143,60 @@ func (r *settlementRepository) CalculateDaily95WithRegionAndCPForAllRegionsAndCP
 		log.Printf("警告: 没有生成任何结算数据")
 	}
 	return settlements, nil
+}
+
+// TryAdvisoryLock 使用独占连接获取 MySQL GET_LOCK；同名锁被任何连接持有时立即返回 ok=false
+func (r *settlementRepository) TryAdvisoryLock(name string) (func(), bool, error) {
+	sqlDB, err := model.DB.DB()
+	if err != nil {
+		return nil, false, err
+	}
+	conn, err := sqlDB.Conn(context.Background())
+	if err != nil {
+		return nil, false, err
+	}
+	var got sql.NullInt64
+	if err := conn.QueryRowContext(context.Background(), "SELECT GET_LOCK(?, 0)", name).Scan(&got); err != nil {
+		_ = conn.Close()
+		return nil, false, err
+	}
+	if !got.Valid || got.Int64 != 1 {
+		_ = conn.Close()
+		return nil, false, nil
+	}
+	release := func() {
+		_, _ = conn.ExecContext(context.Background(), "SELECT RELEASE_LOCK(?)", name)
+		_ = conn.Close()
+	}
+	return release, true, nil
+}
+
+// MarkStaleRunningTasks 清扫因进程重启等原因永久卡在 running 的任务
+func (r *settlementRepository) MarkStaleRunningTasks(staleAfter time.Duration) ([]model.SettlementTask, error) {
+	cutoff := time.Now().Add(-staleAfter)
+	var stale []model.SettlementTask
+	if err := model.DB.Where("status = ? AND update_time < ?", "running", cutoff).Find(&stale).Error; err != nil {
+		return nil, err
+	}
+	if len(stale) == 0 {
+		return nil, nil
+	}
+	ids := make([]int64, 0, len(stale))
+	for _, t := range stale {
+		ids = append(ids, t.ID)
+	}
+	now := time.Now()
+	err := model.DB.Model(&model.SettlementTask{}).
+		Where("id IN (?) AND status = ?", ids, "running").
+		Updates(map[string]interface{}{
+			"status":        "interrupted",
+			"task_stage":    "interrupted",
+			"end_time":      now,
+			"error_message": fmt.Sprintf("任务超过 %.0f 分钟无进度更新，已自动标记为中断（可能因进程重启或执行异常），请确认后重新发起", staleAfter.Minutes()),
+			"update_time":   now,
+		}).Error
+	if err != nil {
+		return nil, err
+	}
+	return stale, nil
 }
