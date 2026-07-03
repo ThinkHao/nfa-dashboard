@@ -339,47 +339,7 @@ func (s *settlementService) ExecuteDailySettlement(taskID int64, date time.Time)
 		return fmt.Errorf("更新任务状态失败: %v", err)
 	}
 
-	go func(runDate time.Time) {
-		cfg, cfgErr := s.repo.GetSettlementConfig()
-		if cfgErr != nil || !cfg.Enabled || !cfg.RecalcAfterDaily {
-			return
-		}
-		init := &model.SettlementTask{TaskType: "customer_init", TaskDate: runDate, Status: "running", StartTime: ptrTime(time.Now()), CreateTime: time.Now(), UpdateTime: time.Now()}
-		if err := s.repo.CreateSettlementTask(init); err != nil {
-			return
-		}
-		srcCount, cntErr := s.dataRepo.CountSchoolSettlementRows("", "", "", runDate, runDate)
-		end := time.Now()
-		if cntErr != nil {
-			init.Status = "failed"
-			init.EndTime = &end
-			init.ErrorMessage = fmt.Sprintf("统计源数据失败: %v", cntErr)
-			_ = s.repo.UpdateSettlementTask(init)
-			log.Printf("customer_init task failed: task_id=%d date=%s count source rows failed: %v", init.ID, runDate.Format("2006-01-02"), cntErr)
-			return
-		}
-		affected, recErr := s.dataRepo.BackfillFromSchoolSettlement("", "", "", runDate, runDate, false, nil)
-		if recErr != nil {
-			init.Status = "failed"
-			init.EndTime = &end
-			init.ErrorMessage = recErr.Error()
-			_ = s.repo.UpdateSettlementTask(init)
-			log.Printf("customer_init task failed: task_id=%d date=%s backfill failed: %v", init.ID, runDate.Format("2006-01-02"), recErr)
-			return
-		}
-		if shouldFailCustomerInitOnZeroAffected(srcCount, affected) {
-			init.Status = "failed"
-			init.EndTime = &end
-			init.ErrorMessage = fmt.Sprintf("源表有数据但回填0条（疑似日期边界异常）: source=%d, affected=%d", srcCount, affected)
-			_ = s.repo.UpdateSettlementTask(init)
-			log.Printf("customer_init task failed: task_id=%d date=%s zero affected with source rows, source=%d affected=%d", init.ID, runDate.Format("2006-01-02"), srcCount, affected)
-			return
-		}
-		init.Status = "success"
-		init.EndTime = &end
-		init.ProcessedCount = int(affected)
-		_ = s.repo.UpdateSettlementTask(init)
-	}(date)
+	s.triggerCustomerInitAfter("daily", date, date)
 
 	return nil
 }
@@ -430,52 +390,60 @@ func (s *settlementService) ExecuteWeeklySettlementWithDateRange(taskID int64, s
 	}
 
 	// 周结算完成后按配置触发初算（不标记复算）
-	go func(sdate, edate time.Time) {
-		cfg, e := s.repo.GetSettlementConfig()
-		if e != nil || !cfg.Enabled || !cfg.RecalcAfterWeekly {
-			return
-		}
-		init := &model.SettlementTask{TaskType: "customer_init", TaskDate: sdate, Status: "running", StartTime: ptrTime(time.Now()), CreateTime: time.Now(), UpdateTime: time.Now()}
-		if err := s.repo.CreateSettlementTask(init); err != nil {
-			return
-		}
-		srcCount, cntErr := s.dataRepo.CountSchoolSettlementRows("", "", "", sdate, edate)
-		end := time.Now()
-		if cntErr != nil {
-			init.Status = "failed"
-			init.EndTime = &end
-			init.ErrorMessage = fmt.Sprintf("统计源数据失败: %v", cntErr)
-			_ = s.repo.UpdateSettlementTask(init)
-			log.Printf("customer_init task failed: task_id=%d range=%s~%s count source rows failed: %v", init.ID, sdate.Format("2006-01-02"), edate.Format("2006-01-02"), cntErr)
-			return
-		}
-		affected, recErr := s.dataRepo.BackfillFromSchoolSettlement("", "", "", sdate, edate, false, nil)
-		if recErr != nil {
-			init.Status = "failed"
-			init.EndTime = &end
-			init.ErrorMessage = recErr.Error()
-			_ = s.repo.UpdateSettlementTask(init)
-			log.Printf("customer_init task failed: task_id=%d range=%s~%s backfill failed: %v", init.ID, sdate.Format("2006-01-02"), edate.Format("2006-01-02"), recErr)
-			return
-		}
-		if shouldFailCustomerInitOnZeroAffected(srcCount, affected) {
-			init.Status = "failed"
-			init.EndTime = &end
-			init.ErrorMessage = fmt.Sprintf("源表有数据但回填0条（疑似日期边界异常）: source=%d, affected=%d", srcCount, affected)
-			_ = s.repo.UpdateSettlementTask(init)
-			log.Printf("customer_init task failed: task_id=%d range=%s~%s zero affected with source rows, source=%d affected=%d", init.ID, sdate.Format("2006-01-02"), edate.Format("2006-01-02"), srcCount, affected)
-			return
-		}
-		init.Status = "success"
-		init.EndTime = &end
-		init.ProcessedCount = int(affected)
-		_ = s.repo.UpdateSettlementTask(init)
-	}(startDate, endDate)
+	s.triggerCustomerInitAfter("weekly", startDate, endDate)
 	return nil
 }
 
-// 辅助：取指针
-func ptrTime(t time.Time) *time.Time { return &t }
+// triggerCustomerInitAfter 按配置在结算完成后异步触发客户侧初算回填
+// source: "daily" | "weekly"，分别受 RecalcAfterDaily / RecalcAfterWeekly 控制
+func (s *settlementService) triggerCustomerInitAfter(source string, start, end time.Time) {
+	go func() {
+		cfg, err := s.repo.GetSettlementConfig()
+		if err != nil || !cfg.Enabled {
+			return
+		}
+		if source == "daily" && !cfg.RecalcAfterDaily {
+			return
+		}
+		if source == "weekly" && !cfg.RecalcAfterWeekly {
+			return
+		}
+		now := time.Now()
+		init := &model.SettlementTask{TaskType: "customer_init", TaskDate: start, Status: "running", StartTime: &now, CreateTime: now, UpdateTime: now}
+		if err := s.repo.CreateSettlementTask(init); err != nil {
+			return
+		}
+		rangeLabel := fmt.Sprintf("%s ~ %s", start.Format("2006-01-02"), end.Format("2006-01-02"))
+		fail := func(msg string) {
+			endAt := time.Now()
+			init.Status = "failed"
+			init.EndTime = &endAt
+			init.ErrorMessage = msg
+			_ = s.repo.UpdateSettlementTask(init)
+			log.Printf("customer_init task failed: task_id=%d range=%s: %s", init.ID, rangeLabel, msg)
+			notify.SendAsync(s.notifier, "客户结算回填失败", fmt.Sprintf("任务 #%d (%s)：%s", init.ID, rangeLabel, msg))
+		}
+		srcCount, err := s.dataRepo.CountSchoolSettlementRows("", "", "", start, end)
+		if err != nil {
+			fail(fmt.Sprintf("统计源数据失败: %v", err))
+			return
+		}
+		affected, err := s.dataRepo.BackfillFromSchoolSettlement("", "", "", start, end, false, nil)
+		if err != nil {
+			fail(err.Error())
+			return
+		}
+		if shouldFailCustomerInitOnZeroAffected(srcCount, affected) {
+			fail(fmt.Sprintf("源表有数据但回填0条（疑似日期边界异常）: source=%d, affected=%d", srcCount, affected))
+			return
+		}
+		endAt := time.Now()
+		init.Status = "success"
+		init.EndTime = &endAt
+		init.ProcessedCount = int(affected)
+		_ = s.repo.UpdateSettlementTask(init)
+	}()
+}
 
 func shouldFailCustomerInitOnZeroAffected(srcCount, affected int64) bool {
 	return srcCount > 0 && affected == 0
