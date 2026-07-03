@@ -11,6 +11,8 @@ import (
 	"gorm.io/gorm"
 )
 
+// 警告：NFA_TEST_MYSQL_DSN 必须指向可随意写入的一次性测试库，
+// 切勿指向共享/生产库（本测试会清扫整表 running 任务）。
 func openLockTestDB(t *testing.T) {
 	t.Helper()
 	dsn := os.Getenv("NFA_TEST_MYSQL_DSN")
@@ -81,5 +83,14 @@ func TestMarkStaleRunningTasks(t *testing.T) {
 	}
 	if got.Status != "interrupted" {
 		t.Fatalf("status=%s, want interrupted", got.Status)
+	}
+	if got.TaskStage != "interrupted" {
+		t.Fatalf("task_stage=%s, want interrupted", got.TaskStage)
+	}
+	if got.EndTime == nil {
+		t.Fatal("end_time should be set")
+	}
+	if got.ErrorMessage == "" {
+		t.Fatal("error_message should be set")
 	}
 }

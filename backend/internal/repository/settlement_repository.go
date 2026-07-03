@@ -1145,33 +1145,38 @@ func (r *settlementRepository) CalculateDaily95WithRegionAndCPForAllRegionsAndCP
 	return settlements, nil
 }
 
-// TryAdvisoryLock 使用独占连接获取 MySQL GET_LOCK；同名锁被任何连接持有时立即返回 ok=false
+// TryAdvisoryLock 使用独占连接获取 MySQL GET_LOCK；同名锁被任何连接持有时立即返回 ok=false。
+// 失败路径返回 no-op 释放函数，调用方可放心 defer release()。
 func (r *settlementRepository) TryAdvisoryLock(name string) (func(), bool, error) {
+	noop := func() {}
 	sqlDB, err := model.DB.DB()
 	if err != nil {
-		return nil, false, err
+		return noop, false, err
 	}
 	conn, err := sqlDB.Conn(context.Background())
 	if err != nil {
-		return nil, false, err
+		return noop, false, err
 	}
 	var got sql.NullInt64
 	if err := conn.QueryRowContext(context.Background(), "SELECT GET_LOCK(?, 0)", name).Scan(&got); err != nil {
 		_ = conn.Close()
-		return nil, false, err
+		return noop, false, err
 	}
 	if !got.Valid || got.Int64 != 1 {
 		_ = conn.Close()
-		return nil, false, nil
+		return noop, false, nil
 	}
 	release := func() {
-		_, _ = conn.ExecContext(context.Background(), "SELECT RELEASE_LOCK(?)", name)
+		if _, err := conn.ExecContext(context.Background(), "SELECT RELEASE_LOCK(?)", name); err != nil {
+			log.Printf("释放调度器锁失败: %v", err)
+		}
 		_ = conn.Close()
 	}
 	return release, true, nil
 }
 
-// MarkStaleRunningTasks 清扫因进程重启等原因永久卡在 running 的任务
+// MarkStaleRunningTasks 清扫因进程重启等原因永久卡在 running 的任务。
+// 返回的是更新前快照，极端竞态下可能包含未被实际标记的任务，调用方通知属尽力而为。
 func (r *settlementRepository) MarkStaleRunningTasks(staleAfter time.Duration) ([]model.SettlementTask, error) {
 	cutoff := time.Now().Add(-staleAfter)
 	var stale []model.SettlementTask
@@ -1187,7 +1192,7 @@ func (r *settlementRepository) MarkStaleRunningTasks(staleAfter time.Duration) (
 	}
 	now := time.Now()
 	err := model.DB.Model(&model.SettlementTask{}).
-		Where("id IN (?) AND status = ?", ids, "running").
+		Where("id IN (?) AND status = ? AND update_time < ?", ids, "running", cutoff).
 		Updates(map[string]interface{}{
 			"status":        "interrupted",
 			"task_stage":    "interrupted",
