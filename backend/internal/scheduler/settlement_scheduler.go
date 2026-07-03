@@ -146,12 +146,7 @@ func (s *SettlementScheduler) checkAndExecuteTasks() {
 	// 检查是否需要执行每周结算任务（需 weekly_enabled=true）
 	if config.WeeklyEnabled && currentWeekday == config.WeeklyDay && currentHour == weeklyHour && currentMinute == weeklyMinute {
 		// 计算上一周的开始日期（上周一）
-		daysToLastMonday := (int(now.Weekday()) + 6) % 7
-		if daysToLastMonday == 0 {
-			daysToLastMonday = 7
-		}
-		lastMonday := now.AddDate(0, 0, -daysToLastMonday-7)
-		startDate := time.Date(lastMonday.Year(), lastMonday.Month(), lastMonday.Day(), 0, 0, 0, 0, now.Location())
+		startDate := previousWeekStart(now)
 
 		log.Printf("开始执行每周结算任务，计算开始日期: %s", startDate.Format("2006-01-02"))
 		s.createAndRun("weekly", startDate, func(taskID int64) {
@@ -263,6 +258,13 @@ func defaultScheduleTime(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func previousWeekStart(now time.Time) time.Time {
+	daysSinceMonday := (int(now.Weekday()) + 6) % 7
+	thisMonday := now.AddDate(0, 0, -daysSinceMonday)
+	lastMonday := thisMonday.AddDate(0, 0, -7)
+	return time.Date(lastMonday.Year(), lastMonday.Month(), lastMonday.Day(), 0, 0, 0, 0, now.Location())
 }
 
 // parseTimeString 解析时间字符串（格式：HH:MM）
