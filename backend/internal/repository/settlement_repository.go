@@ -989,6 +989,9 @@ func (r *settlementRepository) CalculateDaily95ForCombos(date time.Time, combos 
 		valid[comboKey(c.SchoolID, c.Region, c.CP)] = c
 	}
 
+	// 注意（本次范围外的两个后续优化点）：
+	// 1) 分组正确性依赖 MySQL ORDER BY 排序与 Go 字节级 comboKey 一致（假设大小写敏感 collation）；
+	// 2) 大数据量下可考虑 (create_time, school_id, region, cp, total_recv) 覆盖索引以避免 filesort。
 	rows, err := model.DB.Model(&model.SchoolTraffic{}).
 		Select("school_id, region, cp, total_recv, create_time").
 		Where("create_time BETWEEN ? AND ?", startTime, endTime).
@@ -1002,11 +1005,12 @@ func (r *settlementRepository) CalculateDaily95ForCombos(date time.Time, combos 
 	var (
 		settlements []model.SchoolSettlement
 		curKey      string
+		curSkip     bool
 		curValues   []int64
 		curTimes    []time.Time
 	)
 	flush := func() {
-		if curKey == "" || len(curValues) == 0 {
+		if curKey == "" || curSkip || len(curValues) == 0 {
 			return
 		}
 		combo, ok := valid[curKey]
@@ -1037,8 +1041,13 @@ func (r *settlementRepository) CalculateDaily95ForCombos(date time.Time, combos 
 		if key != curKey {
 			flush()
 			curKey = key
+			_, ok := valid[key]
+			curSkip = !ok // 组合边界处判定一次，非目标组合不再累积采样点
 			curValues = curValues[:0]
 			curTimes = curTimes[:0]
+		}
+		if curSkip {
+			continue
 		}
 		curValues = append(curValues, totalRecv)
 		curTimes = append(curTimes, createTime)
