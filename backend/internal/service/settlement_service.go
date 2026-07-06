@@ -1,8 +1,10 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"nfa-dashboard/internal/model"
@@ -250,104 +252,70 @@ func (s *settlementService) GetSettlements(filter model.SettlementFilter) ([]mod
 	return s.repo.GetSettlements(filter)
 }
 
-// executeDailySettlementInternal 内部方法，执行日结算的实际计算逻辑
-// 返回结算数据、处理记录数和错误
-func (s *settlementService) executeDailySettlementInternal(date time.Time) ([]model.SchoolSettlement, int, error) {
-	log.Printf("开始计算 %s 的日结算数据", date.Format("2006-01-02"))
-
-	processedCount := 0
-	var settlements []model.SchoolSettlement
-
-	validCombinations, err := s.repo.ListValidSchoolCombos(nil)
+// calculateDailySettlements 计算某日全部有效组合的结算行
+// 返回：结算行、尝试的组合数、命中（有流量）的组合数
+func (s *settlementService) calculateDailySettlements(date time.Time) ([]model.SchoolSettlement, int, int, error) {
+	combos, err := s.repo.ListValidSchoolCombos(nil)
 	if err != nil {
-		return nil, 0, fmt.Errorf("获取有效学校组合失败: %v", err)
+		return nil, 0, 0, fmt.Errorf("获取有效学校组合失败: %v", err)
 	}
-
-	log.Printf("找到 %d 个有效的学校、地区、运营商组合", len(validCombinations))
-
-	// 为每个有效组合计算95值
-	for _, combo := range validCombinations {
-		// 跳过字段为 NULL 或空字符串的无效院校组合（双重保证）
-		if combo.SchoolID == "" || combo.Region == "" || combo.CP == "" {
-			log.Printf("跳过无效院校组合: schoolID=%s, region=%s, cp=%s", combo.SchoolID, combo.Region, combo.CP)
-			continue
-		}
-		// 计算95值，传入学校ID、地区和运营商
-		settlement, err := s.repo.CalculateDaily95WithRegionAndCP(date, combo.SchoolID, combo.Region, combo.CP)
-		if err != nil {
-			log.Printf("计算学校 %s 在地区 %s 运营商 %s 的日95值失败: %v",
-				combo.SchoolName, combo.Region, combo.CP, err)
-			continue
-		}
-
-		if settlement != nil {
-			settlements = append(settlements, *settlement)
-		}
-		// 处理计数统一为“已尝试处理的组合数”（与 total_count 口径一致）
-		processedCount++
+	settlements, err := s.repo.CalculateDaily95ForCombos(date, combos)
+	if err != nil {
+		return nil, 0, 0, err
 	}
-
-	log.Printf("完成 %s 的日结算计算，共生成 %d 条数据", date.Format("2006-01-02"), processedCount)
-	return settlements, processedCount, nil
+	return settlements, len(combos), len(settlements), nil
 }
 
-// ExecuteDailySettlement 执行日结算任务
+// mergeTaskMeta 在已有 task_meta JSON 上合并新键（解析失败时保留原值）
+func mergeTaskMeta(existing string, extra map[string]interface{}) string {
+	m := map[string]interface{}{}
+	if strings.TrimSpace(existing) != "" {
+		_ = json.Unmarshal([]byte(existing), &m)
+	}
+	for k, v := range extra {
+		m[k] = v
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return existing
+	}
+	return string(b)
+}
+
+// ExecuteDailySettlement 执行日结算任务（单次聚合查询计算全部组合）
 func (s *settlementService) ExecuteDailySettlement(taskID int64, date time.Time) error {
-	// 标记运行中
 	if err := s.UpdateSettlementTaskStatus(taskID, "running", ""); err != nil {
 		return fmt.Errorf("更新任务状态失败: %v", err)
 	}
-
-	// 分段执行并上报进度
-	processedCount := 0
-	var settlements []model.SchoolSettlement
-	validCombinations, err := s.repo.ListValidSchoolCombos(nil)
+	settlements, attempted, hit, err := s.calculateDailySettlements(date)
 	if err != nil {
-		_ = s.UpdateSettlementTaskStatus(taskID, "failed", fmt.Sprintf("获取有效学校组合失败: %v", err))
-		return fmt.Errorf("获取有效学校组合失败: %v", err)
+		_ = s.UpdateSettlementTaskStatus(taskID, "failed", err.Error())
+		return err
 	}
-	batch := 20
-	for i, combo := range validCombinations {
-		if combo.SchoolID == "" || combo.Region == "" || combo.CP == "" {
-			continue
-		}
-		settlement, calErr := s.repo.CalculateDaily95WithRegionAndCP(date, combo.SchoolID, combo.Region, combo.CP)
-		if calErr == nil && settlement != nil {
-			settlements = append(settlements, *settlement)
-		}
-		processedCount++
-		// 每批上报一次处理进度
-		if processedCount%batch == 0 || i == len(validCombinations)-1 {
-			if task, e := s.repo.GetSettlementTaskByID(taskID); e == nil {
-				task.ProcessedCount = processedCount
-				_ = s.repo.UpdateSettlementTask(task)
-			}
-		}
-	}
-
-	// 保存
 	if len(settlements) > 0 {
 		if err := s.repo.BatchCreateSettlements(settlements); err != nil {
 			_ = s.UpdateSettlementTaskStatus(taskID, "failed", fmt.Sprintf("保存结算数据失败: %v", err))
 			return fmt.Errorf("保存结算数据失败: %v", err)
 		}
 	}
-
-	// 标记成功
 	task, err := s.repo.GetSettlementTaskByID(taskID)
 	if err != nil {
 		return fmt.Errorf("获取任务信息失败: %v", err)
 	}
-	task.Status = "success"
 	now := time.Now()
+	task.Status = "success"
 	task.EndTime = &now
-	task.ProcessedCount = processedCount
+	task.ProcessedCount = attempted
+	task.TotalCount = attempted
+	task.TaskMeta = mergeTaskMeta(task.TaskMeta, map[string]interface{}{
+		"combos_total":     attempted,
+		"combos_with_data": hit,
+		"combos_no_data":   attempted - hit,
+	})
 	if err := s.repo.UpdateSettlementTask(task); err != nil {
 		return fmt.Errorf("更新任务状态失败: %v", err)
 	}
-
 	s.triggerCustomerInitAfter("daily", date, date)
-
 	return nil
 }
 
@@ -357,22 +325,28 @@ func (s *settlementService) ExecuteWeeklySettlement(taskID int64, weekStartDate 
 	return s.ExecuteWeeklySettlementWithDateRange(taskID, weekStartDate, weekEndDate)
 }
 
-// ExecuteWeeklySettlementWithDateRange 执行周结算任务（支持自定义日期范围）
+// ExecuteWeeklySettlementWithDateRange 执行周结算任务（支持自定义日期范围；部分天失败落 partial）
 func (s *settlementService) ExecuteWeeklySettlementWithDateRange(taskID int64, startDate, endDate time.Time) error {
 	if err := s.UpdateSettlementTaskStatus(taskID, "running", ""); err != nil {
 		return fmt.Errorf("更新任务状态失败: %v", err)
 	}
-
-	var all []model.SchoolSettlement
-	total := 0
+	var (
+		all        []model.SchoolSettlement
+		total      int
+		totalDays  int
+		failedDays []string
+	)
 	for d := startDate; !d.After(endDate); d = d.AddDate(0, 0, 1) {
-		ds, cnt, err := s.executeDailySettlementInternal(d)
+		totalDays++
+		ds, attempted, _, err := s.calculateDailySettlements(d)
 		if err != nil {
+			log.Printf("计算 %s 日结算失败: %v", d.Format("2006-01-02"), err)
+			failedDays = append(failedDays, d.Format("2006-01-02"))
 			continue
 		}
 		all = append(all, ds...)
-		total += cnt
-		// 每完成一天后，更新一次已处理数量，便于前端精准显示进度与 ETA
+		total += attempted
+		// 每完成一天更新进度，便于前端显示与卡死清扫判活
 		if task, e := s.repo.GetSettlementTaskByID(taskID); e == nil {
 			task.ProcessedCount = total
 			_ = s.repo.UpdateSettlementTask(task)
@@ -388,14 +362,29 @@ func (s *settlementService) ExecuteWeeklySettlementWithDateRange(taskID int64, s
 	if err != nil {
 		return fmt.Errorf("获取任务信息失败: %v", err)
 	}
-	task.Status = "success"
 	now := time.Now()
 	task.EndTime = &now
 	task.ProcessedCount = total
+	switch {
+	case len(failedDays) == 0:
+		task.Status = "success"
+	case len(failedDays) == totalDays:
+		task.Status = "failed"
+		task.ErrorMessage = fmt.Sprintf("全部 %d 天计算失败: %s", totalDays, strings.Join(failedDays, ", "))
+	default:
+		task.Status = "partial"
+		task.ErrorMessage = fmt.Sprintf("%d/%d 天计算失败: %s", len(failedDays), totalDays, strings.Join(failedDays, ", "))
+	}
+	if len(failedDays) > 0 {
+		task.TaskMeta = mergeTaskMeta(task.TaskMeta, map[string]interface{}{"failed_days": failedDays})
+	}
 	if err := s.repo.UpdateSettlementTask(task); err != nil {
 		return fmt.Errorf("更新任务状态失败: %v", err)
 	}
-
+	if task.Status == "partial" || task.Status == "failed" {
+		notify.SendAsync(s.notifier, "周结算任务异常",
+			fmt.Sprintf("任务 #%d (%s ~ %s) 状态 %s：%s", taskID, startDate.Format("2006-01-02"), endDate.Format("2006-01-02"), task.Status, task.ErrorMessage))
+	}
 	// 周结算完成后按配置触发初算（不标记复算）
 	s.triggerCustomerInitAfter("weekly", startDate, endDate)
 	return nil

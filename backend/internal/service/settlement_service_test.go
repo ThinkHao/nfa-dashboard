@@ -1,6 +1,8 @@
 package service
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -111,5 +113,73 @@ func TestUpdateTaskStatusFailedTriggersAlert(t *testing.T) {
 	}
 	if !strings.Contains(stub.task.ErrorMessage, "mock 错误") {
 		t.Fatalf("error message 未落库: %s", stub.task.ErrorMessage)
+	}
+}
+
+type weeklyRepoStub struct {
+	repository.SettlementRepository
+	tasks     map[int64]*model.SettlementTask
+	failDates map[string]bool
+}
+
+func (s *weeklyRepoStub) ListValidSchoolCombos(userID *uint64) ([]model.SchoolRegionCP, error) {
+	return []model.SchoolRegionCP{{SchoolID: "s1", SchoolName: "一中", Region: "浙江", CP: "CT"}}, nil
+}
+
+func (s *weeklyRepoStub) CalculateDaily95ForCombos(date time.Time, combos []model.SchoolRegionCP) ([]model.SchoolSettlement, error) {
+	if s.failDates[date.Format("2006-01-02")] {
+		return nil, fmt.Errorf("mock 计算失败")
+	}
+	return []model.SchoolSettlement{{SchoolID: "s1", SettlementDate: date}}, nil
+}
+
+func (s *weeklyRepoStub) GetSettlementTaskByID(id int64) (*model.SettlementTask, error) {
+	return s.tasks[id], nil
+}
+
+func (s *weeklyRepoStub) UpdateSettlementTask(task *model.SettlementTask) error {
+	s.tasks[task.ID] = task
+	return nil
+}
+
+func (s *weeklyRepoStub) BatchCreateSettlements(settlements []model.SchoolSettlement) error {
+	return nil
+}
+
+func (s *weeklyRepoStub) GetSettlementConfig() (*model.SettlementConfig, error) {
+	return &model.SettlementConfig{Enabled: false}, nil // 阻断 customer_init goroutine
+}
+
+func TestWeeklyPartialStatusOnSomeDayFailure(t *testing.T) {
+	stub := &weeklyRepoStub{
+		tasks:     map[int64]*model.SettlementTask{1: {ID: 1, TaskType: "weekly", Status: "pending"}},
+		failDates: map[string]bool{"2026-07-02": true},
+	}
+	svc := NewSettlementService(stub, nil, notify.NewFromConfig(""))
+	start := time.Date(2026, 7, 1, 0, 0, 0, 0, time.Local)
+	end := time.Date(2026, 7, 3, 0, 0, 0, 0, time.Local)
+	if err := svc.ExecuteWeeklySettlementWithDateRange(1, start, end); err != nil {
+		t.Fatal(err)
+	}
+	task := stub.tasks[1]
+	if task.Status != "partial" {
+		t.Fatalf("部分天失败应落 partial, got %s", task.Status)
+	}
+	if !strings.Contains(task.ErrorMessage, "2026-07-02") {
+		t.Fatalf("错误信息应包含失败日期: %s", task.ErrorMessage)
+	}
+}
+
+func TestMergeTaskMeta(t *testing.T) {
+	out := mergeTaskMeta(`{"a":1}`, map[string]interface{}{"b": 2})
+	var m map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &m); err != nil {
+		t.Fatal(err)
+	}
+	if m["a"] == nil || m["b"] == nil {
+		t.Fatalf("合并后缺 key: %s", out)
+	}
+	if got := mergeTaskMeta("", map[string]interface{}{"x": 1}); !strings.Contains(got, `"x":1`) {
+		t.Fatalf("空 meta 合并异常: %s", got)
 	}
 }
