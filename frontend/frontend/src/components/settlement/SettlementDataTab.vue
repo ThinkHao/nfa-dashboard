@@ -1467,7 +1467,7 @@ const onRecalculate = async () => {
           const processed = Number((t as any).processed_count ?? 0) || 0
           const total = Number((t as any).total_count ?? (estTotal ?? 0)) || (estTotal ?? undefined)
           tasks.upsertSettlementTask({ id: taskNumericId, status: (t as any).status as any, processed_count: processed, total_count: total as any })
-          if ((t as any).status === 'success' || (t as any).status === 'failed') {
+          if (['success', 'failed', 'partial', 'interrupted'].includes((t as any).status)) {
             stop()
             // 完成后刷新当前列表
             queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })

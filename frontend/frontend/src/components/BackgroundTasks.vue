@@ -46,9 +46,11 @@ const statusType = (s: string) => {
   if (s === 'waiting_user_confirm') return 'info'
   if (s === 'success') return 'success'
   if (s === 'failed') return 'danger'
+  if (s === 'partial') return 'warning'
+  if (s === 'interrupted') return 'danger'
   return 'info'
 }
-const statusText = (s: string) => ({ pending: '等待中', running: '执行中', waiting_user_confirm: '待确认', success: '完成', failed: '失败' } as any)[s] || s
+const statusText = (s: string) => ({ pending: '等待中', running: '执行中', waiting_user_confirm: '待确认', success: '完成', failed: '失败', partial: '部分成功', interrupted: '已中断' } as any)[s] || s
 
 // 计时器用于触发 ETA 重渲染
 const now = ref(Date.now())

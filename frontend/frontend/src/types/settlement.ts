@@ -1,5 +1,5 @@
 // 结算任务状态类型
-export type TaskStatus = 'pending' | 'running' | 'success' | 'failed';
+export type TaskStatus = 'pending' | 'running' | 'success' | 'failed' | 'partial' | 'interrupted';
 
 // 结算配置接口
 export interface SettlementConfig {

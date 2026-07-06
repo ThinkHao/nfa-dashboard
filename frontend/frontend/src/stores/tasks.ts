@@ -1,6 +1,10 @@
 import { defineStore } from 'pinia'
 
-export type TaskStatus = 'pending' | 'running' | 'waiting_user_confirm' | 'success' | 'failed'
+export type TaskStatus = 'pending' | 'running' | 'waiting_user_confirm' | 'success' | 'failed' | 'partial' | 'interrupted'
+
+// 终态：任务已结束（成功/失败/部分成功/被中断）
+const isTerminalStatus = (s: TaskStatus) =>
+  s === 'success' || s === 'failed' || s === 'partial' || s === 'interrupted'
 export type TaskType = 'export' | 'import' | 'settlement' | 'other'
 
 export interface BgTask {
@@ -60,7 +64,7 @@ export const useTasksStore = defineStore('bgTasks', {
       const total = typeof payload.total_count === 'number' ? payload.total_count : null
       const info = processed != null ? (total != null && total > 0 ? `已处理 ${processed}/${total}` : `已处理 ${processed}`) : ''
       // 若是已完成/失败的任务且当前浮层不存在，则不再插入，避免历史任务反复刷出
-      if (!exists && (payload.status === 'success' || payload.status === 'failed')) {
+      if (!exists && isTerminalStatus(payload.status)) {
         return
       }
       if (!exists) {
@@ -70,7 +74,7 @@ export const useTasksStore = defineStore('bgTasks', {
         const progress = processed != null && total != null && total > 0 ? Math.min(1, Math.max(0, processed / total)) : undefined
         this.update(id, { status: payload.status, info, processed: processed ?? undefined, total: total ?? undefined, progress })
       }
-      if (payload.status === 'success' || payload.status === 'failed') {
+      if (isTerminalStatus(payload.status)) {
         setTimeout(() => this.remove(id), 10000)
       }
     },

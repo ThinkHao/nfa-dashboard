@@ -19,6 +19,8 @@
             <el-option label="执行中" value="running" />
             <el-option label="已完成" value="success" />
             <el-option label="失败" value="failed" />
+            <el-option label="部分成功" value="partial" />
+            <el-option label="已中断" value="interrupted" />
           </el-select>
         </el-form-item>
         <el-form-item label="日期范围">
@@ -670,6 +672,8 @@ const getStatusType = (status: TaskStatus) => {
     case 'running': return 'warning'
     case 'success': return 'success'
     case 'failed': return 'danger'
+    case 'partial': return 'warning'
+    case 'interrupted': return 'danger'
     default: return 'info'
   }
 }
@@ -681,6 +685,8 @@ const getStatusText = (status: TaskStatus) => {
     case 'running': return '执行中'
     case 'success': return '已完成'
     case 'failed': return '失败'
+    case 'partial': return '部分成功'
+    case 'interrupted': return '已中断'
     default: return '未知'
   }
 }
