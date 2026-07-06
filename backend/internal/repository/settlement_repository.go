@@ -48,6 +48,8 @@ type SettlementRepository interface {
 	CalculateDaily95WithRegionAndCP(date time.Time, schoolID string, region string, cp string) (*model.SchoolSettlement, error)
 	// 为指定学校计算所有区域和运营商的日95值
 	CalculateDaily95WithRegionAndCPForAllRegionsAndCPs(date time.Time, schoolID string) ([]model.SchoolSettlement, error)
+	// CalculateDaily95ForCombos 单次扫描当天流量数据，按组合分组计算日95（仅返回 combos 中命中的组合）
+	CalculateDaily95ForCombos(date time.Time, combos []model.SchoolRegionCP) ([]model.SchoolSettlement, error)
 	// CountValidSchoolCombos 统计有效学校-地区-运营商组合数量
 	CountValidSchoolCombos(userID *uint64) (int64, error)
 	// ListValidSchoolCombos 列出有效学校-地区-运营商组合
@@ -957,6 +959,95 @@ func (r *settlementRepository) CalculateDaily95WithRegionAndCP(date time.Time, s
 	}
 
 	return settlement, nil
+}
+
+// pick95Point 与 CalculateDaily95WithRegionAndCP 口径一致：按值降序取 DescendingIndex 处的值与时间
+func pick95Point(values []int64, times []time.Time) (int64, time.Time) {
+	idx := make([]int, len(values))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.SliceStable(idx, func(a, b int) bool { return values[idx[a]] > values[idx[b]] })
+	i95 := settlement95.DescendingIndex(len(values))
+	return values[idx[i95]], times[idx[i95]]
+}
+
+func comboKey(schoolID, region, cp string) string {
+	return schoolID + "\x00" + region + "\x00" + cp
+}
+
+// CalculateDaily95ForCombos 流式分组计算：一次查询代替逐组合 N+1 查询
+func (r *settlementRepository) CalculateDaily95ForCombos(date time.Time, combos []model.SchoolRegionCP) ([]model.SchoolSettlement, error) {
+	startTime := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
+	endTime := time.Date(date.Year(), date.Month(), date.Day(), 23, 59, 59, 999999999, date.Location())
+
+	valid := make(map[string]model.SchoolRegionCP, len(combos))
+	for _, c := range combos {
+		if c.SchoolID == "" || c.Region == "" || c.CP == "" {
+			continue
+		}
+		valid[comboKey(c.SchoolID, c.Region, c.CP)] = c
+	}
+
+	rows, err := model.DB.Model(&model.SchoolTraffic{}).
+		Select("school_id, region, cp, total_recv, create_time").
+		Where("create_time BETWEEN ? AND ?", startTime, endTime).
+		Order("school_id, region, cp").
+		Rows()
+	if err != nil {
+		return nil, fmt.Errorf("查询流量数据失败: %v", err)
+	}
+	defer rows.Close()
+
+	var (
+		settlements []model.SchoolSettlement
+		curKey      string
+		curValues   []int64
+		curTimes    []time.Time
+	)
+	flush := func() {
+		if curKey == "" || len(curValues) == 0 {
+			return
+		}
+		combo, ok := valid[curKey]
+		if !ok {
+			return
+		}
+		value, at := pick95Point(curValues, curTimes)
+		settlements = append(settlements, model.SchoolSettlement{
+			SchoolID:        combo.SchoolID,
+			SchoolName:      combo.SchoolName,
+			Region:          combo.Region,
+			CP:              combo.CP,
+			SettlementValue: value,
+			SettlementTime:  at,
+			SettlementDate:  date,
+		})
+	}
+	for rows.Next() {
+		var (
+			schoolID, region, cp string
+			totalRecv            int64
+			createTime           time.Time
+		)
+		if err := rows.Scan(&schoolID, &region, &cp, &totalRecv, &createTime); err != nil {
+			return nil, fmt.Errorf("读取流量数据失败: %v", err)
+		}
+		key := comboKey(schoolID, region, cp)
+		if key != curKey {
+			flush()
+			curKey = key
+			curValues = curValues[:0]
+			curTimes = curTimes[:0]
+		}
+		curValues = append(curValues, totalRecv)
+		curTimes = append(curTimes, createTime)
+	}
+	flush()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历流量数据失败: %v", err)
+	}
+	return settlements, nil
 }
 
 // CalculateDaily95WithRegionAndCPForAllRegionsAndCPs 为指定学校计算所有区域和运营商的日95值
