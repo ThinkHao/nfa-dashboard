@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { defineComponent, h, ref } from 'vue'
+import { defineComponent, h, inject, provide, ref } from 'vue'
 
 import SettlementDataTab from '../SettlementDataTab.vue'
 
@@ -68,6 +68,31 @@ const passthroughStub = defineComponent({
     return () => h('div', slots.default?.())
   },
 })
+const tableStub = defineComponent({
+  props: {
+    data: {
+      type: Array,
+      default: () => [],
+    },
+  },
+  setup(props, { slots }) {
+    provide('tableProps', props)
+    return () => h('div', (props.data as any[]).map((row) => h('div', slots.default?.({ row }))))
+  },
+})
+const tableColumnStub = defineComponent({
+  setup(_, { slots }) {
+    const tableProps = inject<{ data: any[] }>('tableProps', { data: [] })
+    return () => h('div', (tableProps.data || []).flatMap((row) => slots.default?.({ row }) || []))
+  },
+})
+const tooltipStub = defineComponent({
+  name: 'ElTooltip',
+  emits: ['show'],
+  setup(_, { slots }) {
+    return () => h('span', slots.default?.())
+  },
+})
 const inertStub = defineComponent({
   setup() {
     return () => h('div')
@@ -92,9 +117,9 @@ function mountComponent() {
         ElCheckbox: passthroughStub,
         ElDivider: passthroughStub,
         ElPagination: passthroughStub,
-        ElTooltip: passthroughStub,
-        ElTable: passthroughStub,
-        ElTableColumn: inertStub,
+        ElTooltip: tooltipStub,
+        ElTable: tableStub,
+        ElTableColumn: tableColumnStub,
         UnifiedDateRange: passthroughStub,
         SearchSelect: passthroughStub,
         QueryActionButton: passthroughStub,
@@ -144,26 +169,18 @@ describe('SettlementDataTab', () => {
     expect(apiMock.settlementRates.discountRules.get).not.toHaveBeenCalled()
   })
 
-  it('loads rate and discount metadata lazily once when an amount tooltip opens', async () => {
+  it('loads rate and discount metadata lazily once when an amount tooltip shows', async () => {
     const wrapper = mountComponent()
 
     await flushPromises()
     await flushPromises()
 
-    const row = {
-      region: '华北',
-      cp: 'CT',
-      school_name: '学校A',
-      service_date: '2026-05-01',
-      settlement_value: 75000000,
-      customer_bill: 12.34,
-      customer_fee_owner_id: 1,
-      discount_rule_id: 9,
-    }
+    const tooltip = wrapper.findAllComponents(tooltipStub)[0]
+    expect(tooltip).toBeTruthy()
 
-    await (wrapper.vm as any).onAmountTooltipVisible(true, row)
+    tooltip.vm.$emit('show')
     await flushPromises()
-    await (wrapper.vm as any).onAmountTooltipVisible(true, row)
+    tooltip.vm.$emit('show')
     await flushPromises()
 
     expect(apiMock.settlementRates.discountRules.get).toHaveBeenCalledTimes(1)

@@ -155,7 +155,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import api from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { School } from '@/types/api'
-import { buildMonthlyAmountColumnView, normalizeDateText, resolveMonthRangeDateTime, type MonthlyMetricRow } from './settlement-user-query-utils'
+import { buildMonthlyAmountColumnView, normalizeDateText, pickEffectiveRate, resolveMonthRangeDateTime, type MonthlyMetricRow } from './settlement-user-query-utils'
 import { buildCsvContent, formatExportFilename, triggerBlobDownload } from '@/utils/export'
 import { EXPORT_FILENAME_PREFIX } from '@/utils/export-standards'
 import SearchSelect from '@/components/ui/SearchSelect.vue'
@@ -276,16 +276,6 @@ function buildParams(page = pagination.page, pageSize = pagination.pageSize) {
   return params
 }
 
-function parseDateOnly(value: unknown): Date | null {
-  const normalized = normalizeDateText(value)
-  if (!normalized) return null
-  const m = normalized.match(/^(\d{4})-(\d{2})-(\d{2})/)
-  if (!m) return null
-  const y = Number(m[1]); const mo = Number(m[2]); const d = Number(m[3])
-  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null
-  return new Date(y, mo - 1, d)
-}
-
 function monthRangeBoundary(): { startMonth: string; endMonth: string } | null {
   if (!monthRange.value || !monthRange.value[0] || !monthRange.value[1]) return null
   return { startMonth: String(monthRange.value[0]), endMonth: String(monthRange.value[1]) }
@@ -299,22 +289,6 @@ function clipRowsBySelectedMonths<T extends Record<string, any>>(inputRows: T[])
     const month = String(row?.service_date || '').slice(0, 7)
     return !!month && month >= startMonth && month <= endMonth
   })
-}
-
-function pickEffectiveRate(rates: any[], serviceDateText: string): any | null {
-  const serviceDate = parseDateOnly(serviceDateText)
-  if (!serviceDate) return null
-  const candidates = (rates || []).filter((rate) => {
-    const startDate = parseDateOnly(rate?.start_at)
-    if (!startDate) return true
-    return startDate.getTime() <= serviceDate.getTime()
-  })
-  if (!candidates.length) return null
-  return [...candidates].sort((a, b) => {
-    const ad = parseDateOnly(a?.start_at)?.getTime() || 0
-    const bd = parseDateOnly(b?.start_at)?.getTime() || 0
-    return bd - ad
-  })[0]
 }
 
 async function enrichRowsWithStartDates(inputRows: any[], signal?: AbortSignal): Promise<any[]> {

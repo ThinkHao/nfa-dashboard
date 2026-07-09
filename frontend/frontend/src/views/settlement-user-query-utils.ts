@@ -104,6 +104,42 @@ export function normalizeDateText(value: unknown): string {
   return raw
 }
 
+function parseDateOnly(value: unknown, monthBoundary: 'start' | 'end' = 'start'): Date | null {
+  const normalized = normalizeDateText(value)
+  if (!normalized) return null
+  const monthMatch = normalized.match(/^(\d{4})-(\d{2})$/)
+  if (monthMatch) {
+    const y = Number(monthMatch[1])
+    const m = Number(monthMatch[2])
+    if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) return null
+    const day = monthBoundary === 'end' ? new Date(y, m, 0).getDate() : 1
+    return new Date(y, m - 1, day)
+  }
+  const dateMatch = normalized.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!dateMatch) return null
+  const y = Number(dateMatch[1])
+  const m = Number(dateMatch[2])
+  const d = Number(dateMatch[3])
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null
+  return new Date(y, m - 1, d)
+}
+
+export function pickEffectiveRate(rates: any[], serviceDateText: string): any | null {
+  const serviceDate = parseDateOnly(serviceDateText, 'end')
+  if (!serviceDate) return null
+  const candidates = (rates || []).filter((rate) => {
+    const startDate = parseDateOnly(rate?.start_at)
+    if (!startDate) return true
+    return startDate.getTime() <= serviceDate.getTime()
+  })
+  if (!candidates.length) return null
+  return [...candidates].sort((a, b) => {
+    const ad = parseDateOnly(a?.start_at)?.getTime() || 0
+    const bd = parseDateOnly(b?.start_at)?.getTime() || 0
+    return bd - ad
+  })[0]
+}
+
 function monthValuesTemplate(months: string[]): Record<string, number> {
   const values: Record<string, number> = {}
   for (const month of months) values[month] = 0

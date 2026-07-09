@@ -147,7 +147,7 @@
         <el-table-column prop="customer_fee" label="客户费率" width="110" />
         <el-table-column prop="customer_bill" label="客户金额" width="110">
           <template #default="{ row }">
-            <el-tooltip placement="top" @visible-change="(visible) => onAmountTooltipVisible(visible, row)">
+            <el-tooltip placement="top" @show="() => onAmountTooltipVisible(row)">
               <template #content>
                 <pre class="amount-detail-pre">{{ amountDetail(row, 'customer_fee', 'customer_bill', '客户费率') }}</pre>
               </template>
@@ -161,7 +161,7 @@
         <el-table-column prop="network_line_fee" label="线路费率" width="110" />
         <el-table-column prop="network_line_bill" label="线路金额" width="110">
           <template #default="{ row }">
-            <el-tooltip placement="top" @visible-change="(visible) => onAmountTooltipVisible(visible, row)">
+            <el-tooltip placement="top" @show="() => onAmountTooltipVisible(row)">
               <template #content>
                 <pre class="amount-detail-pre">{{ amountDetail(row, 'network_line_fee', 'network_line_bill', '线路费率') }}</pre>
               </template>
@@ -175,7 +175,7 @@
         <el-table-column prop="node_deduction_fee" label="节点通用费率" width="110" />
         <el-table-column prop="node_deduction_bill" label="节点通用金额" width="120">
           <template #default="{ row }">
-            <el-tooltip placement="top" @visible-change="(visible) => onAmountTooltipVisible(visible, row)">
+            <el-tooltip placement="top" @show="() => onAmountTooltipVisible(row)">
               <template #content>
                 <pre class="amount-detail-pre">{{ amountDetail(row, 'node_deduction_fee', 'node_deduction_bill', '节点通用费率') }}</pre>
               </template>
@@ -189,7 +189,7 @@
         <el-table-column prop="channel_rate" label="渠道费率" width="110" />
         <el-table-column prop="channel_bill" label="渠道金额" width="110">
           <template #default="{ row }">
-            <el-tooltip placement="top" @visible-change="(visible) => onAmountTooltipVisible(visible, row)">
+            <el-tooltip placement="top" @show="() => onAmountTooltipVisible(row)">
               <template #content>
                 <pre class="amount-detail-pre">{{ amountDetail(row, 'channel_rate', 'channel_bill', '渠道费率') }}</pre>
               </template>
@@ -511,8 +511,7 @@ function amountDetailMetaKey(row: any): string {
   return `${rowCalcMetaKey(row)}|${Number(row?.discount_rule_id || 0)}`
 }
 
-function onAmountTooltipVisible(visible: boolean, row: any) {
-  if (!visible) return
+function onAmountTooltipVisible(row: any) {
   void ensureAmountDetailMeta(row)
 }
 

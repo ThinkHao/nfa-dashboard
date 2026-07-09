@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildMonthlyAmountColumnView, resolveMonthRangeDateTime } from '@/views/settlement-user-query-utils'
+import { buildMonthlyAmountColumnView, pickEffectiveRate, resolveMonthRangeDateTime } from '@/views/settlement-user-query-utils'
 
 describe('buildMonthlyAmountColumnView', () => {
   it('builds month columns with school rows and bottom monthly total row', () => {
@@ -204,5 +204,16 @@ describe('resolveMonthRangeDateTime', () => {
   it('returns empty boundaries when range is not ready', () => {
     expect(resolveMonthRangeDateTime(null)).toEqual({ start: '', end: '' })
     expect(resolveMonthRangeDateTime(['', '2026-03'] as any)).toEqual({ start: '', end: '' })
+  })
+})
+
+describe('pickEffectiveRate', () => {
+  it('uses the end of a YYYY-MM service month when matching start_at', () => {
+    const rates = [
+      { id: 1, start_at: '2026-04-01', increment_start_at: '2026-04-15' },
+      { id: 2, start_at: '2026-06-01', increment_start_at: '2026-06-15' },
+    ]
+
+    expect(pickEffectiveRate(rates, '2026-05')).toEqual(rates[0])
   })
 })
