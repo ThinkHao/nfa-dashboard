@@ -11,9 +11,11 @@ RUN npm ci
 COPY . ./
 RUN npm run build-only
 
-FROM nginx:alpine
+FROM nginx:1.30.3-trixie
 WORKDIR /usr/share/nginx/html
-RUN apk add --no-cache tzdata \
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends tzdata \
+  && rm -rf /var/lib/apt/lists/* \
   && ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
   && echo Asia/Shanghai > /etc/timezone
 ENV TZ=Asia/Shanghai
