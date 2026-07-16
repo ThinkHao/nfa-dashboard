@@ -147,7 +147,7 @@ LOCAL_NORMAL_PAIRS = {
     ("四川", "bilibili"), ("天津", "bilibili"), ("北京", "bilibili"),
     ("湖南", "bilibili"), ("福建", "bilibili"),
     ("上海", "jsy"), ("广东", "jsy"), ("河南", "jsy"), ("北京", "jsy"),
-    ("广东", "xinliu"), ("山东", "xinliu"), ("四川", "xinliu"),
+    ("北京", "xinliu"), ("广东", "xinliu"), ("山东", "xinliu"), ("四川", "xinliu"),
 }
 ```
 
