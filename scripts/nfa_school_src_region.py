@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import re
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
@@ -157,6 +158,66 @@ def read_rows(connection: Any) -> list[dict[str, Any]]:
         return list(cursor.fetchall())
 
 
+def execute_backfill(
+    connection: Any, timestamp: Optional[str] = None
+) -> dict[str, Any]:
+    rows = read_rows(connection)
+    preview = build_preview(rows)
+    if preview["summary"]["errors"]:
+        raise RuntimeError(
+            f"存在 {preview['summary']['errors']} 条无法识别业务，已停止执行"
+        )
+
+    suffix = timestamp or datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_table = f"nfa_school_src_region_backup_{suffix}"
+    if not re.fullmatch(r"[A-Za-z0-9_]+", backup_table):
+        raise ValueError("备份表名包含非法字符")
+
+    with connection.cursor() as cursor:
+        cursor.execute(f"CREATE TABLE `{backup_table}` LIKE `nfa_school`")
+        cursor.execute(f"INSERT INTO `{backup_table}` SELECT * FROM `nfa_school`")
+        cursor.execute(f"SELECT COUNT(*) AS row_count FROM `{backup_table}`")
+        backup_count = int(cursor.fetchone()["row_count"])
+    if backup_count != preview["summary"]["total"]:
+        connection.rollback()
+        raise RuntimeError(
+            f"备份行数不一致: expected={preview['summary']['total']} actual={backup_count}"
+        )
+    # CREATE TABLE 会隐式提交；显式提交 INSERT，确保备份在更新事务前完整落盘。
+    connection.commit()
+
+    connection.begin()
+    try:
+        updates = [
+            (item["target_src_region"], item["id"]) for item in preview["updates"]
+        ]
+        if updates:
+            with connection.cursor() as cursor:
+                cursor.executemany(
+                    "UPDATE nfa_school SET src_region=%s WHERE id=%s", updates
+                )
+
+        verification = build_preview(read_rows(connection))
+        if verification["summary"]["errors"] or verification["summary"]["will_update"]:
+            raise RuntimeError(
+                "回填验证失败: "
+                f"remaining_updates={verification['summary']['will_update']} "
+                f"errors={verification['summary']['errors']}"
+            )
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+
+    return {
+        "backup_table": backup_table,
+        "updated": len(updates),
+        "unchanged": preview["summary"]["unchanged"],
+        "errors": 0,
+        "verified": True,
+    }
+
+
 def open_connection(args: argparse.Namespace) -> Any:
     try:
         import pymysql
@@ -205,11 +266,19 @@ def write_preview(preview: dict[str, Any], output: str) -> Path:
 
 def main(argv: Optional[list[str]] = None) -> int:
     args = parse_args(argv)
-    if args.execute:
-        raise RuntimeError("执行模式尚未实现")
+    if args.execute and not args.confirm:
+        raise SystemExit("执行回填必须同时提供 --execute --confirm")
 
     connection = open_connection(args)
     try:
+        if args.execute:
+            result = execute_backfill(connection)
+            print(
+                "回填完成: "
+                f"updated={result['updated']} unchanged={result['unchanged']} "
+                f"backup_table={result['backup_table']} verified={result['verified']}"
+            )
+            return 0
         preview = build_preview(read_rows(connection))
     finally:
         connection.close()
