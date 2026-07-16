@@ -191,6 +191,7 @@ applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 assert_db_schema() {
   log "执行关键 schema 预检"
   local checks=(
+    "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='nfa_school' AND COLUMN_NAME='src_region';|nfa_school.src_region 列缺失"
     "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer_monthly';|settlement_customer_monthly 表缺失"
     "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer_v';|settlement_customer_v 表缺失"
     "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer_monthly_v';|settlement_customer_monthly_v 表缺失"

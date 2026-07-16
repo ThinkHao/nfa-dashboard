@@ -147,7 +147,7 @@ LOCAL_NORMAL_PAIRS = {
     ("四川", "bilibili"), ("天津", "bilibili"), ("北京", "bilibili"),
     ("湖南", "bilibili"), ("福建", "bilibili"),
     ("上海", "jsy"), ("广东", "jsy"), ("河南", "jsy"), ("北京", "jsy"),
-    ("广东", "xinliu"), ("山东", "xinliu"), ("四川", "xinliu"),
+    ("北京", "xinliu"), ("广东", "xinliu"), ("山东", "xinliu"), ("四川", "xinliu"),
 }
 ```
 
@@ -233,7 +233,7 @@ git commit -m "feat: add source region backfill preview"
 
 - [ ] **Step 1: Write failing execution-gate tests**
 
-Assert `--execute` without `--confirm` exits nonzero before opening a connection. With a fake connection, assert the execution call order is: begin, `CREATE TABLE ... LIKE nfa_school`, `INSERT ... SELECT * FROM nfa_school`, parameterized `UPDATE nfa_school SET src_region=%s WHERE id=%s`, verification select, commit. Assert any exception calls rollback.
+Assert `--execute` without `--confirm` exits nonzero before opening a connection. With a fake connection, assert the execution call order is: `CREATE TABLE ... LIKE nfa_school`, `INSERT ... SELECT * FROM nfa_school`, validate backup count, begin, parameterized `UPDATE nfa_school SET src_region=%s WHERE id=%s`, verification select, commit. Assert an update/verification exception calls rollback while the backup remains.
 
 - [ ] **Step 2: Run and confirm RED**
 
@@ -245,7 +245,7 @@ Expected: failures because execution helpers are missing.
 
 - [ ] **Step 3: Implement guarded execution**
 
-Require both flags. Generate a safe backup identifier matching `nfa_school_src_region_backup_YYYYMMDD_HHMMSS`; reject any identifier outside `[A-Za-z0-9_]+`. Re-read rows inside the transaction, rebuild the preview, abort if errors exist, create/copy the backup, execute parameterized updates, verify every deterministic row, and commit. Return the backup table name and counts without credentials.
+Require both flags. Generate a safe backup identifier matching `nfa_school_src_region_backup_YYYYMMDD_HHMMSS`; reject any identifier outside `[A-Za-z0-9_]+`. Re-read rows, rebuild the preview, and abort if errors exist. Because MySQL DDL implicitly commits, create/copy/validate the backup first, then begin the update transaction, execute parameterized updates, verify every deterministic row, and commit. Return the backup table name and counts without credentials.
 
 - [ ] **Step 4: Run all Python tests**
 
@@ -300,8 +300,8 @@ Inspect JSON programmatically and assert:
 assert errors == 0
 assert every Shaanxi bilibili target is Tianjin
 assert every Shaanxi non-bilibili recognized target is Beijing
-assert sum(rule_counts.values()) + errors == total
-assert will_update + unchanged + errors == total
+assert sum(rule_counts.values()) + errors + skipped == total
+assert will_update + unchanged + errors + skipped == total
 ```
 
 If unknown CPs exist, do not execute and present them as an explicit pending list instead of weakening `errors == 0`.
