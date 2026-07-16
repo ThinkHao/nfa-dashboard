@@ -2,6 +2,7 @@ import { resolveMonthRangeDateTime } from './settlement-user-query-utils'
 
 export type SettlementQueryFilters = {
   userId: number | null
+  srcRegion: string
   region: string
   cp: string
   schoolName: string
@@ -18,6 +19,7 @@ export function buildSettlementQueryParams(
   if (start) params.start_service_date = start
   if (end) params.end_service_date = end
   if (filters.userId != null && filters.userId > 0) params.channel_owner_user_id = filters.userId
+  if (filters.srcRegion) params.src_region = filters.srcRegion
   if (filters.region) params.region = filters.region
   if (filters.cp) params.cp = filters.cp
   if (filters.schoolName) params.school_name = filters.schoolName

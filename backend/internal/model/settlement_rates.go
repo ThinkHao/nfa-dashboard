@@ -168,6 +168,7 @@ func (RateFinalCustomer) TableName() string { return "rate_final_customer" }
 type SettlementCustomer struct {
 	ID                      uint64     `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
 	Region                  string     `gorm:"column:region;size:32;not null" json:"region"`
+	SrcRegion               *string    `gorm:"column:src_region;size:20" json:"src_region,omitempty"`
 	CP                      string     `gorm:"column:cp;size:32;not null" json:"cp"`
 	SchoolName              string     `gorm:"column:school_name;size:128;not null" json:"school_name"`
 	SettlementValue         float64    `gorm:"column:settlement_value;not null" json:"settlement_value"`
@@ -203,6 +204,7 @@ func (SettlementCustomer) TableName() string { return "settlement_customer" }
 type SettlementCustomerV struct {
 	ID                      uint64     `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
 	Region                  string     `gorm:"column:region;size:32;not null" json:"region"`
+	SrcRegion               *string    `gorm:"column:src_region;size:20" json:"src_region,omitempty"`
 	CP                      string     `gorm:"column:cp;size:32;not null" json:"cp"`
 	SchoolName              string     `gorm:"column:school_name;size:128;not null" json:"school_name"`
 	ServiceMonth            string     `gorm:"column:service_month;size:7;not null" json:"service_month"`
@@ -238,6 +240,7 @@ func (SettlementCustomerV) TableName() string { return "settlement_customer_v" }
 // SettlementCustomerMonthly 客户结算月度聚合视图（按 region/cp/school_name/月 汇总）
 type SettlementCustomerMonthly struct {
 	Region                  string   `json:"region"`
+	SrcRegion               *string  `json:"src_region,omitempty"`
 	CP                      string   `json:"cp"`
 	SchoolName              string   `json:"school_name"`
 	ServiceDate             string   `json:"service_date"`

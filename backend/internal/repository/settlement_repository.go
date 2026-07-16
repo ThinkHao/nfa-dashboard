@@ -640,7 +640,7 @@ func (r *settlementRepository) CountValidSchoolCombos(userID *uint64) (int64, er
 	var out row
 	sql := `
 SELECT COUNT(*) AS c FROM (
-SELECT DISTINCT school_id, school_name, region, cp
+SELECT DISTINCT school_id, school_name, region, src_region, cp
 FROM nfa_school
 WHERE school_id IS NOT NULL AND school_id <> ''
   AND school_name IS NOT NULL AND school_name <> ''
@@ -661,7 +661,7 @@ WHERE school_id IS NOT NULL AND school_id <> ''
 
 func (r *settlementRepository) ListValidSchoolCombos(userID *uint64) ([]model.SchoolRegionCP, error) {
 	sql := `
-SELECT DISTINCT school_id, school_name, region, cp
+SELECT DISTINCT school_id, school_name, region, src_region, cp
 FROM nfa_school
 WHERE school_id IS NOT NULL AND school_id <> ''
   AND school_name IS NOT NULL AND school_name <> ''
@@ -952,6 +952,7 @@ func (r *settlementRepository) CalculateDaily95WithRegionAndCP(date time.Time, s
 		SchoolID:        school.SchoolID,
 		SchoolName:      school.SchoolName,
 		Region:          settlementRegion,
+		SrcRegion:       school.SrcRegion,
 		CP:              settlementCP,
 		SettlementValue: settlement95Value,
 		SettlementTime:  settlement95Time,
@@ -1022,6 +1023,7 @@ func (r *settlementRepository) CalculateDaily95ForCombos(date time.Time, combos 
 			SchoolID:        combo.SchoolID,
 			SchoolName:      combo.SchoolName,
 			Region:          combo.Region,
+			SrcRegion:       combo.SrcRegion,
 			CP:              combo.CP,
 			SettlementValue: value,
 			SettlementTime:  at,
@@ -1220,6 +1222,7 @@ func (r *settlementRepository) CalculateDaily95WithRegionAndCPForAllRegionsAndCP
 			SchoolID:        school.SchoolID,
 			SchoolName:      school.SchoolName,
 			Region:          pair.Region,
+			SrcRegion:       school.SrcRegion,
 			CP:              pair.CP,
 			SettlementValue: settlement95Value,
 			SettlementTime:  settlement95Time,

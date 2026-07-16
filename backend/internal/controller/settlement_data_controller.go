@@ -84,6 +84,13 @@ func mapGetUserName(m map[uint64]string, id *uint64) string {
 	return fmt.Sprintf("#%d", *id)
 }
 
+func settlementString(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+
 func NewSettlementDataController(svc service.SettlementDataService) *SettlementDataController {
 	return &SettlementDataController{dataSvc: svc}
 }
@@ -91,15 +98,16 @@ func NewSettlementDataController(svc service.SettlementDataService) *SettlementD
 // ListCustomerData GET /api/v1/settlement/data/customer
 func (c *SettlementDataController) ListCustomerData(ctx *gin.Context) {
 	var (
-		region   = ctx.Query("region")
-		cp       = ctx.Query("cp")
-		school   = ctx.Query("school_name")
-		startS   = ctx.Query("start_service_date")
-		endS     = ctx.Query("end_service_date")
-		ownerS   = ctx.Query("owner_entity_id")
-		channelS = ctx.Query("channel_owner_user_id")
-		page     = intFrom(ctx.DefaultQuery("page", "1"), 1)
-		size     = intFrom(ctx.DefaultQuery("page_size", "10"), 10)
+		srcRegion = ctx.Query("src_region")
+		region    = ctx.Query("region")
+		cp        = ctx.Query("cp")
+		school    = ctx.Query("school_name")
+		startS    = ctx.Query("start_service_date")
+		endS      = ctx.Query("end_service_date")
+		ownerS    = ctx.Query("owner_entity_id")
+		channelS  = ctx.Query("channel_owner_user_id")
+		page      = intFrom(ctx.DefaultQuery("page", "1"), 1)
+		size      = intFrom(ctx.DefaultQuery("page_size", "10"), 10)
 	)
 	var (
 		startPtr *time.Time
@@ -127,7 +135,7 @@ func (c *SettlementDataController) ListCustomerData(ctx *gin.Context) {
 			channelPtr = &cuv
 		}
 	}
-	items, total, err := c.dataSvc.List(ctx.Request.Context(), service.SettlementCustomerFilter{Region: region, CP: cp, School: school, Start: startPtr, End: endPtr, OwnerEntityID: ownerPtr, ChannelOwnerUserID: channelPtr}, page, size)
+	items, total, err := c.dataSvc.List(ctx.Request.Context(), service.SettlementCustomerFilter{SrcRegion: srcRegion, Region: region, CP: cp, School: school, Start: startPtr, End: endPtr, OwnerEntityID: ownerPtr, ChannelOwnerUserID: channelPtr}, page, size)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			return
@@ -141,15 +149,16 @@ func (c *SettlementDataController) ListCustomerData(ctx *gin.Context) {
 // ListCustomerMonthlyData GET /api/v1/settlement/data/customer/monthly
 func (c *SettlementDataController) ListCustomerMonthlyData(ctx *gin.Context) {
 	var (
-		region   = ctx.Query("region")
-		cp       = ctx.Query("cp")
-		school   = ctx.Query("school_name")
-		startS   = ctx.Query("start_service_date")
-		endS     = ctx.Query("end_service_date")
-		ownerS   = ctx.Query("owner_entity_id")
-		channelS = ctx.Query("channel_owner_user_id")
-		page     = intFrom(ctx.DefaultQuery("page", "1"), 1)
-		size     = intFrom(ctx.DefaultQuery("page_size", "10"), 10)
+		srcRegion = ctx.Query("src_region")
+		region    = ctx.Query("region")
+		cp        = ctx.Query("cp")
+		school    = ctx.Query("school_name")
+		startS    = ctx.Query("start_service_date")
+		endS      = ctx.Query("end_service_date")
+		ownerS    = ctx.Query("owner_entity_id")
+		channelS  = ctx.Query("channel_owner_user_id")
+		page      = intFrom(ctx.DefaultQuery("page", "1"), 1)
+		size      = intFrom(ctx.DefaultQuery("page_size", "10"), 10)
 	)
 	var (
 		startPtr *time.Time
@@ -178,6 +187,7 @@ func (c *SettlementDataController) ListCustomerMonthlyData(ctx *gin.Context) {
 		}
 	}
 	items, total, err := c.dataSvc.ListMonthly(ctx.Request.Context(), service.SettlementCustomerFilter{
+		SrcRegion:          srcRegion,
 		Region:             region,
 		CP:                 cp,
 		School:             school,
@@ -223,13 +233,14 @@ func (c *SettlementDataController) ListCustomerMonthlyData(ctx *gin.Context) {
 // ExportCustomerData GET /api/v1/settlement/data/customer/export
 func (c *SettlementDataController) ExportCustomerData(ctx *gin.Context) {
 	var (
-		region   = ctx.Query("region")
-		cp       = ctx.Query("cp")
-		school   = ctx.Query("school_name")
-		startS   = ctx.Query("start_service_date")
-		endS     = ctx.Query("end_service_date")
-		ownerS   = ctx.Query("owner_entity_id")
-		channelS = ctx.Query("channel_owner_user_id")
+		srcRegion = ctx.Query("src_region")
+		region    = ctx.Query("region")
+		cp        = ctx.Query("cp")
+		school    = ctx.Query("school_name")
+		startS    = ctx.Query("start_service_date")
+		endS      = ctx.Query("end_service_date")
+		ownerS    = ctx.Query("owner_entity_id")
+		channelS  = ctx.Query("channel_owner_user_id")
 	)
 	var (
 		startPtr *time.Time
@@ -257,7 +268,7 @@ func (c *SettlementDataController) ExportCustomerData(ctx *gin.Context) {
 			channelPtr = &cuv
 		}
 	}
-	rows, err := c.dataSvc.ListAll(ctx.Request.Context(), service.SettlementCustomerFilter{Region: region, CP: cp, School: school, Start: startPtr, End: endPtr, OwnerEntityID: ownerPtr, ChannelOwnerUserID: channelPtr})
+	rows, err := c.dataSvc.ListAll(ctx.Request.Context(), service.SettlementCustomerFilter{SrcRegion: srcRegion, Region: region, CP: cp, School: school, Start: startPtr, End: endPtr, OwnerEntityID: ownerPtr, ChannelOwnerUserID: channelPtr})
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			return
@@ -276,7 +287,7 @@ func (c *SettlementDataController) ExportCustomerData(ctx *gin.Context) {
 	ctx.Header("Content-Disposition", "attachment; filename=settlement_customer.csv; filename*=UTF-8''%E7%BB%93%E7%AE%97%E6%95%B0%E6%8D%AE%E6%98%8E%E7%BB%86.csv")
 	w := ctx.Writer
 	_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF})
-	w.Write([]byte("区域,CP,学校,服务日期,客户费率,客户金额,线路费率,线路金额,渠道费率,渠道金额,客户费归属,线路费归属,渠道费归属,是否复算,最近复算时间\n"))
+	w.Write([]byte("节点源区域,院校归属区域,CP,学校,服务日期,客户费率,客户金额,线路费率,线路金额,渠道费率,渠道金额,客户费归属,线路费归属,渠道费归属,是否复算,最近复算时间\n"))
 	for _, r := range rows {
 		var sd, lrt string
 		if r.ServiceDate != nil {
@@ -286,7 +297,7 @@ func (c *SettlementDataController) ExportCustomerData(ctx *gin.Context) {
 			lrt = r.LastRecalcTime.Format("2006-01-02 15:04:05")
 		}
 		writeCSVLine(w,
-			r.Region, r.CP, r.SchoolName, sd,
+			settlementString(r.SrcRegion), r.Region, r.CP, r.SchoolName, sd,
 			fmtFloat(r.CustomerFee), fmtFloat(r.CustomerBill),
 			fmtFloat(r.NetworkLineFee), fmtFloat(r.NetworkLineBill),
 			fmtFloat(r.ChannelRate), fmtFloat(r.ChannelBill),
@@ -507,9 +518,10 @@ func (c *SettlementDataController) RebuildMonthlyData(ctx *gin.Context) {
 
 func parseSettlementFilter(ctx *gin.Context) service.SettlementCustomerFilter {
 	filter := service.SettlementCustomerFilter{
-		Region: ctx.Query("region"),
-		CP:     ctx.Query("cp"),
-		School: ctx.Query("school_name"),
+		SrcRegion: ctx.Query("src_region"),
+		Region:    ctx.Query("region"),
+		CP:        ctx.Query("cp"),
+		School:    ctx.Query("school_name"),
 	}
 	if startS := ctx.Query("start_service_date"); startS != "" {
 		if parsed, err := parseOptionalDateBoundary(startS, false); err == nil {

@@ -35,11 +35,12 @@ type SettlementDataService interface {
 }
 
 type SettlementCustomerFilter struct {
-	Region string
-	CP     string
-	School string
-	Start  *time.Time
-	End    *time.Time
+	SrcRegion string
+	Region    string
+	CP        string
+	School    string
+	Start     *time.Time
+	End       *time.Time
 	// 费用归属业务对象ID：匹配客户费或线路费任一归属
 	OwnerEntityID *uint64
 	// 渠道归属系统用户ID
@@ -85,6 +86,9 @@ func NewSettlementDataService(
 
 func (s *settlementDataService) List(ctx context.Context, filter SettlementCustomerFilter, page, pageSize int) ([]model.SettlementCustomer, int64, error) {
 	m := map[string]interface{}{}
+	if filter.SrcRegion != "" {
+		m["src_region"] = filter.SrcRegion
+	}
 	if filter.Region != "" {
 		m["region"] = filter.Region
 	}
@@ -119,6 +123,9 @@ func (s *settlementDataService) List(ctx context.Context, filter SettlementCusto
 
 func (s *settlementDataService) ListMonthly(ctx context.Context, filter SettlementCustomerFilter, page, pageSize int) ([]model.SettlementCustomerMonthly, int64, error) {
 	m := map[string]interface{}{}
+	if filter.SrcRegion != "" {
+		m["src_region"] = filter.SrcRegion
+	}
 	if filter.Region != "" {
 		m["region"] = filter.Region
 	}
@@ -153,6 +160,9 @@ func (s *settlementDataService) ListMonthly(ctx context.Context, filter Settleme
 
 func (s *settlementDataService) ListAll(ctx context.Context, filter SettlementCustomerFilter) ([]model.SettlementCustomer, error) {
 	m := map[string]interface{}{}
+	if filter.SrcRegion != "" {
+		m["src_region"] = filter.SrcRegion
+	}
 	if filter.Region != "" {
 		m["region"] = filter.Region
 	}
@@ -275,6 +285,9 @@ func (s *settlementDataService) ListUsedOwnerEntities(ctx context.Context, filte
 
 func (s *settlementDataService) ListUsedOwnerSubjects(ctx context.Context, filter SettlementCustomerFilter) ([]UsedOwnerSubject, error) {
 	m := map[string]interface{}{}
+	if filter.SrcRegion != "" {
+		m["src_region"] = filter.SrcRegion
+	}
 	if filter.Region != "" {
 		m["region"] = filter.Region
 	}

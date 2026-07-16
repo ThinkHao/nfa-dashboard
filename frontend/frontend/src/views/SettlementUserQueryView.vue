@@ -49,7 +49,10 @@
             @change="handleMonthRangeChange"
           />
         </el-form-item>
-        <el-form-item label="地区">
+        <el-form-item label="节点源区域">
+          <SearchSelect v-model="filter.srcRegion" :options="srcRegions" clearable class="field-w-160" />
+        </el-form-item>
+        <el-form-item label="院校归属区域">
           <SearchSelect v-model="filter.region" :options="regions" clearable class="field-w-160" @change="onRegionChange" />
         </el-form-item>
         <el-form-item label="CP">
@@ -77,7 +80,8 @@
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="region" label="地区" width="110" />
+        <el-table-column prop="src_region" label="节点源区域" width="120" />
+        <el-table-column prop="region" label="院校归属区域" width="130" />
         <el-table-column prop="cp" label="CP" width="110" />
         <el-table-column prop="service_date" :label="serviceDateLabel" width="130" />
         <el-table-column prop="stock_start_at" label="存量起算时间" width="130">
@@ -196,6 +200,7 @@ const userOptionsLoading = ref(false)
 const ownerUsersFetchSeq = ref(0)
 const lastOwnerUsersQueryKey = ref('')
 const regions = ref<string[]>([])
+const srcRegions = ref<string[]>([])
 const cps = ref<string[]>([])
 const schools = ref<School[]>([])
 // 重点院校 school_name 集合（NFA 侧）：结算数据源只有 school_name 无 school_id，故按校名标注。
@@ -205,6 +210,7 @@ const keySchoolSet = ref<Set<string>>(new Set())
 const filter = reactive({
   userId: null as number | null,
   granularity: 'monthly' as Granularity,
+  srcRegion: '',
   region: '',
   cp: '',
   schoolName: '',
@@ -214,7 +220,7 @@ const monthRange = ref<[string, string] | null>(null)
 const pagination = reactive({ page: 1, pageSize: 10, total: 0 })
 const serviceDateLabel = computed(() => (filter.granularity === 'monthly' ? '服务月份' : '服务日期'))
 const isMonthlyColumnView = computed(() => filter.granularity === 'monthly' && viewMode.value === 'monthly_columns')
-const isMonthlyTreeMode = computed(() => isMonthlyColumnView.value && !filter.region && !filter.cp && !filter.schoolName)
+const isMonthlyTreeMode = computed(() => isMonthlyColumnView.value && !filter.srcRegion && !filter.region && !filter.cp && !filter.schoolName)
 const monthlyTreeProps = computed(() => ({ children: 'children' as const }))
 const monthlyExpandedRowKeys = computed(() => {
   if (!isMonthlyTreeMode.value) return [] as string[]
@@ -345,11 +351,13 @@ async function loadOwnerUsers() {
     const { start, end } = resolveMonthRangeDateTime(monthRange.value)
     const params: any = {}
     if (filter.region) params.region = filter.region
+    if (filter.srcRegion) params.src_region = filter.srcRegion
     if (filter.cp) params.cp = filter.cp
     if (start) params.start_service_date = start
     if (end) params.end_service_date = end
     const queryKey = JSON.stringify({
       region: params.region || '',
+      srcRegion: params.src_region || '',
       cp: params.cp || '',
       start: params.start_service_date || '',
       end: params.end_service_date || '',
@@ -378,6 +386,7 @@ function onUserDropdownVisible(visible: boolean) {
   const { start, end } = resolveMonthRangeDateTime(monthRange.value)
   const queryKey = JSON.stringify({
     region: filter.region || '',
+    srcRegion: filter.srcRegion || '',
     cp: filter.cp || '',
     start: start || '',
     end: end || '',
@@ -409,6 +418,7 @@ async function loadSchools() {
     if (filter.cp) params.cp = filter.cp
     const res = await (api as any).v2.getSchools(params)
     const list = Array.isArray(res) ? res : (Array.isArray(res?.items) ? res.items : [])
+    srcRegions.value = sanitizeScopeOptionValues(list.map((s: School) => s?.src_region).filter(Boolean) as string[]).sort()
     const dedup = new Map<string, School>()
     for (const s of list) {
       const name = typeof s?.school_name === 'string' ? s.school_name.trim() : ''
@@ -517,6 +527,7 @@ function handleReset() {
   filter.granularity = 'monthly'
   viewMode.value = 'detail'
   filter.region = ''
+  filter.srcRegion = ''
   filter.cp = ''
   filter.schoolName = ''
   pagination.page = 1
@@ -570,9 +581,10 @@ async function handleExport() {
       triggerBlobDownload(blob, formatExportFilename(EXPORT_FILENAME_PREFIX.singleUserMonthlyColumn, 'csv'))
     } else {
       const data = await fetchAllForExport()
-      const header: string[] = ['学校名称', '地区', 'CP', serviceDateLabel.value, `日95流量值(${singleUserRateUnit.value})`, '客户金额', '线路金额', '节点金额', '渠道金额', '总归属金额']
+      const header: string[] = ['学校名称', '节点源区域', '院校归属区域', 'CP', serviceDateLabel.value, `日95流量值(${singleUserRateUnit.value})`, '客户金额', '线路金额', '节点金额', '渠道金额', '总归属金额']
       const rowValues = data.map((r: any) => [
         r?.school_name,
+        r?.src_region,
         r?.region,
         r?.cp,
         r?.service_date,

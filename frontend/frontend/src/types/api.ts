@@ -86,6 +86,7 @@ export interface School {
   school_id: string;
   school_name: string;
   region?: string;
+  src_region?: string;
   cp?: string;
   create_time?: string;
   update_time?: string;

@@ -4,7 +4,7 @@ import { buildSettlementQueryParams, validateSettlementQueryRange } from '@/view
 describe('buildSettlementQueryParams', () => {
   it('omits optional filters when only the required month range is selected', () => {
     const params = buildSettlementQueryParams(
-      { userId: null, region: '', cp: '', schoolName: '' },
+      { userId: null, srcRegion: '', region: '', cp: '', schoolName: '' },
       ['2026-04', '2026-04'],
       1,
       20,
@@ -21,7 +21,7 @@ describe('buildSettlementQueryParams', () => {
 
   it('includes the selected user, region, CP and school', () => {
     const params = buildSettlementQueryParams(
-      { userId: 9, region: '北京市', cp: 'bilibili', schoolName: '学校A' },
+      { userId: 9, srcRegion: '天津市', region: '北京市', cp: 'bilibili', schoolName: '学校A' },
       ['2026-03', '2026-05'],
       2,
       50,
@@ -31,6 +31,7 @@ describe('buildSettlementQueryParams', () => {
       page: 2,
       page_size: 50,
       channel_owner_user_id: 9,
+      src_region: '天津市',
       region: '北京市',
       cp: 'bilibili',
       school_name: '学校A',

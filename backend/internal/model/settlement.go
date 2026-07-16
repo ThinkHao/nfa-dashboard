@@ -10,6 +10,7 @@ type SchoolSettlement struct {
 	SchoolID        string    `gorm:"column:school_id;not null" json:"school_id"`
 	SchoolName      string    `gorm:"column:school_name;not null" json:"school_name"`
 	Region          string    `gorm:"column:region;not null" json:"region"`
+	SrcRegion       *string   `gorm:"column:src_region" json:"src_region,omitempty"`
 	CP              string    `gorm:"column:cp;not null" json:"cp"`
 	SettlementValue int64     `gorm:"column:settlement_value;not null;default:0" json:"settlement_value"`
 	SettlementTime  time.Time `gorm:"column:settlement_time;not null" json:"settlement_time"`
@@ -115,9 +116,9 @@ type SettlementResponse struct {
 
 // SchoolRegionCP 表示可执行日结算的有效学校-地区-运营商组合
 type SchoolRegionCP struct {
-	SchoolID   string `gorm:"column:school_id"`
-	SchoolName string `gorm:"column:school_name"`
-	Region     string `gorm:"column:region"`
-	CP         string `gorm:"column:cp"`
+	SchoolID   string  `gorm:"column:school_id"`
+	SchoolName string  `gorm:"column:school_name"`
+	Region     string  `gorm:"column:region"`
+	SrcRegion  *string `gorm:"column:src_region"`
+	CP         string  `gorm:"column:cp"`
 }
-

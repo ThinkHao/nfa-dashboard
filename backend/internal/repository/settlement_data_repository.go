@@ -140,6 +140,9 @@ func applySettlementCustomerFilters(qb *gorm.DB, filter map[string]interface{}, 
 	if v, ok := filter["region"]; ok && v != "" {
 		qb = qb.Where(col("region")+" = ?", v)
 	}
+	if v, ok := filter["src_region"]; ok && v != "" {
+		qb = qb.Where(col("src_region")+" = ?", v)
+	}
 	if v, ok := filter["cp"]; ok && v != "" {
 		qb = qb.Where(col("cp")+" = ?", v)
 	}
@@ -308,6 +311,7 @@ func (r *settlementDataRepository) listSettlementCustomerMonthlyFromDaily(ctx co
 
 	selectSQL := `
 		region,
+		CASE WHEN COUNT(DISTINCT src_region) = 1 THEN MAX(src_region) ELSE NULL END AS src_region,
 		cp,
 		school_name,
 		DATE_FORMAT(service_date, '%Y-%m') AS service_date,
@@ -334,6 +338,7 @@ func (r *settlementDataRepository) listSettlementCustomerMonthlyFromDaily(ctx co
 	if v, ok := filter["channel_owner_user_id"]; ok && v != nil {
 		selectSQL = `
 			region,
+			CASE WHEN COUNT(DISTINCT src_region) = 1 THEN MAX(src_region) ELSE NULL END AS src_region,
 			cp,
 			school_name,
 			DATE_FORMAT(service_date, '%Y-%m') AS service_date,
@@ -428,6 +433,7 @@ func (r *settlementDataRepository) ListSettlementCustomerMonthly(ctx context.Con
 	var rows []model.SettlementCustomerMonthly
 	err := qb.Select(`
 			region,
+			src_region,
 			cp,
 			school_name,
 			service_month AS service_date,
@@ -468,6 +474,9 @@ func applyMonthlySnapshotFilters(qb *gorm.DB, filter map[string]interface{}, ali
 	col := func(name string) string { return alias + "." + name }
 	if v, ok := filter["region"]; ok && v != "" {
 		qb = qb.Where(col("region")+" = ?", v)
+	}
+	if v, ok := filter["src_region"]; ok && v != "" {
+		qb = qb.Where(col("src_region")+" = ?", v)
 	}
 	if v, ok := filter["cp"]; ok && v != "" {
 		qb = qb.Where(col("cp")+" = ?", v)
@@ -516,6 +525,9 @@ func isMonthlySnapshotStale(ctx context.Context, filter map[string]interface{}) 
 	}
 	if v, ok := filter["region"]; ok && v != "" {
 		dailyQB = dailyQB.Where(col("region")+" = ?", v)
+	}
+	if v, ok := filter["src_region"]; ok && v != "" {
+		dailyQB = dailyQB.Where(col("src_region")+" = ?", v)
 	}
 	if v, ok := filter["cp"]; ok && v != "" {
 		dailyQB = dailyQB.Where(col("cp")+" = ?", v)
@@ -615,7 +627,7 @@ func (r *settlementDataRepository) RebuildSettlementCustomerMonthly(start, end t
 			}
 			res := tx.Exec(`
 				INSERT INTO settlement_customer_monthly_v (
-					region, cp, school_name, service_month, slot,
+					region, src_region, cp, school_name, service_month, slot,
 					settlement_value, stock_ratio, increment_ratio, daily_increment_value,
 					customer_fee, customer_bill, customer_fee_owner_id,
 					network_line_fee, network_line_bill, network_line_fee_owner_id,
@@ -624,7 +636,7 @@ func (r *settlementDataRepository) RebuildSettlementCustomerMonthly(start, end t
 					recalculated, last_recalc_time, created_at, updated_at
 				)
 				SELECT
-					region, cp, school_name, service_month, ?,
+					region, CASE WHEN COUNT(DISTINCT src_region) = 1 THEN MAX(src_region) ELSE NULL END, cp, school_name, service_month, ?,
 					ROUND(AVG(settlement_value), 6),
 					ROUND(AVG(stock_ratio), 6),
 					ROUND(AVG(increment_ratio), 6),
@@ -671,6 +683,7 @@ func (r *settlementDataRepository) RebuildSettlementCustomerMonthly(start, end t
 
 	base := qb.Select(`
 		region,
+		CASE WHEN COUNT(DISTINCT src_region) = 1 THEN MAX(src_region) ELSE NULL END AS src_region,
 		cp,
 		school_name,
 		DATE_FORMAT(service_date, '%Y-%m') AS service_month,
@@ -696,7 +709,7 @@ func (r *settlementDataRepository) RebuildSettlementCustomerMonthly(start, end t
 
 	sql := `
 		INSERT INTO settlement_customer_monthly (
-			region, cp, school_name, service_month,
+			region, src_region, cp, school_name, service_month,
 			settlement_value, stock_ratio, increment_ratio, daily_increment_value,
 			customer_fee, customer_bill, customer_fee_owner_id,
 			network_line_fee, network_line_bill, network_line_fee_owner_id,
@@ -705,7 +718,7 @@ func (r *settlementDataRepository) RebuildSettlementCustomerMonthly(start, end t
 			recalculated, last_recalc_time, created_at, updated_at
 		)
 		SELECT
-			region, cp, school_name, service_month,
+			region, src_region, cp, school_name, service_month,
 			settlement_value, stock_ratio, increment_ratio, daily_increment_value,
 			customer_fee, customer_bill, customer_fee_owner_id,
 			network_line_fee, network_line_bill, network_line_fee_owner_id,
@@ -714,6 +727,7 @@ func (r *settlementDataRepository) RebuildSettlementCustomerMonthly(start, end t
 			recalculated, last_recalc_time, NOW(), NOW()
 		FROM ( ? ) AS agg
 		ON DUPLICATE KEY UPDATE
+			src_region = COALESCE(src_region, VALUES(src_region)),
 			settlement_value = VALUES(settlement_value),
 			stock_ratio = VALUES(stock_ratio),
 			increment_ratio = VALUES(increment_ratio),
@@ -948,6 +962,7 @@ func (r *settlementDataRepository) BackfillFromSchoolSettlement(region, cp, scho
 			sd := it.SettlementDate
 			rec := model.SettlementCustomer{
 				Region:          it.Region,
+				SrcRegion:       it.SrcRegion,
 				CP:              it.CP,
 				SchoolName:      it.SchoolName,
 				SettlementValue: float64(it.SettlementValue),
@@ -1366,6 +1381,7 @@ func createTmpSourceAndKeys(
 		CREATE TEMPORARY TABLE tmp_source AS
 		SELECT
 			CONVERT(region USING utf8mb4) COLLATE utf8mb4_unicode_ci AS region,
+			CONVERT(src_region USING utf8mb4) COLLATE utf8mb4_unicode_ci AS src_region,
 			CONVERT(cp USING utf8mb4) COLLATE utf8mb4_unicode_ci AS cp,
 			CONVERT(school_name USING utf8mb4) COLLATE utf8mb4_unicode_ci AS school_name,
 			DATE(settlement_date) AS service_date,
@@ -1419,14 +1435,14 @@ func copyFullMonthFromActiveSlot(tx *gorm.DB, month string, activeSlot, inactive
 
 	copyRes := tx.Exec(`
 		INSERT INTO settlement_customer_v (
-			region,cp,school_name,service_month,slot,settlement_value,settlement_time,service_date,
+			region,src_region,cp,school_name,service_month,slot,settlement_value,settlement_time,service_date,
 			recalculated,last_recalc_time,customer_fee,customer_bill,customer_fee_owner_id,
 			network_line_fee,network_line_bill,network_line_fee_owner_id,node_deduction_fee,node_deduction_bill,node_deduction_fee_owner_id,
 			channel_rate,channel_bill,channel_owner_user_id,stock_ratio,increment_ratio,daily_increment_value,discount_rule_id,service_year_index,
 			created_at,updated_at
 		)
 		SELECT
-			scv.region,scv.cp,scv.school_name,scv.service_month,?,
+			scv.region,scv.src_region,scv.cp,scv.school_name,scv.service_month,?,
 			scv.settlement_value,scv.settlement_time,scv.service_date,
 			scv.recalculated,scv.last_recalc_time,scv.customer_fee,scv.customer_bill,scv.customer_fee_owner_id,
 			scv.network_line_fee,scv.network_line_bill,scv.network_line_fee_owner_id,scv.node_deduction_fee,scv.node_deduction_bill,scv.node_deduction_fee_owner_id,
@@ -1624,6 +1640,7 @@ func runTempPipelineForMonth(
 		CREATE TEMPORARY TABLE tmp_result AS
 		SELECT
 			s.region,
+			s.src_region,
 			s.cp,
 			s.school_name,
 			s.service_date,
@@ -1689,7 +1706,7 @@ func runTempPipelineForMonth(
 	}
 	res := tx.Exec(`
 		INSERT INTO settlement_customer_v (
-			region, cp, school_name, service_month, slot,
+			region, src_region, cp, school_name, service_month, slot,
 			settlement_value, settlement_time, service_date,
 			recalculated, last_recalc_time,
 			customer_fee, customer_bill, customer_fee_owner_id,
@@ -1700,7 +1717,7 @@ func runTempPipelineForMonth(
 			created_at, updated_at
 		)
 		SELECT
-			r.region, r.cp, r.school_name, ?, ?,
+			r.region, r.src_region, r.cp, r.school_name, ?, ?,
 			r.settlement_value, r.settlement_time, r.service_date,
 			?, ?,
 			r.customer_fee,
@@ -1719,6 +1736,7 @@ func runTempPipelineForMonth(
 			NOW(), NOW()
 		FROM tmp_result r
 		ON DUPLICATE KEY UPDATE
+			src_region = COALESCE(src_region, VALUES(src_region)),
 			settlement_value = VALUES(settlement_value),
 			settlement_time = VALUES(settlement_time),
 			customer_fee = VALUES(customer_fee),
@@ -1878,7 +1896,7 @@ func (r *settlementDataRepository) backfillFromSchoolSettlementWithSlot(region, 
 		}
 		if err := tx.Exec(`
 			INSERT INTO settlement_customer_monthly_v (
-				region, cp, school_name, service_month, slot,
+				region, src_region, cp, school_name, service_month, slot,
 				settlement_value, stock_ratio, increment_ratio, daily_increment_value,
 				customer_fee, customer_bill, customer_fee_owner_id,
 				network_line_fee, network_line_bill, network_line_fee_owner_id,
@@ -1887,7 +1905,7 @@ func (r *settlementDataRepository) backfillFromSchoolSettlementWithSlot(region, 
 				recalculated, last_recalc_time, created_at, updated_at
 			)
 			SELECT
-				region, cp, school_name, service_month, ?,
+				region, CASE WHEN COUNT(DISTINCT src_region) = 1 THEN MAX(src_region) ELSE NULL END, cp, school_name, service_month, ?,
 				ROUND(AVG(settlement_value), 6),
 				ROUND(AVG(stock_ratio), 6),
 				ROUND(AVG(increment_ratio), 6),

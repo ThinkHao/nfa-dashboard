@@ -50,7 +50,7 @@ func TestListUsedOwnerSubjectsUsesDistinctOwnerIDs(t *testing.T) {
 	svc := NewSettlementDataService(repo, users, nil, nil)
 
 	items, err := svc.ListUsedOwnerSubjects(context.Background(), SettlementCustomerFilter{
-		Region: "北京市", CP: "bilibili", School: "大学", Start: &start, End: &end,
+		SrcRegion: "天津市", Region: "北京市", CP: "bilibili", School: "大学", Start: &start, End: &end,
 		OwnerEntityID: &ownerEntityID, ChannelOwnerUserID: &channelOwnerUserID,
 	})
 	if err != nil {
@@ -67,6 +67,9 @@ func TestListUsedOwnerSubjectsUsesDistinctOwnerIDs(t *testing.T) {
 	}
 	if repo.filter["region"] != "北京市" || repo.filter["cp"] != "bilibili" || repo.filter["school_name"] != "大学" {
 		t.Fatalf("unexpected filter: %#v", repo.filter)
+	}
+	if repo.filter["src_region"] != "天津市" {
+		t.Fatalf("source region missing from filter: %#v", repo.filter)
 	}
 	if repo.filter["start_service_date"] != start || repo.filter["end_service_date"] != end {
 		t.Fatalf("date range missing from filter: %#v", repo.filter)
