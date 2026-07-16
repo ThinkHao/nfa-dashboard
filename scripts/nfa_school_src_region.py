@@ -12,6 +12,42 @@ from typing import Any, Iterable, Optional
 KNOWN_CPS = {"bilibili", "ali", "jsy", "cnc", "bsy", "xinliu", "baidu", "se"}
 CP_ALIASES = {"jinshan": "jsy"}
 IGNORED_CPS = {"dianbo", "zhibo", "null"}
+FULL_REGION_NAMES = {
+    "北京": "北京市",
+    "天津": "天津市",
+    "上海": "上海市",
+    "重庆": "重庆市",
+    "河北": "河北省",
+    "山西": "山西省",
+    "辽宁": "辽宁省",
+    "吉林": "吉林省",
+    "黑龙江": "黑龙江省",
+    "江苏": "江苏省",
+    "浙江": "浙江省",
+    "安徽": "安徽省",
+    "福建": "福建省",
+    "江西": "江西省",
+    "山东": "山东省",
+    "河南": "河南省",
+    "湖北": "湖北省",
+    "湖南": "湖南省",
+    "广东": "广东省",
+    "海南": "海南省",
+    "四川": "四川省",
+    "贵州": "贵州省",
+    "云南": "云南省",
+    "陕西": "陕西省",
+    "甘肃": "甘肃省",
+    "青海": "青海省",
+    "台湾": "台湾省",
+    "内蒙古": "内蒙古自治区",
+    "广西": "广西壮族自治区",
+    "西藏": "西藏自治区",
+    "宁夏": "宁夏回族自治区",
+    "新疆": "新疆维吾尔自治区",
+    "香港": "香港特别行政区",
+    "澳门": "澳门特别行政区",
+}
 
 # 来源：EDC运维信息表 / EDC节点，仅保留状态为“正常”的区域+业务组合。
 LOCAL_NORMAL_PAIRS = {
@@ -75,6 +111,11 @@ def normalize_region(region: str) -> str:
     return value
 
 
+def canonical_region(region: str) -> str:
+    normalized = normalize_region(region)
+    return FULL_REGION_NAMES.get(normalized, region.strip())
+
+
 def resolve_src_region(region: str, cp: str) -> Resolution:
     normalized_region = normalize_region(region)
     raw_cp = cp.strip().lower()
@@ -85,18 +126,18 @@ def resolve_src_region(region: str, cp: str) -> Resolution:
     if normalized_cp not in KNOWN_CPS:
         return Resolution(None, "unknown_cp", f"无法识别业务: {cp}")
     if normalized_region == "广东" and normalized_cp == "ali":
-        return Resolution("广东", "guangdong_ali")
+        return Resolution("广东省", "guangdong_ali")
     if normalized_cp == "ali":
-        return Resolution("北京", "ali_other_beijing")
+        return Resolution("北京市", "ali_other_beijing")
     if normalized_region == "江苏" and normalized_cp in {"jsy", "cnc"}:
-        return Resolution("上海", "jiangsu_jsy_cnc_shanghai")
+        return Resolution("上海市", "jiangsu_jsy_cnc_shanghai")
     if normalized_region == "吉林" and normalized_cp == "bilibili":
-        return Resolution("北京", "jilin_bilibili_beijing")
+        return Resolution("北京市", "jilin_bilibili_beijing")
     if (normalized_region, normalized_cp) in LOCAL_NORMAL_PAIRS:
-        return Resolution(region, "local_normal_node")
+        return Resolution(canonical_region(region), "local_normal_node")
     if normalized_cp == "bilibili":
-        return Resolution("天津", "bilibili_fallback_tianjin")
-    return Resolution("北京", "recognized_fallback_beijing")
+        return Resolution("天津市", "bilibili_fallback_tianjin")
+    return Resolution("北京市", "recognized_fallback_beijing")
 
 
 def build_preview(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:

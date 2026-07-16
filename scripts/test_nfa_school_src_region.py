@@ -13,13 +13,13 @@ from scripts.nfa_school_src_region import (
 class RuleTests(unittest.TestCase):
     def test_approved_rule_matrix(self):
         cases = [
-            ("陕西", "bilibili", "天津", "bilibili_fallback_tianjin"),
-            ("陕西", "ali", "北京", "ali_other_beijing"),
-            ("陕西", "jsy", "北京", "recognized_fallback_beijing"),
-            ("广东", "ali", "广东", "guangdong_ali"),
-            ("江苏", "jsy", "上海", "jiangsu_jsy_cnc_shanghai"),
-            ("江苏", "cnc", "上海", "jiangsu_jsy_cnc_shanghai"),
-            ("吉林", "bilibili", "北京", "jilin_bilibili_beijing"),
+            ("陕西", "bilibili", "天津市", "bilibili_fallback_tianjin"),
+            ("陕西", "ali", "北京市", "ali_other_beijing"),
+            ("陕西", "jsy", "北京市", "recognized_fallback_beijing"),
+            ("广东", "ali", "广东省", "guangdong_ali"),
+            ("江苏", "jsy", "上海市", "jiangsu_jsy_cnc_shanghai"),
+            ("江苏", "cnc", "上海市", "jiangsu_jsy_cnc_shanghai"),
+            ("吉林", "bilibili", "北京市", "jilin_bilibili_beijing"),
             ("山东省", "bsy", "山东省", "local_normal_node"),
         ]
 
@@ -39,9 +39,9 @@ class RuleTests(unittest.TestCase):
 
     def test_confirmed_database_cp_mappings(self):
         cases = [
-            ("陕西", "jinshan", "北京", "recognized_fallback_beijing"),
+            ("陕西", "jinshan", "北京市", "recognized_fallback_beijing"),
             ("广东省", "baidu", "广东省", "local_normal_node"),
-            ("陕西", "se", "北京", "recognized_fallback_beijing"),
+            ("陕西", "se", "北京市", "recognized_fallback_beijing"),
         ]
         for region, cp, target, rule in cases:
             with self.subTest(region=region, cp=cp):
@@ -83,7 +83,7 @@ class PreviewTests(unittest.TestCase):
                 "school_name": "广东院校B",
                 "region": "广东",
                 "cp": "ali",
-                "src_region": "广东",
+                "src_region": "广东省",
             },
             {
                 "id": 3,
@@ -198,7 +198,7 @@ class ExecutionTests(unittest.TestCase):
             "cp": "bilibili",
             "src_region": None,
         }
-        self.after = {**self.before, "src_region": "天津"}
+        self.after = {**self.before, "src_region": "天津市"}
 
     def test_execute_requires_confirm_before_connecting(self):
         with patch("scripts.nfa_school_src_region.open_connection") as connect:
