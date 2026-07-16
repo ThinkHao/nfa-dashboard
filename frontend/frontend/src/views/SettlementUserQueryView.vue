@@ -14,7 +14,7 @@
       </div>
 
       <el-form :inline="true" class="query-form">
-        <el-form-item label="用户" required>
+        <el-form-item label="用户">
           <SearchSelect
             v-model="filter.userId"
             :options="userOptions"
@@ -22,7 +22,7 @@
             label-key="label"
             value-key="id"
             clearable
-            placeholder="请选择用户"
+            placeholder="全部用户"
             class="field-w-240"
             @visible-change="onUserDropdownVisible"
           />
@@ -167,6 +167,7 @@ import { useSystemTrafficSettings } from '@/composables/useSystemTrafficSettings
 import { normalizeByteUnitBase, settlementValueToRate } from '@/utils/traffic-units'
 import { sanitizeScopeOptionValues } from '@/utils/scope-options'
 import { buildKeySchoolNameSet, isKeySchool } from './key-school-utils'
+import { buildSettlementQueryParams, validateSettlementQueryRange } from './settlement-query-filter-utils'
 
 type Granularity = 'daily' | 'monthly'
 type UserOption = { id: number; label: string }
@@ -225,17 +226,6 @@ const currentDataSourceLabel = computed(() => {
   return ''
 })
 
-function parseMonth(ym: string): Date {
-  const [y, m] = ym.split('-').map((x) => Number(x))
-  return new Date(y, (m || 1) - 1, 1)
-}
-
-function monthDiffInclusive(startYm: string, endYm: string): number {
-  const s = parseMonth(startYm)
-  const e = parseMonth(endYm)
-  return (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth()) + 1
-}
-
 function setDefaultMonthRange() {
   const end = new Date()
   const start = new Date(end.getFullYear(), end.getMonth() - 2, 1)
@@ -266,14 +256,7 @@ function fmtTotal(row: any): string {
 }
 
 function buildParams(page = pagination.page, pageSize = pagination.pageSize) {
-  const { start, end } = resolveMonthRangeDateTime(monthRange.value)
-  const params: any = { page, page_size: pageSize, channel_owner_user_id: filter.userId }
-  if (start) params.start_service_date = start
-  if (end) params.end_service_date = end
-  if (filter.region) params.region = filter.region
-  if (filter.cp) params.cp = filter.cp
-  if (filter.schoolName) params.school_name = filter.schoolName
-  return params
+  return buildSettlementQueryParams(filter, monthRange.value, page, pageSize)
 }
 
 function monthRangeBoundary(): { startMonth: string; endMonth: string } | null {
@@ -447,17 +430,9 @@ async function loadKeySchoolSet() {
 }
 
 function validateBeforeQuery(): boolean {
-  if (!filter.userId) {
-    ElMessage.warning('请先选择用户')
-    return false
-  }
-  if (!monthRange.value || !monthRange.value[0] || !monthRange.value[1]) {
-    ElMessage.warning('请先选择服务月份范围')
-    return false
-  }
-  const months = monthDiffInclusive(monthRange.value[0], monthRange.value[1])
-  if (months > 12) {
-    ElMessage.warning('查询时间跨度最多 12 个月')
+  const message = validateSettlementQueryRange(monthRange.value)
+  if (message) {
+    ElMessage.warning(message)
     return false
   }
   return true
