@@ -316,7 +316,7 @@ const settlementDataRateUnit = computed<TrafficRateUnit>(() => (
   trafficSettings.settings.value.settlement_data_rate_unit === 'Gbps' ? 'Gbps' : 'Mbps'
 ))
 // 流量比特率换算的进制（1000/1024）取自 settlement_result_unit_base，
-// 与单用户结算查询（SettlementUserQueryView，正确基准）保持一致。
+// 与院校结算查询（SettlementUserQueryView，正确基准）保持一致。
 const settlementDataUnitBase = computed(() => (
   normalizeByteUnitBase(trafficSettings.settings.value.settlement_result_unit_base, 1024)
 ))

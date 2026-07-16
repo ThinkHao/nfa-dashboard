@@ -34,7 +34,7 @@ const QUICK_ACCESS_REGISTRY: QuickAccessItem[] = [
   },
   {
     key: 'settlement-user-query',
-    title: '单用户结算查询',
+    title: '院校结算查询',
     description: '按用户与时间快速核对结算数据',
     path: '/settlement/user-query',
     icon: 'DataAnalysis',

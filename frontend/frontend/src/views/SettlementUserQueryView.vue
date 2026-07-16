@@ -3,7 +3,7 @@
     <el-card class="filter-card" shadow="hover">
       <div class="toolbar">
         <div class="title">
-          单用户结算查询
+          院校结算查询
       <el-tag v-if="currentDataSourceLabel" size="small" type="info" class="ml-8">来源：{{ currentDataSourceLabel }}</el-tag>
         </div>
         <div class="actions">
