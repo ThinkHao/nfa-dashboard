@@ -20,6 +20,7 @@ import (
 type SettlementDataRepository interface {
 	ListSettlementCustomer(ctx context.Context, filter map[string]interface{}, limit, offset int) ([]model.SettlementCustomer, int64, error)
 	ListSettlementCustomerMonthly(ctx context.Context, filter map[string]interface{}, limit, offset int) ([]model.SettlementCustomerMonthly, int64, error)
+	ListDistinctOwnerUserIDs(ctx context.Context, filter map[string]interface{}) ([]uint64, error)
 	RebuildSettlementCustomerMonthly(start, end time.Time) (int64, error)
 	UpdateRecalculated(region, cp, school string, start, end time.Time) (int64, error)
 	CountSchoolSettlementRows(region, cp, school string, start, end time.Time) (int64, error)
@@ -242,6 +243,39 @@ func (r *settlementDataRepository) ListSettlementCustomer(ctx context.Context, f
 		return nil, 0, err
 	}
 	return rows, total, nil
+}
+
+func (r *settlementDataRepository) ListDistinctOwnerUserIDs(ctx context.Context, filter map[string]interface{}) ([]uint64, error) {
+	qb := model.DB.WithContext(ctx).Model(&model.SettlementCustomer{})
+	alias := "settlement_customer"
+	if isSlotTableSupported() {
+		qb = withActiveSlot(model.DB.WithContext(ctx).Table("settlement_customer_v scv"), "scv")
+		alias = "scv"
+	}
+	qb = applySettlementCustomerFilters(qb, filter, alias)
+
+	ownerExpr := fmt.Sprintf(`CASE owner_slots.n
+		WHEN 1 THEN %s.customer_fee_owner_id
+		WHEN 2 THEN %s.network_line_fee_owner_id
+		WHEN 3 THEN %s.node_deduction_fee_owner_id
+		ELSE %s.channel_owner_user_id
+	END`, alias, alias, alias, alias)
+	var rows []struct {
+		OwnerID uint64 `gorm:"column:owner_id"`
+	}
+	if err := qb.
+		Joins("JOIN (SELECT 1 AS n UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4) owner_slots ON 1=1").
+		Select("DISTINCT " + ownerExpr + " AS owner_id").
+		Where("(" + ownerExpr + ") IS NOT NULL AND (" + ownerExpr + ") > 0").
+		Order("owner_id ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	ids := make([]uint64, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.OwnerID)
+	}
+	return ids, nil
 }
 
 func (r *settlementDataRepository) listSettlementCustomerMonthlyFromDaily(ctx context.Context, filter map[string]interface{}, limit, offset int) ([]model.SettlementCustomerMonthly, int64, error) {

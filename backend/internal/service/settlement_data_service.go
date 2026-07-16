@@ -274,21 +274,34 @@ func (s *settlementDataService) ListUsedOwnerEntities(ctx context.Context, filte
 }
 
 func (s *settlementDataService) ListUsedOwnerSubjects(ctx context.Context, filter SettlementCustomerFilter) ([]UsedOwnerSubject, error) {
-	rows, err := s.ListAll(ctx, filter)
+	m := map[string]interface{}{}
+	if filter.Region != "" {
+		m["region"] = filter.Region
+	}
+	if filter.CP != "" {
+		m["cp"] = filter.CP
+	}
+	if filter.School != "" {
+		m["school_name"] = filter.School
+	}
+	if filter.Start != nil {
+		m["start_service_date"] = *filter.Start
+	}
+	if filter.End != nil {
+		m["end_service_date"] = *filter.End
+	}
+	if filter.OwnerEntityID != nil && *filter.OwnerEntityID > 0 {
+		m["owner_entity_id"] = *filter.OwnerEntityID
+	}
+	if filter.ChannelOwnerUserID != nil && *filter.ChannelOwnerUserID > 0 {
+		m["channel_owner_user_id"] = *filter.ChannelOwnerUserID
+	}
+	ids, err := s.repo.ListDistinctOwnerUserIDs(ctx, m)
 	if err != nil {
 		return nil, err
 	}
-	ids := make([]uint64, 0)
-	set := map[uint64]struct{}{}
-	for _, row := range rows {
-		for _, id := range []*uint64{row.CustomerFeeOwnerID, row.NetworkLineFeeOwnerID, row.NodeDeductionFeeOwnerID, row.ChannelOwnerUserID} {
-			if id != nil && *id > 0 {
-				if _, ok := set[*id]; !ok {
-					set[*id] = struct{}{}
-					ids = append(ids, *id)
-				}
-			}
-		}
+	if len(ids) == 0 {
+		return []UsedOwnerSubject{}, nil
 	}
 	users, err := s.userRepo.FindByIDs(ids)
 	if err != nil {
