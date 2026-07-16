@@ -169,6 +169,7 @@ import { normalizePaginatedResponse } from '@/utils/pagination'
 import { sanitizeScopeOptionValues } from '@/utils/scope-options'
 import { buildKeySchoolNameSet, isKeySchool } from './key-school-utils'
 import { buildSettlementQueryParams, validateSettlementQueryRange } from './settlement-query-filter-utils'
+import { runSettlementQueryInitialLoads } from './settlement-query-initial-loads'
 
 type Granularity = 'daily' | 'monthly'
 type UserOption = { id: number; label: string }
@@ -637,9 +638,7 @@ watch(viewMode, () => {
 onMounted(async () => {
   await trafficSettings.ensureLoaded()
   setDefaultMonthRange()
-  await loadRegionCpSchool()
-  await loadKeySchoolSet()
-  await loadOwnerUsers()
+  await runSettlementQueryInitialLoads([loadRegionCpSchool, loadKeySchoolSet, loadOwnerUsers])
 })
 
 usePageRefresh(() => {
