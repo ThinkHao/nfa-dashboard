@@ -9,7 +9,9 @@ from pathlib import Path
 from typing import Any, Iterable, Optional
 
 
-KNOWN_CPS = {"bilibili", "ali", "jsy", "cnc", "bsy", "xinliu"}
+KNOWN_CPS = {"bilibili", "ali", "jsy", "cnc", "bsy", "xinliu", "baidu", "se"}
+CP_ALIASES = {"jinshan": "jsy"}
+IGNORED_CPS = {"dianbo", "zhibo", "null"}
 
 # 来源：EDC运维信息表 / EDC节点，仅保留状态为“正常”的区域+业务组合。
 LOCAL_NORMAL_PAIRS = {
@@ -42,6 +44,7 @@ LOCAL_NORMAL_PAIRS = {
     ("广东", "xinliu"),
     ("山东", "xinliu"),
     ("四川", "xinliu"),
+    ("广东", "baidu"),
 }
 
 
@@ -50,6 +53,7 @@ class Resolution:
     target: Optional[str]
     rule: str
     error: Optional[str] = None
+    skipped: bool = False
 
 
 def normalize_region(region: str) -> str:
@@ -73,7 +77,10 @@ def normalize_region(region: str) -> str:
 
 def resolve_src_region(region: str, cp: str) -> Resolution:
     normalized_region = normalize_region(region)
-    normalized_cp = cp.strip().lower()
+    raw_cp = cp.strip().lower()
+    if raw_cp in IGNORED_CPS:
+        return Resolution(None, "ignored_cp", skipped=True)
+    normalized_cp = CP_ALIASES.get(raw_cp, raw_cp)
 
     if normalized_cp not in KNOWN_CPS:
         return Resolution(None, "unknown_cp", f"无法识别业务: {cp}")
@@ -97,6 +104,7 @@ def build_preview(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
     updates = []
     unchanged = []
     errors = []
+    skipped = []
     rule_counts: Counter[str] = Counter()
 
     for row in rows:
@@ -115,6 +123,9 @@ def build_preview(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
         details.append(detail)
         if resolution.error:
             errors.append(detail)
+            continue
+        if resolution.skipped:
+            skipped.append(detail)
             continue
         rule_counts[resolution.rule] += 1
         if row.get("src_region") == resolution.target:
@@ -137,11 +148,13 @@ def build_preview(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
             "will_update": len(updates),
             "unchanged": len(unchanged),
             "errors": len(errors),
+            "skipped": len(skipped),
         },
         "rule_counts": dict(sorted(rule_counts.items())),
         "updates": updates,
         "unchanged": unchanged,
         "errors": errors,
+        "skipped": skipped,
         "details": details,
     }
 

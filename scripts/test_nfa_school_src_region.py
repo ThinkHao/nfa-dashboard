@@ -37,6 +37,28 @@ class RuleTests(unittest.TestCase):
         self.assertEqual("unknown_cp", result.rule)
         self.assertEqual("无法识别业务: unknown", result.error)
 
+    def test_confirmed_database_cp_mappings(self):
+        cases = [
+            ("陕西", "jinshan", "北京", "recognized_fallback_beijing"),
+            ("广东省", "baidu", "广东省", "local_normal_node"),
+            ("陕西", "se", "北京", "recognized_fallback_beijing"),
+        ]
+        for region, cp, target, rule in cases:
+            with self.subTest(region=region, cp=cp):
+                result = resolve_src_region(region, cp)
+                self.assertEqual(target, result.target)
+                self.assertEqual(rule, result.rule)
+                self.assertFalse(result.skipped)
+
+    def test_explicitly_ignored_cps_are_skipped(self):
+        for cp in ("dianbo", "zhibo", "NULL"):
+            with self.subTest(cp=cp):
+                result = resolve_src_region("陕西", cp)
+                self.assertIsNone(result.target)
+                self.assertEqual("ignored_cp", result.rule)
+                self.assertTrue(result.skipped)
+                self.assertIsNone(result.error)
+
     def test_offline_and_planned_nodes_are_not_local(self):
         self.assertNotIn(("吉林", "xinliu"), LOCAL_NORMAL_PAIRS)
         self.assertNotIn(("河南", "xinliu"), LOCAL_NORMAL_PAIRS)
@@ -93,6 +115,24 @@ class PreviewTests(unittest.TestCase):
         }
         for detail in preview["details"]:
             self.assertTrue(required.issubset(detail))
+
+    def test_ignored_cp_has_its_own_bucket(self):
+        preview = build_preview(
+            [
+                {
+                    "id": 9,
+                    "school_id": "s9",
+                    "school_name": "忽略院校",
+                    "region": "陕西",
+                    "cp": "NULL",
+                    "src_region": None,
+                }
+            ]
+        )
+
+        self.assertEqual(1, preview["summary"]["skipped"])
+        self.assertEqual(0, preview["summary"]["errors"])
+        self.assertEqual(1, len(preview["skipped"]))
 
 
 class FakeCursor:

@@ -300,8 +300,8 @@ Inspect JSON programmatically and assert:
 assert errors == 0
 assert every Shaanxi bilibili target is Tianjin
 assert every Shaanxi non-bilibili recognized target is Beijing
-assert sum(rule_counts.values()) + errors == total
-assert will_update + unchanged + errors == total
+assert sum(rule_counts.values()) + errors + skipped == total
+assert will_update + unchanged + errors + skipped == total
 ```
 
 If unknown CPs exist, do not execute and present them as an explicit pending list instead of weakening `errors == 0`.
