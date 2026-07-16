@@ -165,6 +165,7 @@ import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQue
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import { useSystemTrafficSettings } from '@/composables/useSystemTrafficSettings'
 import { normalizeByteUnitBase, settlementValueToRate } from '@/utils/traffic-units'
+import { normalizePaginatedResponse } from '@/utils/pagination'
 import { sanitizeScopeOptionValues } from '@/utils/scope-options'
 import { buildKeySchoolNameSet, isKeySchool } from './key-school-utils'
 import { buildSettlementQueryParams, validateSettlementQueryRange } from './settlement-query-filter-utils'
@@ -446,16 +447,10 @@ async function fetchRows(signal?: AbortSignal) {
     const res = filter.granularity === 'monthly'
       ? await (api as any).settlementData.monthlyList(params, { signal })
       : await (api as any).settlementData.list(params, { signal })
-    if (Array.isArray(res)) {
-      const clipped = clipRowsBySelectedMonths(res)
-      rows.value = await enrichRowsWithStartDates(clipped, signal)
-      pagination.total = clipped.length
-    } else {
-      const list = Array.isArray(res?.items) ? res.items : []
-      const clipped = clipRowsBySelectedMonths(list)
-      rows.value = await enrichRowsWithStartDates(clipped, signal)
-      pagination.total = clipped.length
-    }
+    const page = normalizePaginatedResponse<any>(res)
+    const clipped = clipRowsBySelectedMonths(page.items)
+    rows.value = await enrichRowsWithStartDates(clipped, signal)
+    pagination.total = page.total
     await refreshMonthlyColumnView(signal)
   } catch (e: any) {
     if (isAbortError(e)) return
