@@ -17,6 +17,21 @@ describe('search-select-utils', () => {
     ])
   })
 
+  it('filters blank and NULL labels globally', () => {
+    const validOption = { label: '有效选项', value: 'valid' }
+
+    expect(normalizeSearchOptions([
+      '',
+      null,
+      'NULL',
+      ' null ',
+      { label: 'NULL', value: 'invalid' },
+      validOption,
+    ])).toEqual([
+      { label: '有效选项', value: 'valid', raw: validOption },
+    ])
+  })
+
   it('returns the first real matching option for fuzzy input', () => {
     expect(findFirstMatchingOption(options, '华')).toEqual({ label: '华东', value: 'east' })
     expect(findFirstMatchingOption(options, '北')).toEqual({ label: '华北', value: 'north' })

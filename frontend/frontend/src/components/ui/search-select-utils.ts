@@ -33,6 +33,9 @@ export function normalizeSearchOptions(
       value: (value as string | number) ?? '',
       raw: option,
     }
+  }).filter((option) => {
+    const label = option.label.trim()
+    return label !== '' && label.toUpperCase() !== 'NULL'
   })
 }
 

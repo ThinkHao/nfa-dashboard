@@ -22,6 +22,17 @@ describe('buildSettlementSchoolFilterOptions', () => {
     expect(options.srcRegions).toEqual(['北京市', '广东省'])
     expect(options.schools.map((school) => school.school_name)).toEqual(['学校A', '学校C'])
   })
+
+  it('excludes blank and NULL values from every settlement filter option', () => {
+    const options = buildSettlementSchoolFilterOptions([
+      ...schools,
+      { school_name: '学校D', src_region: 'NULL', region: ' null ', cp: 'NULL' },
+      { school_name: '学校E', src_region: null, region: '', cp: null },
+    ], '', '', '')
+
+    expect(options.srcRegions).toEqual(['北京市', '广东省'])
+    expect(options.regions).toEqual(['天津市', '河北省'])
+  })
 })
 
 describe('buildSettlementQueryParams', () => {

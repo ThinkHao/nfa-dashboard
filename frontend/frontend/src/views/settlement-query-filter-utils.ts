@@ -1,4 +1,5 @@
 import { resolveMonthRangeDateTime } from './settlement-user-query-utils'
+import { sanitizeScopeOptionValues } from '@/utils/scope-options'
 
 export type SettlementQueryFilters = {
   userId: number | null
@@ -15,7 +16,7 @@ type SettlementSchoolFilterRow = {
 }
 
 function uniqueValues(values: Array<string | null | undefined>): string[] {
-  return Array.from(new Set(values.map((value) => String(value || '').trim()).filter(Boolean))).sort()
+  return sanitizeScopeOptionValues(values).sort()
 }
 
 export function buildSettlementSchoolFilterOptions<T extends SettlementSchoolFilterRow>(
