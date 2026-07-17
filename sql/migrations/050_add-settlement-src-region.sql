@@ -28,8 +28,10 @@ JOIN (
   WHERE src_region IS NOT NULL AND src_region <> ''
   GROUP BY school_id, region, cp
   HAVING COUNT(DISTINCT src_region) = 1
-) s ON s.school_id=ss.school_id AND s.region=ss.region AND s.cp=ss.cp
-SET ss.src_region=s.src_region
+) s ON CONVERT(s.school_id USING utf8mb4) COLLATE utf8mb4_unicode_ci=ss.school_id
+   AND CONVERT(s.region USING utf8mb4) COLLATE utf8mb4_unicode_ci=ss.region
+   AND CONVERT(s.cp USING utf8mb4) COLLATE utf8mb4_unicode_ci=ss.cp
+SET ss.src_region=CONVERT(s.src_region USING utf8mb4) COLLATE utf8mb4_unicode_ci
 WHERE ss.src_region IS NULL;
 
 UPDATE settlement_customer c
@@ -39,8 +41,10 @@ JOIN (
   WHERE src_region IS NOT NULL AND src_region <> ''
   GROUP BY school_name, region, cp
   HAVING COUNT(DISTINCT src_region) = 1
-) s ON s.school_name=c.school_name AND s.region=c.region AND s.cp=c.cp
-SET c.src_region=s.src_region
+) s ON CONVERT(s.school_name USING utf8mb4) COLLATE utf8mb4_unicode_ci=c.school_name
+   AND CONVERT(s.region USING utf8mb4) COLLATE utf8mb4_unicode_ci=c.region
+   AND CONVERT(s.cp USING utf8mb4) COLLATE utf8mb4_unicode_ci=c.cp
+SET c.src_region=CONVERT(s.src_region USING utf8mb4) COLLATE utf8mb4_unicode_ci
 WHERE c.src_region IS NULL;
 
 UPDATE settlement_customer_v v
@@ -55,8 +59,11 @@ JOIN (
   WHERE src_region IS NOT NULL
   GROUP BY region, cp, school_name, DATE_FORMAT(service_date, '%Y-%m')
   HAVING COUNT(DISTINCT src_region)=1
-) d ON d.region=m.region AND d.cp=m.cp AND d.school_name=m.school_name AND d.service_month=m.service_month
-SET m.src_region=d.src_region WHERE m.src_region IS NULL;
+) d ON CONVERT(d.region USING utf8mb4) COLLATE utf8mb4_0900_ai_ci=m.region
+   AND CONVERT(d.cp USING utf8mb4) COLLATE utf8mb4_0900_ai_ci=m.cp
+   AND CONVERT(d.school_name USING utf8mb4) COLLATE utf8mb4_0900_ai_ci=m.school_name
+   AND CONVERT(d.service_month USING utf8mb4) COLLATE utf8mb4_0900_ai_ci=m.service_month
+SET m.src_region=CONVERT(d.src_region USING utf8mb4) COLLATE utf8mb4_0900_ai_ci WHERE m.src_region IS NULL;
 
 UPDATE settlement_customer_monthly_v m
 JOIN (
