@@ -50,6 +50,12 @@ class RuleTests(unittest.TestCase):
                 self.assertEqual(rule, result.rule)
                 self.assertFalse(result.skipped)
 
+    def test_longqing_bilibili_uses_beijing_override(self):
+        result = resolve_src_region("山东省", "bilibili", "长清大学城")
+
+        self.assertEqual("北京市", result.target)
+        self.assertEqual("longqing_bilibili_beijing", result.rule)
+
     def test_explicitly_ignored_cps_are_skipped(self):
         for cp in ("dianbo", "zhibo", "NULL"):
             with self.subTest(cp=cp):

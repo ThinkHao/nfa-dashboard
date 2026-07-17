@@ -22,18 +22,18 @@ function uniqueValues(values: Array<string | null | undefined>): string[] {
 export function buildSettlementSchoolFilterOptions<T extends SettlementSchoolFilterRow>(
   schools: T[],
   srcRegion: string,
-  region: string,
   cp: string,
-): { srcRegions: string[]; regions: string[]; schools: T[] } {
+  region: string,
+): { srcRegions: string[]; cps: string[]; regions: string[]; schools: T[] } {
   const rows = Array.isArray(schools) ? schools : []
   const srcScopedRows = srcRegion ? rows.filter((school) => school.src_region === srcRegion) : rows
-  const filteredSchools = srcScopedRows.filter((school) => (
-    (!region || school.region === region) && (!cp || school.cp === cp)
-  ))
+  const cpScopedRows = cp ? srcScopedRows.filter((school) => school.cp === cp) : srcScopedRows
+  const filteredSchools = region ? cpScopedRows.filter((school) => school.region === region) : cpScopedRows
 
   return {
     srcRegions: uniqueValues(rows.map((school) => school.src_region)),
-    regions: uniqueValues(srcScopedRows.map((school) => school.region)),
+    cps: uniqueValues(srcScopedRows.map((school) => school.cp)),
+    regions: uniqueValues(cpScopedRows.map((school) => school.region)),
     schools: filteredSchools,
   }
 }

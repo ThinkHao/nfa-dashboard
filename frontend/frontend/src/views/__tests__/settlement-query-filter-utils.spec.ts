@@ -8,19 +8,31 @@ describe('buildSettlementSchoolFilterOptions', () => {
     { school_name: '学校C', src_region: '广东省', region: '天津市', cp: 'bilibili' },
   ]
 
-  it('uses source region to narrow regions without narrowing source-region options', () => {
+  it('uses source region to narrow CP options without narrowing source-region options', () => {
     const options = buildSettlementSchoolFilterOptions(schools, '北京市', '', '')
 
     expect(options.srcRegions).toEqual(['北京市', '广东省'])
+    expect(options.cps).toEqual(['ali', 'bilibili'])
     expect(options.regions).toEqual(['天津市', '河北省'])
     expect(options.schools.map((school) => school.school_name)).toEqual(['学校A', '学校B'])
   })
 
-  it('does not let the selected school region narrow source-region options', () => {
-    const options = buildSettlementSchoolFilterOptions(schools, '', '天津市', '')
+  it('uses CP to narrow region options and schools', () => {
+    const options = buildSettlementSchoolFilterOptions(schools, '', 'bilibili', '')
 
     expect(options.srcRegions).toEqual(['北京市', '广东省'])
+    expect(options.cps).toEqual(['ali', 'bilibili'])
+    expect(options.regions).toEqual(['天津市'])
     expect(options.schools.map((school) => school.school_name)).toEqual(['学校A', '学校C'])
+  })
+
+  it('uses region after source region and CP to narrow schools', () => {
+    const options = buildSettlementSchoolFilterOptions(schools, '北京市', 'bilibili', '天津市')
+
+    expect(options.srcRegions).toEqual(['北京市', '广东省'])
+    expect(options.cps).toEqual(['ali', 'bilibili'])
+    expect(options.regions).toEqual(['天津市'])
+    expect(options.schools.map((school) => school.school_name)).toEqual(['学校A'])
   })
 
   it('excludes blank and NULL values from every settlement filter option', () => {
@@ -31,6 +43,7 @@ describe('buildSettlementSchoolFilterOptions', () => {
     ], '', '', '')
 
     expect(options.srcRegions).toEqual(['北京市', '广东省'])
+    expect(options.cps).toEqual(['ali', 'bilibili'])
     expect(options.regions).toEqual(['天津市', '河北省'])
   })
 })

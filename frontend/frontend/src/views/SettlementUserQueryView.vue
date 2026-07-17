@@ -52,11 +52,11 @@
         <el-form-item label="节点源区域">
           <SearchSelect v-model="filter.srcRegion" :options="srcRegions" clearable class="field-w-160" @change="onSrcRegionChange" />
         </el-form-item>
-        <el-form-item label="院校归属区域">
-          <SearchSelect v-model="filter.region" :options="regions" clearable class="field-w-160" @change="onRegionChange" />
-        </el-form-item>
         <el-form-item label="CP">
           <SearchSelect v-model="filter.cp" :options="cps" clearable class="field-w-160" @change="onCPChange" />
+        </el-form-item>
+        <el-form-item label="院校归属区域">
+          <SearchSelect v-model="filter.region" :options="regions" clearable class="field-w-160" @change="onRegionChange" />
         </el-form-item>
         <el-form-item label="学校">
           <SearchSelect v-model="filter.schoolName" :options="schools" label-key="school_name" value-key="school_name" clearable class="field-w-280" />
@@ -170,7 +170,6 @@ import { usePageRefresh } from '@/composables/usePageRefresh'
 import { useSystemTrafficSettings } from '@/composables/useSystemTrafficSettings'
 import { normalizeByteUnitBase, settlementValueToRate } from '@/utils/traffic-units'
 import { normalizePaginatedResponse } from '@/utils/pagination'
-import { sanitizeScopeOptionValues } from '@/utils/scope-options'
 import { buildKeySchoolNameSet, isKeySchool } from './key-school-utils'
 import { buildSettlementQueryParams, buildSettlementSchoolFilterOptions, validateSettlementQueryRange } from './settlement-query-filter-utils'
 import { runSettlementQueryInitialLoads } from './settlement-query-initial-loads'
@@ -399,11 +398,6 @@ function onUserDropdownVisible(visible: boolean) {
 }
 
 async function loadRegionCpSchool() {
-  try {
-    const cs = await (api as any).v2.getCPs()
-    cps.value = sanitizeScopeOptionValues(Array.isArray(cs) ? cs : [])
-  } catch { cps.value = [] }
-
   await loadSchools()
 }
 
@@ -420,8 +414,9 @@ async function loadSchools() {
 }
 
 function refreshSchoolFilterOptions() {
-  const options = buildSettlementSchoolFilterOptions(allSchools.value, filter.srcRegion, filter.region, filter.cp)
+  const options = buildSettlementSchoolFilterOptions(allSchools.value, filter.srcRegion, filter.cp, filter.region)
   srcRegions.value = options.srcRegions
+  cps.value = options.cps
   regions.value = options.regions
   const list = options.schools
   const dedup = new Map<string, School>()
@@ -628,6 +623,7 @@ function onRegionChange() {
 }
 
 function onSrcRegionChange() {
+  filter.cp = ''
   filter.region = ''
   filter.schoolName = ''
   refreshSchoolFilterOptions()
@@ -635,6 +631,7 @@ function onSrcRegionChange() {
 }
 
 function onCPChange() {
+  filter.region = ''
   filter.schoolName = ''
   refreshSchoolFilterOptions()
   loadOwnerUsers()

@@ -12,6 +12,9 @@ from typing import Any, Iterable, Optional
 KNOWN_CPS = {"bilibili", "ali", "jsy", "cnc", "bsy", "xinliu", "baidu", "se"}
 CP_ALIASES = {"jinshan": "jsy"}
 IGNORED_CPS = {"dianbo", "zhibo", "null"}
+SCHOOL_CP_OVERRIDES = {
+    ("长清大学城", "bilibili"): ("北京市", "longqing_bilibili_beijing"),
+}
 FULL_REGION_NAMES = {
     "北京": "北京市",
     "天津": "天津市",
@@ -116,12 +119,17 @@ def canonical_region(region: str) -> str:
     return FULL_REGION_NAMES.get(normalized, region.strip())
 
 
-def resolve_src_region(region: str, cp: str) -> Resolution:
+def resolve_src_region(region: str, cp: str, school_name: str = "") -> Resolution:
     normalized_region = normalize_region(region)
     raw_cp = cp.strip().lower()
     if raw_cp in IGNORED_CPS:
         return Resolution(None, "ignored_cp", skipped=True)
     normalized_cp = CP_ALIASES.get(raw_cp, raw_cp)
+
+    override = SCHOOL_CP_OVERRIDES.get((school_name.strip(), normalized_cp))
+    if override:
+        target, rule = override
+        return Resolution(target, rule)
 
     if normalized_cp not in KNOWN_CPS:
         return Resolution(None, "unknown_cp", f"无法识别业务: {cp}")
@@ -149,7 +157,9 @@ def build_preview(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
     rule_counts: Counter[str] = Counter()
 
     for row in rows:
-        resolution = resolve_src_region(str(row["region"]), str(row["cp"]))
+        resolution = resolve_src_region(
+            str(row["region"]), str(row["cp"]), str(row["school_name"])
+        )
         detail = {
             "id": row["id"],
             "school_id": row["school_id"],
