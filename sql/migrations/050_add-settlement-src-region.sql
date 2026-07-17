@@ -75,11 +75,11 @@ JOIN (
   WHERE src_region IS NOT NULL
   GROUP BY region, cp, school_name, DATE_FORMAT(service_date, '%Y-%m')
   HAVING COUNT(DISTINCT src_region)=1
-) d ON CONVERT(d.region USING utf8mb4) COLLATE utf8mb4_0900_ai_ci=m.region
-   AND CONVERT(d.cp USING utf8mb4) COLLATE utf8mb4_0900_ai_ci=m.cp
-   AND CONVERT(d.school_name USING utf8mb4) COLLATE utf8mb4_0900_ai_ci=m.school_name
-   AND CONVERT(d.service_month USING utf8mb4) COLLATE utf8mb4_0900_ai_ci=m.service_month
-SET m.src_region=CONVERT(d.src_region USING utf8mb4) COLLATE utf8mb4_0900_ai_ci WHERE m.src_region IS NULL;
+) d ON CONVERT(d.region USING utf8mb4) COLLATE utf8mb4_unicode_ci=m.region
+   AND CONVERT(d.cp USING utf8mb4) COLLATE utf8mb4_unicode_ci=m.cp
+   AND CONVERT(d.school_name USING utf8mb4) COLLATE utf8mb4_unicode_ci=m.school_name
+   AND CONVERT(d.service_month USING utf8mb4) COLLATE utf8mb4_unicode_ci=m.service_month
+SET m.src_region=CONVERT(d.src_region USING utf8mb4) COLLATE utf8mb4_unicode_ci WHERE m.src_region IS NULL;
 
 UPDATE settlement_customer_monthly_v m
 JOIN (
