@@ -8,6 +8,35 @@ export type SettlementQueryFilters = {
   schoolName: string
 }
 
+type SettlementSchoolFilterRow = {
+  src_region?: string | null
+  region?: string | null
+  cp?: string | null
+}
+
+function uniqueValues(values: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(values.map((value) => String(value || '').trim()).filter(Boolean))).sort()
+}
+
+export function buildSettlementSchoolFilterOptions<T extends SettlementSchoolFilterRow>(
+  schools: T[],
+  srcRegion: string,
+  region: string,
+  cp: string,
+): { srcRegions: string[]; regions: string[]; schools: T[] } {
+  const rows = Array.isArray(schools) ? schools : []
+  const srcScopedRows = srcRegion ? rows.filter((school) => school.src_region === srcRegion) : rows
+  const filteredSchools = srcScopedRows.filter((school) => (
+    (!region || school.region === region) && (!cp || school.cp === cp)
+  ))
+
+  return {
+    srcRegions: uniqueValues(rows.map((school) => school.src_region)),
+    regions: uniqueValues(srcScopedRows.map((school) => school.region)),
+    schools: filteredSchools,
+  }
+}
+
 export function buildSettlementQueryParams(
   filters: SettlementQueryFilters,
   monthRange: [string, string] | null,

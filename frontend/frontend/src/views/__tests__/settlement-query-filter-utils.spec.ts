@@ -1,5 +1,28 @@
 import { describe, expect, it } from 'vitest'
-import { buildSettlementQueryParams, validateSettlementQueryRange } from '@/views/settlement-query-filter-utils'
+import { buildSettlementQueryParams, buildSettlementSchoolFilterOptions, validateSettlementQueryRange } from '@/views/settlement-query-filter-utils'
+
+describe('buildSettlementSchoolFilterOptions', () => {
+  const schools = [
+    { school_name: '学校A', src_region: '北京市', region: '天津市', cp: 'bilibili' },
+    { school_name: '学校B', src_region: '北京市', region: '河北省', cp: 'ali' },
+    { school_name: '学校C', src_region: '广东省', region: '天津市', cp: 'bilibili' },
+  ]
+
+  it('uses source region to narrow regions without narrowing source-region options', () => {
+    const options = buildSettlementSchoolFilterOptions(schools, '北京市', '', '')
+
+    expect(options.srcRegions).toEqual(['北京市', '广东省'])
+    expect(options.regions).toEqual(['天津市', '河北省'])
+    expect(options.schools.map((school) => school.school_name)).toEqual(['学校A', '学校B'])
+  })
+
+  it('does not let the selected school region narrow source-region options', () => {
+    const options = buildSettlementSchoolFilterOptions(schools, '', '天津市', '')
+
+    expect(options.srcRegions).toEqual(['北京市', '广东省'])
+    expect(options.schools.map((school) => school.school_name)).toEqual(['学校A', '学校C'])
+  })
+})
 
 describe('buildSettlementQueryParams', () => {
   it('omits optional filters when only the required month range is selected', () => {

@@ -50,7 +50,7 @@
           />
         </el-form-item>
         <el-form-item label="节点源区域">
-          <SearchSelect v-model="filter.srcRegion" :options="srcRegions" clearable class="field-w-160" />
+          <SearchSelect v-model="filter.srcRegion" :options="srcRegions" clearable class="field-w-160" @change="onSrcRegionChange" />
         </el-form-item>
         <el-form-item label="院校归属区域">
           <SearchSelect v-model="filter.region" :options="regions" clearable class="field-w-160" @change="onRegionChange" />
@@ -172,7 +172,7 @@ import { normalizeByteUnitBase, settlementValueToRate } from '@/utils/traffic-un
 import { normalizePaginatedResponse } from '@/utils/pagination'
 import { sanitizeScopeOptionValues } from '@/utils/scope-options'
 import { buildKeySchoolNameSet, isKeySchool } from './key-school-utils'
-import { buildSettlementQueryParams, validateSettlementQueryRange } from './settlement-query-filter-utils'
+import { buildSettlementQueryParams, buildSettlementSchoolFilterOptions, validateSettlementQueryRange } from './settlement-query-filter-utils'
 import { runSettlementQueryInitialLoads } from './settlement-query-initial-loads'
 
 type Granularity = 'daily' | 'monthly'
@@ -203,6 +203,7 @@ const regions = ref<string[]>([])
 const srcRegions = ref<string[]>([])
 const cps = ref<string[]>([])
 const schools = ref<School[]>([])
+const allSchools = ref<School[]>([])
 // 重点院校 school_name 集合（NFA 侧）：结算数据源只有 school_name 无 school_id，故按校名标注。
 // 仅用于展示，不参与结算数值计算。初始化时一次性拉取。
 const keySchoolSet = ref<Set<string>>(new Set())
@@ -399,11 +400,6 @@ function onUserDropdownVisible(visible: boolean) {
 
 async function loadRegionCpSchool() {
   try {
-    const rs = await (api as any).v2.getRegions()
-    regions.value = sanitizeScopeOptionValues(Array.isArray(rs) ? rs : [])
-  } catch { regions.value = [] }
-
-  try {
     const cs = await (api as any).v2.getCPs()
     cps.value = sanitizeScopeOptionValues(Array.isArray(cs) ? cs : [])
   } catch { cps.value = [] }
@@ -413,22 +409,28 @@ async function loadRegionCpSchool() {
 
 async function loadSchools() {
   try {
-    const params: any = { limit: 1000, offset: 0 }
-    if (filter.region) params.region = filter.region
-    if (filter.cp) params.cp = filter.cp
-    const res = await (api as any).v2.getSchools(params)
+    const res = await (api as any).v2.getSchools({ limit: 100000, offset: 0 })
     const list = Array.isArray(res) ? res : (Array.isArray(res?.items) ? res.items : [])
-    srcRegions.value = sanitizeScopeOptionValues(list.map((s: School) => s?.src_region).filter(Boolean) as string[]).sort()
-    const dedup = new Map<string, School>()
-    for (const s of list) {
-      const name = typeof s?.school_name === 'string' ? s.school_name.trim() : ''
-      if (!name) continue
-      if (!dedup.has(name)) dedup.set(name, s as School)
-    }
-    schools.value = Array.from(dedup.values()).sort((a, b) => String(a.school_name).localeCompare(String(b.school_name)))
+    allSchools.value = list
+    refreshSchoolFilterOptions()
   } catch {
-    schools.value = []
+    allSchools.value = []
+    refreshSchoolFilterOptions()
   }
+}
+
+function refreshSchoolFilterOptions() {
+  const options = buildSettlementSchoolFilterOptions(allSchools.value, filter.srcRegion, filter.region, filter.cp)
+  srcRegions.value = options.srcRegions
+  regions.value = options.regions
+  const list = options.schools
+  const dedup = new Map<string, School>()
+  for (const s of list) {
+    const name = typeof s?.school_name === 'string' ? s.school_name.trim() : ''
+    if (!name) continue
+    if (!dedup.has(name)) dedup.set(name, s as School)
+  }
+  schools.value = Array.from(dedup.values()).sort((a, b) => String(a.school_name).localeCompare(String(b.school_name)))
 }
 
 async function loadKeySchoolSet() {
@@ -621,13 +623,20 @@ function onSizeChange(size: number) {
 
 function onRegionChange() {
   filter.schoolName = ''
-  loadSchools()
+  refreshSchoolFilterOptions()
+  loadOwnerUsers()
+}
+
+function onSrcRegionChange() {
+  filter.region = ''
+  filter.schoolName = ''
+  refreshSchoolFilterOptions()
   loadOwnerUsers()
 }
 
 function onCPChange() {
   filter.schoolName = ''
-  loadSchools()
+  refreshSchoolFilterOptions()
   loadOwnerUsers()
 }
 

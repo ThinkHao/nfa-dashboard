@@ -50,7 +50,23 @@ WHERE c.src_region IS NULL;
 UPDATE settlement_customer_v v
 JOIN settlement_customer c ON c.region=v.region AND c.cp=v.cp AND c.school_name=v.school_name AND c.service_date=v.service_date
 SET v.src_region=c.src_region
-WHERE v.src_region IS NULL AND c.src_region IS NOT NULL;
+WHERE (v.src_region IS NULL OR v.src_region = '') AND c.src_region IS NOT NULL AND c.src_region <> '';
+
+-- Slot rows may not have a matching settlement_customer row for the same date.
+-- Fall back to the unique school snapshot mapping so historical slot data is not
+-- left unfilterable after the first deployment.
+UPDATE settlement_customer_v v
+JOIN (
+  SELECT school_name, region, cp, MAX(src_region) AS src_region
+  FROM nfa_school
+  WHERE src_region IS NOT NULL AND src_region <> ''
+  GROUP BY school_name, region, cp
+  HAVING COUNT(DISTINCT src_region) = 1
+) s ON CONVERT(s.school_name USING utf8mb4) COLLATE utf8mb4_unicode_ci=v.school_name
+   AND CONVERT(s.region USING utf8mb4) COLLATE utf8mb4_unicode_ci=v.region
+   AND CONVERT(s.cp USING utf8mb4) COLLATE utf8mb4_unicode_ci=v.cp
+SET v.src_region=CONVERT(s.src_region USING utf8mb4) COLLATE utf8mb4_unicode_ci
+WHERE v.src_region IS NULL OR v.src_region = '';
 
 UPDATE settlement_customer_monthly m
 JOIN (
@@ -73,7 +89,7 @@ JOIN (
   GROUP BY region, cp, school_name, service_month, slot
   HAVING COUNT(DISTINCT src_region)=1
 ) d ON d.region=m.region AND d.cp=m.cp AND d.school_name=m.school_name AND d.service_month=m.service_month AND d.slot=m.slot
-SET m.src_region=d.src_region WHERE m.src_region IS NULL;
+SET m.src_region=d.src_region WHERE m.src_region IS NULL OR m.src_region = '';
 
 SET @ddl := IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_customer' AND INDEX_NAME='idx_sc_date_src_region')=0,
   'ALTER TABLE settlement_customer ADD INDEX idx_sc_date_src_region (src_region, service_date)', 'SELECT 1');
