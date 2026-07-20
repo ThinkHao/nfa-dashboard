@@ -727,7 +727,7 @@ func (r *settlementDataRepository) RebuildSettlementCustomerMonthly(start, end t
 			recalculated, last_recalc_time, NOW(), NOW()
 		FROM ( ? ) AS agg
 		ON DUPLICATE KEY UPDATE
-			src_region = COALESCE(src_region, VALUES(src_region)),
+			src_region = COALESCE(settlement_customer_monthly.src_region, VALUES(src_region)),
 			settlement_value = VALUES(settlement_value),
 			stock_ratio = VALUES(stock_ratio),
 			increment_ratio = VALUES(increment_ratio),
@@ -1736,7 +1736,7 @@ func runTempPipelineForMonth(
 			NOW(), NOW()
 		FROM tmp_result r
 		ON DUPLICATE KEY UPDATE
-			src_region = COALESCE(src_region, VALUES(src_region)),
+			src_region = COALESCE(settlement_customer_v.src_region, VALUES(src_region)),
 			settlement_value = VALUES(settlement_value),
 			settlement_time = VALUES(settlement_time),
 			customer_fee = VALUES(customer_fee),
