@@ -10,10 +10,18 @@ export interface QuickAccessItem {
 const QUICK_ACCESS_REGISTRY: QuickAccessItem[] = [
   {
     key: 'traffic',
-    title: '流量监控',
-    description: '查看学校流量走势与筛选明细',
+    title: '流速监控',
+    description: '查看学校流速走势与筛选明细',
     path: '/traffic',
     icon: 'TrendCharts',
+    required: ['traffic.read'],
+  },
+  {
+    key: 'traffic-volume',
+    title: '流量监控',
+    description: '查看院校自然日服务流量',
+    path: '/traffic-volume',
+    icon: 'Histogram',
     required: ['traffic.read'],
   },
   {

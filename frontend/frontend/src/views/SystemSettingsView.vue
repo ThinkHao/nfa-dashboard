@@ -2,12 +2,12 @@
   <div class="page-container">
     <PageHeader title="系统设置" description="管理全局业务开关与数据口径策略。" />
 
-    <SectionCard title="流量监控数据口径">
+    <SectionCard title="流速/流量监控数据口径">
       <div class="setting-row" v-loading="loading">
         <div>
           <div class="setting-title">隐藏不参与结算院校</div>
           <div class="setting-desc">
-            开启后，流量监控仅显示同时满足“流量可见范围”和“参与结算规则”的院校数据。
+            开启后，流速和流量监控仅显示同时满足“流量可见范围”和“参与结算规则”的院校数据。
           </div>
         </div>
         <el-switch v-model="form.hide_non_settlement_schools_in_traffic" />
@@ -15,11 +15,22 @@
 
       <div class="setting-row">
         <div>
-          <div class="setting-title">流量监控字节进制</div>
-          <div class="setting-desc">用于流量监控页面的字节单位换算（B/KB/MB/GB）。</div>
+          <div class="setting-title">流速监控字节进制</div>
+          <div class="setting-desc">用于流速监控页面的字节单位换算（B/KB/MB/GB）。</div>
         </div>
         <el-select v-model="form.traffic_byte_unit_base" class="field-w-180">
           <el-option :value="1000" label="1000（SI）" />
+          <el-option :value="1024" label="1024（IEC）" />
+        </el-select>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-title">日流量监控字节进制</div>
+          <div class="setting-desc">用于流量监控页面的日流量换算；选择1000可与 Grafana bytes(SI) 保持一致。</div>
+        </div>
+        <el-select v-model="form.daily_traffic_volume_unit_base" class="field-w-180">
+          <el-option :value="1000" label="1000（SI，与 Grafana 一致）" />
           <el-option :value="1024" label="1024（IEC）" />
         </el-select>
       </div>
@@ -81,6 +92,7 @@ const trafficSettings = useSystemTrafficSettings()
 const form = reactive<SystemTrafficSettings>({
   hide_non_settlement_schools_in_traffic: false,
   traffic_byte_unit_base: 1024,
+  daily_traffic_volume_unit_base: 1000,
   settlement_result_unit_base: 1024,
   settlement_data_rate_unit: 'Mbps',
   settlement_daily_detail_rate_unit: 'Mbps',
@@ -93,6 +105,7 @@ async function load() {
     const cfg = await api.system.settings.getTraffic()
     form.hide_non_settlement_schools_in_traffic = !!cfg?.hide_non_settlement_schools_in_traffic
     form.traffic_byte_unit_base = cfg?.traffic_byte_unit_base === 1000 ? 1000 : 1024
+    form.daily_traffic_volume_unit_base = cfg?.daily_traffic_volume_unit_base === 1024 ? 1024 : 1000
     form.settlement_result_unit_base = cfg?.settlement_result_unit_base === 1000 ? 1000 : 1024
     form.settlement_data_rate_unit = cfg?.settlement_data_rate_unit === 'Gbps' ? 'Gbps' : 'Mbps'
     form.settlement_daily_detail_rate_unit = cfg?.settlement_daily_detail_rate_unit === 'Gbps' ? 'Gbps' : 'Mbps'
@@ -111,6 +124,7 @@ async function save() {
     const payload: SystemTrafficSettings = {
       hide_non_settlement_schools_in_traffic: !!form.hide_non_settlement_schools_in_traffic,
       traffic_byte_unit_base: form.traffic_byte_unit_base,
+      daily_traffic_volume_unit_base: form.daily_traffic_volume_unit_base,
       settlement_result_unit_base: form.settlement_result_unit_base,
       settlement_data_rate_unit: form.settlement_data_rate_unit,
       settlement_daily_detail_rate_unit: form.settlement_daily_detail_rate_unit,
@@ -119,6 +133,7 @@ async function save() {
     const cfg = await api.system.settings.updateTraffic(payload)
     form.hide_non_settlement_schools_in_traffic = !!cfg?.hide_non_settlement_schools_in_traffic
     form.traffic_byte_unit_base = cfg?.traffic_byte_unit_base === 1000 ? 1000 : 1024
+    form.daily_traffic_volume_unit_base = cfg?.daily_traffic_volume_unit_base === 1024 ? 1024 : 1000
     form.settlement_result_unit_base = cfg?.settlement_result_unit_base === 1000 ? 1000 : 1024
     form.settlement_data_rate_unit = cfg?.settlement_data_rate_unit === 'Gbps' ? 'Gbps' : 'Mbps'
     form.settlement_daily_detail_rate_unit = cfg?.settlement_daily_detail_rate_unit === 'Gbps' ? 'Gbps' : 'Mbps'

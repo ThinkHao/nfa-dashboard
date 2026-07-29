@@ -1,6 +1,6 @@
 <template>
   <div class="page-container">
-    <PageHeader title="流量范围管理" description="为用户配置流量监控的可见范围，不授予账号管理能力。" />
+    <PageHeader title="流量范围管理" description="为用户配置流速和流量监控的可见范围，不授予账号管理能力。" />
 
     <FilterPanel>
       <div class="card-header">
@@ -143,7 +143,7 @@
         v-if="selectedUserId && preview.source === 'none'"
         type="warning"
         :closable="false"
-        title="该用户当前没有任何流量监控数据范围，进入流量监控页后将看不到院校数据。"
+        title="该用户当前没有任何监控数据范围，进入流速或流量监控页后将看不到院校数据。"
         class="mt-12"
       />
 

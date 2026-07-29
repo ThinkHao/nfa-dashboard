@@ -202,6 +202,7 @@ export interface TrafficScopePreview {
 export interface SystemTrafficSettings {
   hide_non_settlement_schools_in_traffic: boolean;
   traffic_byte_unit_base: 1000 | 1024;
+  daily_traffic_volume_unit_base: 1000 | 1024;
   settlement_result_unit_base: 1000 | 1024;
   settlement_data_rate_unit: 'Mbps' | 'Gbps';
   settlement_daily_detail_rate_unit: 'Mbps' | 'Gbps';

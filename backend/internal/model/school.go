@@ -55,6 +55,16 @@ type TrafficResponse struct {
 	Total      int64     `json:"total"`
 }
 
+// DailyTrafficVolumeResponse 院校自然日服务流量（V4/V6 已按院校维度累加）
+type DailyTrafficVolumeResponse struct {
+	Date         string `json:"date"`
+	SchoolID     string `json:"school_id,omitempty"`
+	SchoolName   string `json:"school_name"`
+	Region       string `json:"region"`
+	CP           string `json:"cp"`
+	ServiceBytes int64  `json:"service_bytes"`
+}
+
 // TrafficFilter 流量查询过滤条件
 type TrafficFilter struct {
 	StartTime              time.Time               `form:"start_time"`

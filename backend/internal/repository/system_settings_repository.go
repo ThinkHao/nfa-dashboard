@@ -28,6 +28,7 @@ func (r *systemSettingsRepository) Get() (*model.SystemSettings, error) {
 	cfg = model.SystemSettings{
 		HideNonSettlementSchoolsInTraffic: false,
 		TrafficByteUnitBase:               1024,
+		DailyTrafficVolumeUnitBase:        1000,
 		SettlementResultUnitBase:          1024,
 		SettlementDataRateUnit:            "Mbps",
 		SettlementDailyDetailRateUnit:     "Mbps",
@@ -51,6 +52,7 @@ func (r *systemSettingsRepository) Upsert(settings *model.SystemSettings) (*mode
 
 	current.HideNonSettlementSchoolsInTraffic = settings.HideNonSettlementSchoolsInTraffic
 	current.TrafficByteUnitBase = settings.TrafficByteUnitBase
+	current.DailyTrafficVolumeUnitBase = settings.DailyTrafficVolumeUnitBase
 	current.SettlementResultUnitBase = settings.SettlementResultUnitBase
 	current.SettlementDataRateUnit = settings.SettlementDataRateUnit
 	current.SettlementDailyDetailRateUnit = settings.SettlementDailyDetailRateUnit
@@ -60,6 +62,7 @@ func (r *systemSettingsRepository) Upsert(settings *model.SystemSettings) (*mode
 		Updates(map[string]any{
 			"hide_non_settlement_schools_in_traffic": current.HideNonSettlementSchoolsInTraffic,
 			"traffic_byte_unit_base":                 current.TrafficByteUnitBase,
+			"daily_traffic_volume_unit_base":         current.DailyTrafficVolumeUnitBase,
 			"settlement_result_unit_base":            current.SettlementResultUnitBase,
 			"settlement_data_rate_unit":              current.SettlementDataRateUnit,
 			"settlement_daily_detail_rate_unit":      current.SettlementDailyDetailRateUnit,

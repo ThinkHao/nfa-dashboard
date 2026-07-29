@@ -17,6 +17,7 @@ var ErrInvalidTrafficSettings = errors.New("invalid traffic settings")
 type TrafficSettings struct {
 	HideNonSettlementSchoolsInTraffic bool   `json:"hide_non_settlement_schools_in_traffic"`
 	TrafficByteUnitBase               int    `json:"traffic_byte_unit_base"`
+	DailyTrafficVolumeUnitBase        int    `json:"daily_traffic_volume_unit_base"`
 	SettlementResultUnitBase          int    `json:"settlement_result_unit_base"`
 	SettlementDataRateUnit            string `json:"settlement_data_rate_unit"`
 	SettlementDailyDetailRateUnit     string `json:"settlement_daily_detail_rate_unit"`
@@ -44,6 +45,7 @@ func (s *systemSettingsService) GetTrafficSettings() (*TrafficSettings, error) {
 	sanitized := sanitizeTrafficSettings(TrafficSettings{
 		HideNonSettlementSchoolsInTraffic: cfg.HideNonSettlementSchoolsInTraffic,
 		TrafficByteUnitBase:               cfg.TrafficByteUnitBase,
+		DailyTrafficVolumeUnitBase:        cfg.DailyTrafficVolumeUnitBase,
 		SettlementResultUnitBase:          cfg.SettlementResultUnitBase,
 		SettlementDataRateUnit:            cfg.SettlementDataRateUnit,
 		SettlementDailyDetailRateUnit:     cfg.SettlementDailyDetailRateUnit,
@@ -52,6 +54,7 @@ func (s *systemSettingsService) GetTrafficSettings() (*TrafficSettings, error) {
 	return &TrafficSettings{
 		HideNonSettlementSchoolsInTraffic: sanitized.HideNonSettlementSchoolsInTraffic,
 		TrafficByteUnitBase:               sanitized.TrafficByteUnitBase,
+		DailyTrafficVolumeUnitBase:        sanitized.DailyTrafficVolumeUnitBase,
 		SettlementResultUnitBase:          sanitized.SettlementResultUnitBase,
 		SettlementDataRateUnit:            sanitized.SettlementDataRateUnit,
 		SettlementDailyDetailRateUnit:     sanitized.SettlementDailyDetailRateUnit,
@@ -67,6 +70,7 @@ func (s *systemSettingsService) UpdateTrafficSettings(input TrafficSettings) (*T
 	cfg := &model.SystemSettings{
 		HideNonSettlementSchoolsInTraffic: sanitized.HideNonSettlementSchoolsInTraffic,
 		TrafficByteUnitBase:               sanitized.TrafficByteUnitBase,
+		DailyTrafficVolumeUnitBase:        sanitized.DailyTrafficVolumeUnitBase,
 		SettlementResultUnitBase:          sanitized.SettlementResultUnitBase,
 		SettlementDataRateUnit:            sanitized.SettlementDataRateUnit,
 		SettlementDailyDetailRateUnit:     sanitized.SettlementDailyDetailRateUnit,
@@ -79,6 +83,7 @@ func (s *systemSettingsService) UpdateTrafficSettings(input TrafficSettings) (*T
 	sanitizedOut := sanitizeTrafficSettings(TrafficSettings{
 		HideNonSettlementSchoolsInTraffic: out.HideNonSettlementSchoolsInTraffic,
 		TrafficByteUnitBase:               out.TrafficByteUnitBase,
+		DailyTrafficVolumeUnitBase:        out.DailyTrafficVolumeUnitBase,
 		SettlementResultUnitBase:          out.SettlementResultUnitBase,
 		SettlementDataRateUnit:            out.SettlementDataRateUnit,
 		SettlementDailyDetailRateUnit:     out.SettlementDailyDetailRateUnit,
@@ -87,6 +92,7 @@ func (s *systemSettingsService) UpdateTrafficSettings(input TrafficSettings) (*T
 	return &TrafficSettings{
 		HideNonSettlementSchoolsInTraffic: sanitizedOut.HideNonSettlementSchoolsInTraffic,
 		TrafficByteUnitBase:               sanitizedOut.TrafficByteUnitBase,
+		DailyTrafficVolumeUnitBase:        sanitizedOut.DailyTrafficVolumeUnitBase,
 		SettlementResultUnitBase:          sanitizedOut.SettlementResultUnitBase,
 		SettlementDataRateUnit:            sanitizedOut.SettlementDataRateUnit,
 		SettlementDailyDetailRateUnit:     sanitizedOut.SettlementDailyDetailRateUnit,
@@ -98,6 +104,9 @@ func sanitizeTrafficSettings(input TrafficSettings) TrafficSettings {
 	out := input
 	if out.TrafficByteUnitBase != 1000 && out.TrafficByteUnitBase != 1024 {
 		out.TrafficByteUnitBase = 1024
+	}
+	if out.DailyTrafficVolumeUnitBase != 1000 && out.DailyTrafficVolumeUnitBase != 1024 {
+		out.DailyTrafficVolumeUnitBase = 1000
 	}
 	if out.SettlementResultUnitBase != 1000 && out.SettlementResultUnitBase != 1024 {
 		out.SettlementResultUnitBase = 1024
@@ -117,6 +126,9 @@ func sanitizeTrafficSettings(input TrafficSettings) TrafficSettings {
 func validateTrafficSettings(input TrafficSettings) error {
 	if input.TrafficByteUnitBase != 0 && input.TrafficByteUnitBase != 1000 && input.TrafficByteUnitBase != 1024 {
 		return fmt.Errorf("%w: traffic_byte_unit_base must be 1000 or 1024", ErrInvalidTrafficSettings)
+	}
+	if input.DailyTrafficVolumeUnitBase != 0 && input.DailyTrafficVolumeUnitBase != 1000 && input.DailyTrafficVolumeUnitBase != 1024 {
+		return fmt.Errorf("%w: daily_traffic_volume_unit_base must be 1000 or 1024", ErrInvalidTrafficSettings)
 	}
 	if input.SettlementResultUnitBase != 0 && input.SettlementResultUnitBase != 1000 && input.SettlementResultUnitBase != 1024 {
 		return fmt.Errorf("%w: settlement_result_unit_base must be 1000 or 1024", ErrInvalidTrafficSettings)

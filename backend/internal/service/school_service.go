@@ -25,6 +25,8 @@ type SchoolService interface {
 	GetTrafficData(ctx context.Context, filter model.TrafficFilter) ([]model.TrafficResponse, error)
 	// 获取流量汇总数据
 	GetTrafficSummary(ctx context.Context, filter model.TrafficFilter) (model.TrafficResponse, error)
+	// 获取院校自然日服务流量
+	GetDailyTrafficVolume(ctx context.Context, filter model.TrafficFilter) ([]model.DailyTrafficVolumeResponse, error)
 }
 
 // schoolService 学校服务实现
@@ -124,6 +126,10 @@ func (s *schoolService) GetTrafficData(ctx context.Context, filter model.Traffic
 	}
 
 	return s.repo.GetTrafficData(ctx, filter)
+}
+
+func (s *schoolService) GetDailyTrafficVolume(ctx context.Context, filter model.TrafficFilter) ([]model.DailyTrafficVolumeResponse, error) {
+	return s.repo.GetDailyTrafficVolume(ctx, filter)
 }
 
 // GetTrafficSummary 获取流量汇总数据

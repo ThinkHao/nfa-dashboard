@@ -12,6 +12,7 @@ describe('home-workbench quick access', () => {
 
     expect(items.map((x) => x.key)).toEqual([
       'traffic',
+      'traffic-volume',
       'settlement-user-query',
       'operation-logs',
     ])

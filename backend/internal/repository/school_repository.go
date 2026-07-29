@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"nfa-dashboard/internal/model"
 	"gorm.io/gorm"
+	"nfa-dashboard/internal/model"
 )
 
 // SchoolRepository 学校数据仓库接口
@@ -26,6 +26,8 @@ type SchoolRepository interface {
 	GetTrafficData(ctx context.Context, filter model.TrafficFilter) ([]model.TrafficResponse, error)
 	// 获取流量汇总数据
 	GetTrafficSummary(ctx context.Context, filter model.TrafficFilter) (model.TrafficResponse, error)
+	// 获取院校自然日服务流量
+	GetDailyTrafficVolume(ctx context.Context, filter model.TrafficFilter) ([]model.DailyTrafficVolumeResponse, error)
 	// ExistsBySchoolID 检查学校是否存在
 	ExistsBySchoolID(schoolID string) (bool, error)
 }
@@ -303,6 +305,53 @@ func (r *schoolRepository) GetTrafficData(ctx context.Context, filter model.Traf
 		log.Printf("警告: 没有找到符合条件的数据，时间范围: %v 至 %v", filter.StartTime, filter.EndTime)
 	}
 
+	return results, nil
+}
+
+// GetDailyTrafficVolume 按东八区自然日汇总服务流量。
+// total_recv 是每分钟字节量、每 5 分钟保存一个点，因此乘 5 还原该采样区间的累计字节。
+func (r *schoolRepository) GetDailyTrafficVolume(ctx context.Context, filter model.TrafficFilter) ([]model.DailyTrafficVolumeResponse, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	query := `
+        SELECT
+            DATE_FORMAT(create_time, '%Y-%m-%d') AS date,
+            MIN(school_id) AS school_id,
+            school_name,
+            region,
+            cp,
+            SUM(total_recv) * 5 AS service_bytes
+        FROM nfa_school_traffic
+        WHERE create_time >= ? AND create_time < ?`
+	args := []interface{}{filter.StartTime.In(time.Local), filter.EndTime.In(time.Local)}
+
+	if filter.SchoolName != "" {
+		query += " AND school_name = ?"
+		args = append(args, filter.SchoolName)
+	}
+	if filter.Region != "" {
+		query += " AND region = ?"
+		args = append(args, filter.Region)
+	}
+	if filter.CP != "" {
+		query += " AND cp = ?"
+		args = append(args, filter.CP)
+	}
+	if len(filter.AllowedSchoolKeys) > 0 {
+		query, args = appendAllowedSchoolKeysSQL(query, args, filter.AllowedSchoolKeys)
+	}
+
+	query += " GROUP BY DATE_FORMAT(create_time, '%Y-%m-%d'), school_name, region, cp"
+	query += " ORDER BY date ASC, region ASC, cp ASC, school_name ASC"
+
+	var results []model.DailyTrafficVolumeResponse
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	if err := model.DB.WithContext(ctxWithTimeout).Raw(query, args...).Scan(&results).Error; err != nil {
+		return nil, err
+	}
 	return results, nil
 }
 

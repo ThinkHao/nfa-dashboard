@@ -248,6 +248,29 @@ func TestTypedTrafficDataUsesV2EndpointAndQuery(t *testing.T) {
 	}
 }
 
+func TestTypedDailyTrafficVolumeUsesV2EndpointAndDates(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/traffic/daily-volume" {
+			t.Fatalf("path=%s", r.URL.Path)
+		}
+		if r.URL.Query().Get("start_date") != "2026-07-01" || r.URL.Query().Get("end_date") != "2026-07-03" {
+			t.Fatalf("query=%s", r.URL.RawQuery)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": []any{
+			map[string]any{"date": "2026-07-01", "service_bytes": 12345},
+		}})
+	}))
+	defer srv.Close()
+
+	out, errOut, code := runTestCLI(t, "--base-url", srv.URL, "--token", "access-1", "--print-body", "traffic", "daily-volume", "--query", "start_date=2026-07-01", "--query", "end_date=2026-07-03")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, errOut)
+	}
+	if !strings.Contains(out, `"service_bytes": 12345`) {
+		t.Fatalf("unexpected output: %s", out)
+	}
+}
+
 func TestTrafficDataSavesJSONSVGAndPrints95Summary(t *testing.T) {
 	outDir := t.TempDir()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

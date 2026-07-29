@@ -181,7 +181,7 @@ async function loadRegionCpOptions() {
   }
 }
 
-// 跳转到流量监控并带上过滤参数
+// 跳转到流速监控并带上过滤参数
 function goTraffic(row: any) {
   const query: Record<string, string> = {}
   if (row?.school_name) query.school_name = String(row.school_name)

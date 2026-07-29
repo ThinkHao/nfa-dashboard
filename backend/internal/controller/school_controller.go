@@ -47,6 +47,21 @@ func validateTrafficTimeRange(start, end time.Time) error {
 	return nil
 }
 
+func parseTrafficDateRange(startRaw, endRaw string) (time.Time, time.Time, error) {
+	startDate, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(startRaw), time.Local)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("start_date 格式错误，应为 YYYY-MM-DD")
+	}
+	endDate, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(endRaw), time.Local)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("end_date 格式错误，应为 YYYY-MM-DD")
+	}
+	if endDate.Before(startDate) {
+		return time.Time{}, time.Time{}, fmt.Errorf("start_date 不能晚于 end_date")
+	}
+	return startDate, endDate.AddDate(0, 0, 1), nil
+}
+
 // GetAllRegionsV2 获取所有地区（v2：按 user_id 过滤，普通用户强制为自身；管理员可查看全量或指定 user_id）
 func (c *SchoolController) GetAllRegionsV2(ctx *gin.Context) {
 	scope, err := c.resolveTrafficScope(ctx)
@@ -174,6 +189,45 @@ func (c *SchoolController) GetTrafficDataV2(ctx *gin.Context) {
 		return
 	}
 	ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取流量数据成功", "data": trafficData})
+}
+
+// GetDailyTrafficVolumeV2 获取院校自然日服务流量（沿用现有流量权限和可见范围）。
+func (c *SchoolController) GetDailyTrafficVolumeV2(ctx *gin.Context) {
+	startTime, endTime, err := parseTrafficDateRange(ctx.Query("start_date"), ctx.Query("end_date"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	scope, err := c.resolveTrafficScope(ctx)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "解析流量可见范围失败", "error": err.Error()})
+		return
+	}
+	if scope.Source == model.TrafficScopeSourceNone {
+		ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取日流量成功", "data": []model.DailyTrafficVolumeResponse{}, "scope_source": scope.Source})
+		return
+	}
+
+	filter := model.TrafficFilter{
+		StartTime:         startTime,
+		EndTime:           endTime,
+		SchoolName:        strings.TrimSpace(ctx.Query("school_name")),
+		Region:            strings.TrimSpace(ctx.Query("region")),
+		CP:                strings.TrimSpace(ctx.Query("cp")),
+		AllowedSchoolIDs:  scope.AllowedSchoolIDs,
+		AllowedSchoolKeys: scope.AllowedSchoolKeys,
+		ScopeSource:       scope.Source,
+	}
+	rows, err := c.schoolService.GetDailyTrafficVolume(ctx.Request.Context(), filter)
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
+		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取日流量失败", "error": err.Error()})
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取日流量成功", "data": rows, "scope_source": scope.Source})
 }
 
 // GetTrafficSummaryV2 获取流量汇总数据（v2：按 user_id 过滤，普通用户强制为自身）

@@ -643,6 +643,11 @@ export default {
       return api.get('/api/v2/traffic', { params, ...(config || {}) })
         .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
     },
+    // 院校自然日服务流量（V4/V6 已在后端累加）
+    getDailyTrafficVolume(params?: any, config?: AxiosRequestConfig) {
+      return api.get('/api/v2/traffic/daily-volume', { params, ...(config || {}) })
+        .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+    },
     // 流量汇总（v2）
     getTrafficSummary(params?: any, config?: AxiosRequestConfig) {
       return api.get('/api/v2/traffic/summary', { params, ...(config || {}) })

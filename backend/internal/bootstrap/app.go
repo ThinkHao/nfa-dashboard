@@ -138,6 +138,7 @@ func BuildEngine() *gin.Engine {
 			v2.GET("/regions", authMW.AuthRequired(), authMW.PermissionRequired("school.read"), schoolController.GetAllRegionsV2)
 			v2.GET("/cps", authMW.AuthRequired(), authMW.PermissionRequired("school.read"), schoolController.GetAllCPsV2)
 			v2.GET("/traffic", authMW.AuthRequired(), authMW.PermissionRequired("traffic.read"), schoolController.GetTrafficDataV2)
+			v2.GET("/traffic/daily-volume", authMW.AuthRequired(), authMW.PermissionRequired("traffic.read"), schoolController.GetDailyTrafficVolumeV2)
 			v2.GET("/traffic/summary", authMW.AuthRequired(), authMW.PermissionRequired("traffic.read"), schoolController.GetTrafficSummaryV2)
 			v2.GET("/edc/entities", authMW.AuthRequired(), authMW.PermissionRequired("traffic.read"), edcController.ListEntities)
 			v2.GET("/edc/regions", authMW.AuthRequired(), authMW.PermissionRequired("traffic.read"), edcController.ListRegions)

@@ -233,6 +233,7 @@ assert_db_schema() {
     "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='settlement_node_monthly95' AND COLUMN_NAME='billing_display_name';|settlement_node_monthly95.billing_display_name 列缺失"
     "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='nfa_system_settings';|nfa_system_settings 表缺失"
     "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='nfa_system_settings' AND COLUMN_NAME='traffic_byte_unit_base';|nfa_system_settings.traffic_byte_unit_base 列缺失"
+    "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='nfa_system_settings' AND COLUMN_NAME='daily_traffic_volume_unit_base';|nfa_system_settings.daily_traffic_volume_unit_base 列缺失"
     "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='nfa_system_settings' AND COLUMN_NAME='settlement_result_unit_base';|nfa_system_settings.settlement_result_unit_base 列缺失"
     "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='nfa_system_settings' AND COLUMN_NAME='settlement_data_rate_unit';|nfa_system_settings.settlement_data_rate_unit 列缺失"
     "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='nfa_system_settings' AND COLUMN_NAME='settlement_daily_detail_rate_unit';|nfa_system_settings.settlement_daily_detail_rate_unit 列缺失"

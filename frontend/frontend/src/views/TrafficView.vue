@@ -242,7 +242,7 @@ const hasFilter = computed(() => {
 })
 
 const entityLabel = computed(() => queryForm.data_source === 'edc' ? 'EDC名称' : '学校名称')
-const dataSourceTitle = computed(() => queryForm.data_source === 'edc' ? 'EDC流量监控' : '学校流量监控')
+const dataSourceTitle = computed(() => queryForm.data_source === 'edc' ? 'EDC流速监控' : '学校流速监控')
 const selectedEDCEntityLabel = computed(() => {
   const ids = selectedEDCEntityIDs.value
   if (queryForm.data_source !== 'edc' || ids.length === 0) return ''
@@ -352,16 +352,41 @@ const chartOption = computed(() => {
 
     const cps = Object.keys(cpBuckets).sort()
     legendData = ['各CP总服务流速', ...cps.flatMap(cp => [`${cp}-服务`, `${cp}-回源`])]
+    const totalTimeline = Object.keys(totalByTime).map((k) => Number(k)).sort((a, b) => a - b)
+    p95Result = calculateTrafficP95(totalTimeline.map((t) => ({ time: t, recvBps: totalByTime[t] })))
 
     const totalSeries = {
       ...perSeriesBase,
       name: '各CP总服务流速',
       lineStyle: { width: 3, type: 'solid' },
       z: 10,
-      data: Object.keys(totalByTime)
-        .map((k) => Number(k))
-        .sort((a, b) => a - b)
-        .map((t) => [t, totalByTime[t]]),
+      data: totalTimeline.map((t) => [t, totalByTime[t]]),
+      ...(p95Result
+        ? {
+            markLine: {
+              symbol: 'none',
+              silent: true,
+              animation: false,
+              label: {
+                formatter: () => `95 ${formatBitRate(p95Result?.valueBps || 0)}`,
+                position: 'insideEndTop',
+                distance: 6,
+                color: P95_LABEL_COLOR,
+                backgroundColor: P95_LABEL_BG,
+                borderRadius: 4,
+                padding: [3, 6],
+                fontSize: 11,
+              },
+              lineStyle: {
+                color: P95_LINE_COLOR_SOFT,
+                width: 1.4,
+                type: 'dashed',
+                opacity: 0.82,
+              },
+              data: [{ name: '95值', yAxis: p95Result.valueBps }],
+            },
+          }
+        : {}),
     }
 
     series = [
@@ -476,7 +501,7 @@ const chartOption = computed(() => {
           const v = Array.isArray(param.value) ? param.value[1] : param.value
           result += param.seriesName + ': ' + formatBitRate(Number(v || 0)) + '<br/>'
         })
-        if (p95Result && p95LegendVisible.value) {
+        if (p95Result && (compareByCP || p95LegendVisible.value)) {
           result += `${p95TooltipMarker}95值: ${formatBitRate(p95Result.valueBps)}<br/>`
           result += `${p95TooltipMarker}95时间: ${new Date(p95Result.timeMs).toLocaleString()}<br/>`
         }
@@ -1226,7 +1251,7 @@ usePageRefresh(() => {
 
 <template>
   <div class="page-container">
-    <PageHeader title="流量监控" description="按地区、CP、学校和时间范围查询流速趋势与明细。" />
+    <PageHeader title="流速监控" description="按地区、CP、学校和时间范围查询流速趋势与明细。" />
     
     <!-- 查询表单 -->
     <FilterPanel>

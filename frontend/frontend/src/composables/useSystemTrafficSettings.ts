@@ -6,6 +6,7 @@ import { normalizeByteUnitBase, normalizeRateUnit } from '@/utils/traffic-units'
 const defaultSettings: SystemTrafficSettings = {
   hide_non_settlement_schools_in_traffic: false,
   traffic_byte_unit_base: 1024,
+  daily_traffic_volume_unit_base: 1000,
   settlement_result_unit_base: 1024,
   settlement_data_rate_unit: 'Mbps',
   settlement_daily_detail_rate_unit: 'Mbps',
@@ -20,6 +21,7 @@ function sanitizeSettings(input?: Partial<SystemTrafficSettings> | null): System
   return {
     hide_non_settlement_schools_in_traffic: !!input?.hide_non_settlement_schools_in_traffic,
     traffic_byte_unit_base: normalizeByteUnitBase(input?.traffic_byte_unit_base, 1024),
+    daily_traffic_volume_unit_base: normalizeByteUnitBase(input?.daily_traffic_volume_unit_base, 1000),
     settlement_result_unit_base: normalizeByteUnitBase(input?.settlement_result_unit_base, 1024),
     settlement_data_rate_unit: normalizeRateUnit(input?.settlement_data_rate_unit, 'Mbps'),
     settlement_daily_detail_rate_unit: normalizeRateUnit(input?.settlement_daily_detail_rate_unit, 'Mbps'),

@@ -80,6 +80,8 @@ All commands support `--output json|table|csv`; `json` is the summary-and-save d
 
 NFA (school) and EDC (node) traffic are two independent data links. `traffic *` queries NFA via `/api/v2/traffic`; `edc *` queries EDC via `/api/v2/edc/traffic`. EDC points expose `service_size` (服务流速) and `cache_size` (回源流速) instead of NFA's `total_recv`/`total_send`; the CLI aliases them so `edc data` reuses the same two-series chart, summary, and `*8/60/1_000_000` conversion.
 
+Use `traffic daily-volume` for school daily service volume. It calls `/api/v2/traffic/daily-volume` with `start_date`, `end_date`, `region`, `cp`, and `school_name`; returned `service_bytes` already includes the five-minute integration and V4/V6 aggregation, so callers must not multiply it again.
+
 `settlement user-panel` mirrors the frontend single-user settlement page. It fetches both monthly amount rows and daily rows, then writes a combined JSON file with `summary`, `panel_rows`, `monthly_rows`, and `daily_rows`. The default summary includes monthly row count, daily row count, single-user 95 unit/base, monthly 95 total, and amount totals.
 
 `settlement node-panel` mirrors the frontend 单节点结算查询 (EDC) page. It fetches `settlement data node` (日95) plus `settlement data node-monthly` (月95) and aggregates per node+month, preferring the monthly `mbps_95` and falling back to the daily average; amounts come from `total_bill`. Node `mbps_95` is already in Mbps, so no unit conversion is applied. Node 95 tasks (`settlement tasks create-node-daily95` / `create-node-monthly95`) take a range payload and create exactly one task row for the whole range.

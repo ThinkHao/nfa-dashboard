@@ -15,6 +15,7 @@ func (s *systemSettingsRepoStub) Get() (*model.SystemSettings, error) {
 	return &model.SystemSettings{
 		HideNonSettlementSchoolsInTraffic: s.hide,
 		TrafficByteUnitBase:               s.cfg.TrafficByteUnitBase,
+		DailyTrafficVolumeUnitBase:        s.cfg.DailyTrafficVolumeUnitBase,
 		SettlementResultUnitBase:          s.cfg.SettlementResultUnitBase,
 		SettlementDataRateUnit:            s.cfg.SettlementDataRateUnit,
 		SettlementDailyDetailRateUnit:     s.cfg.SettlementDailyDetailRateUnit,
@@ -28,6 +29,7 @@ func (s *systemSettingsRepoStub) Upsert(cfg *model.SystemSettings) (*model.Syste
 		s.cfg = TrafficSettings{
 			HideNonSettlementSchoolsInTraffic: cfg.HideNonSettlementSchoolsInTraffic,
 			TrafficByteUnitBase:               cfg.TrafficByteUnitBase,
+			DailyTrafficVolumeUnitBase:        cfg.DailyTrafficVolumeUnitBase,
 			SettlementResultUnitBase:          cfg.SettlementResultUnitBase,
 			SettlementDataRateUnit:            cfg.SettlementDataRateUnit,
 			SettlementDailyDetailRateUnit:     cfg.SettlementDailyDetailRateUnit,
@@ -37,6 +39,7 @@ func (s *systemSettingsRepoStub) Upsert(cfg *model.SystemSettings) (*model.Syste
 	return &model.SystemSettings{
 		HideNonSettlementSchoolsInTraffic: s.hide,
 		TrafficByteUnitBase:               s.cfg.TrafficByteUnitBase,
+		DailyTrafficVolumeUnitBase:        s.cfg.DailyTrafficVolumeUnitBase,
 		SettlementResultUnitBase:          s.cfg.SettlementResultUnitBase,
 		SettlementDataRateUnit:            s.cfg.SettlementDataRateUnit,
 		SettlementDailyDetailRateUnit:     s.cfg.SettlementDailyDetailRateUnit,
@@ -48,6 +51,7 @@ func TestSystemSettingsService_UpdateTrafficSettings(t *testing.T) {
 	repo := &systemSettingsRepoStub{
 		cfg: TrafficSettings{
 			TrafficByteUnitBase:           1024,
+			DailyTrafficVolumeUnitBase:    1000,
 			SettlementResultUnitBase:      1024,
 			SettlementDataRateUnit:        TrafficRateUnitMbps,
 			SettlementDailyDetailRateUnit: TrafficRateUnitMbps,
@@ -63,7 +67,7 @@ func TestSystemSettingsService_UpdateTrafficSettings(t *testing.T) {
 	if cfg.HideNonSettlementSchoolsInTraffic {
 		t.Fatalf("expected default false, got true")
 	}
-	if cfg.TrafficByteUnitBase != 1024 || cfg.SettlementResultUnitBase != 1024 {
+	if cfg.TrafficByteUnitBase != 1024 || cfg.DailyTrafficVolumeUnitBase != 1000 || cfg.SettlementResultUnitBase != 1024 {
 		t.Fatalf("unexpected default unit base: %+v", cfg)
 	}
 	if cfg.SettlementSingleUserRateUnit != TrafficRateUnitGbps {
@@ -73,6 +77,7 @@ func TestSystemSettingsService_UpdateTrafficSettings(t *testing.T) {
 	updated, err := svc.UpdateTrafficSettings(TrafficSettings{
 		HideNonSettlementSchoolsInTraffic: true,
 		TrafficByteUnitBase:               1000,
+		DailyTrafficVolumeUnitBase:        1024,
 		SettlementResultUnitBase:          1000,
 		SettlementDataRateUnit:            TrafficRateUnitGbps,
 		SettlementDailyDetailRateUnit:     TrafficRateUnitGbps,
@@ -84,8 +89,8 @@ func TestSystemSettingsService_UpdateTrafficSettings(t *testing.T) {
 	if !updated.HideNonSettlementSchoolsInTraffic {
 		t.Fatalf("expected updated true, got false")
 	}
-	if updated.TrafficByteUnitBase != 1000 || updated.SettlementResultUnitBase != 1000 {
-		t.Fatalf("expected updated bases = 1000, got %+v", updated)
+	if updated.TrafficByteUnitBase != 1000 || updated.DailyTrafficVolumeUnitBase != 1024 || updated.SettlementResultUnitBase != 1000 {
+		t.Fatalf("unexpected updated bases: %+v", updated)
 	}
 	if updated.SettlementDataRateUnit != TrafficRateUnitGbps || updated.SettlementDailyDetailRateUnit != TrafficRateUnitGbps {
 		t.Fatalf("expected updated rate unit Gbps, got %+v", updated)
@@ -101,8 +106,8 @@ func TestSystemSettingsService_UpdateTrafficSettings(t *testing.T) {
 	if !cfg.HideNonSettlementSchoolsInTraffic {
 		t.Fatalf("expected persisted true, got false")
 	}
-	if cfg.TrafficByteUnitBase != 1000 || cfg.SettlementResultUnitBase != 1000 {
-		t.Fatalf("expected persisted bases = 1000, got %+v", cfg)
+	if cfg.TrafficByteUnitBase != 1000 || cfg.DailyTrafficVolumeUnitBase != 1024 || cfg.SettlementResultUnitBase != 1000 {
+		t.Fatalf("unexpected persisted bases: %+v", cfg)
 	}
 }
 
@@ -110,6 +115,7 @@ func TestSystemSettingsService_UpdateTrafficSettings_InvalidInput(t *testing.T) 
 	repo := &systemSettingsRepoStub{
 		cfg: TrafficSettings{
 			TrafficByteUnitBase:           1024,
+			DailyTrafficVolumeUnitBase:    1000,
 			SettlementResultUnitBase:      1024,
 			SettlementDataRateUnit:        TrafficRateUnitMbps,
 			SettlementDailyDetailRateUnit: TrafficRateUnitMbps,
@@ -120,6 +126,7 @@ func TestSystemSettingsService_UpdateTrafficSettings_InvalidInput(t *testing.T) 
 
 	_, err := svc.UpdateTrafficSettings(TrafficSettings{
 		TrafficByteUnitBase:           999,
+		DailyTrafficVolumeUnitBase:    1000,
 		SettlementResultUnitBase:      1024,
 		SettlementDataRateUnit:        TrafficRateUnitMbps,
 		SettlementDailyDetailRateUnit: TrafficRateUnitMbps,
@@ -137,6 +144,7 @@ func TestSystemSettingsService_UpdateTrafficSettings_DefaultFallbackForMissingFi
 	repo := &systemSettingsRepoStub{
 		cfg: TrafficSettings{
 			TrafficByteUnitBase:           1024,
+			DailyTrafficVolumeUnitBase:    1000,
 			SettlementResultUnitBase:      1024,
 			SettlementDataRateUnit:        TrafficRateUnitMbps,
 			SettlementDailyDetailRateUnit: TrafficRateUnitMbps,
@@ -151,8 +159,8 @@ func TestSystemSettingsService_UpdateTrafficSettings_DefaultFallbackForMissingFi
 	if err != nil {
 		t.Fatalf("UpdateTrafficSettings() error = %v", err)
 	}
-	if updated.TrafficByteUnitBase != 1024 || updated.SettlementResultUnitBase != 1024 {
-		t.Fatalf("expected fallback base to 1024, got %+v", updated)
+	if updated.TrafficByteUnitBase != 1024 || updated.DailyTrafficVolumeUnitBase != 1000 || updated.SettlementResultUnitBase != 1024 {
+		t.Fatalf("unexpected fallback bases: %+v", updated)
 	}
 	if updated.SettlementDataRateUnit != TrafficRateUnitMbps || updated.SettlementDailyDetailRateUnit != TrafficRateUnitMbps {
 		t.Fatalf("expected fallback rate units to Mbps, got %+v", updated)

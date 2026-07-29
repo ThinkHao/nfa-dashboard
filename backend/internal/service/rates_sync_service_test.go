@@ -170,6 +170,10 @@ func (s *ratesSyncSchoolRepoStub) GetTrafficData(ctx context.Context, filter mod
 func (s *ratesSyncSchoolRepoStub) GetTrafficSummary(ctx context.Context, filter model.TrafficFilter) (model.TrafficResponse, error) {
 	return model.TrafficResponse{}, nil
 }
+
+func (s *ratesSyncSchoolRepoStub) GetDailyTrafficVolume(ctx context.Context, filter model.TrafficFilter) ([]model.DailyTrafficVolumeResponse, error) {
+	return nil, nil
+}
 func (s *ratesSyncSchoolRepoStub) ExistsBySchoolID(schoolID string) (bool, error) { return false, nil }
 
 type ratesSyncRatesRepoStub struct {

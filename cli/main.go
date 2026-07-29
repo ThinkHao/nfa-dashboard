@@ -576,11 +576,12 @@ type route struct {
 
 func typedRoutes() map[string]route {
 	return map[string]route{
-		"traffic schools": {http.MethodGet, "/api/v2/schools"},
-		"traffic regions": {http.MethodGet, "/api/v2/regions"},
-		"traffic cps":     {http.MethodGet, "/api/v2/cps"},
-		"traffic data":    {http.MethodGet, "/api/v2/traffic"},
-		"traffic summary": {http.MethodGet, "/api/v2/traffic/summary"},
+		"traffic schools":      {http.MethodGet, "/api/v2/schools"},
+		"traffic regions":      {http.MethodGet, "/api/v2/regions"},
+		"traffic cps":          {http.MethodGet, "/api/v2/cps"},
+		"traffic data":         {http.MethodGet, "/api/v2/traffic"},
+		"traffic daily-volume": {http.MethodGet, "/api/v2/traffic/daily-volume"},
+		"traffic summary":      {http.MethodGet, "/api/v2/traffic/summary"},
 
 		"edc entities": {http.MethodGet, "/api/v2/edc/entities"},
 		"edc regions":  {http.MethodGet, "/api/v2/edc/regions"},
@@ -1874,6 +1875,7 @@ func printHelp(w io.Writer, args []string) {
 		printTypedHelp(w, "traffic", []string{
 			"traffic schools --query school_name=四川大学 --query cp=bilibili --query limit=20",
 			"traffic data --query region=北京市 --query school_name=北京航空航天大学 --query cp=bilibili --query start_time=\"2026-05-08 00:00:00\" --query end_time=\"2026-05-14 23:59:59\" --query granularity=5m --svg",
+			"traffic daily-volume --query region=北京市 --query cp=bilibili --query school_name=中央财经大学 --query start_date=2026-05-08 --query end_date=2026-05-14",
 			"traffic summary --query region=北京市 --query cp=bilibili",
 		})
 	case "edc":
