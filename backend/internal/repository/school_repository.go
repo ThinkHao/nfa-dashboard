@@ -310,10 +310,22 @@ func (r *schoolRepository) GetTrafficData(ctx context.Context, filter model.Traf
 
 // GetDailyTrafficVolume 按东八区自然日汇总服务流量。
 // total_recv 是每分钟字节量、每 5 分钟保存一个点，因此乘 5 还原该采样区间的累计字节。
+func dailyTrafficVolumeGrouping(cp string) (string, string) {
+	cpSelect := "'' AS cp"
+	groupBy := "DATE_FORMAT(create_time, '%Y-%m-%d'), school_name, region"
+	if cp != "" {
+		cpSelect = "cp"
+		groupBy += ", cp"
+	}
+	return cpSelect, groupBy
+}
+
 func (r *schoolRepository) GetDailyTrafficVolume(ctx context.Context, filter model.TrafficFilter) ([]model.DailyTrafficVolumeResponse, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+
+	cpSelect, groupBy := dailyTrafficVolumeGrouping(filter.CP)
 
 	query := `
         SELECT
@@ -321,7 +333,7 @@ func (r *schoolRepository) GetDailyTrafficVolume(ctx context.Context, filter mod
             MIN(school_id) AS school_id,
             school_name,
             region,
-            cp,
+            ` + cpSelect + `,
             SUM(total_recv) * 5 AS service_bytes
         FROM nfa_school_traffic
         WHERE create_time >= ? AND create_time < ?`
@@ -343,7 +355,7 @@ func (r *schoolRepository) GetDailyTrafficVolume(ctx context.Context, filter mod
 		query, args = appendAllowedSchoolKeysSQL(query, args, filter.AllowedSchoolKeys)
 	}
 
-	query += " GROUP BY DATE_FORMAT(create_time, '%Y-%m-%d'), school_name, region, cp"
+	query += " GROUP BY " + groupBy
 	query += " ORDER BY date ASC, region ASC, cp ASC, school_name ASC"
 
 	var results []model.DailyTrafficVolumeResponse

@@ -30,6 +30,22 @@ export function formatDailyTrafficBytes(bytes: number, base: 1000 | 1024 = 1024)
   return `${value.toFixed(value >= 100 ? 0 : value >= 10 ? 1 : 2)} ${units[index]}`
 }
 
+export interface DailyTrafficSchoolOption {
+  school_name: string
+  region: string
+  cp: string
+}
+
+export function uniqueDailyTrafficSchools(items: DailyTrafficSchoolOption[]): DailyTrafficSchoolOption[] {
+  const seen = new Set<string>()
+  return items.filter((item) => {
+    const name = String(item.school_name || '').trim()
+    if (!name || seen.has(name)) return false
+    seen.add(name)
+    return true
+  })
+}
+
 export function totalDailyTrafficBytes(rows: DailyTrafficVolumeRow[]): number {
   return rows.reduce((total, row) => total + (Number(row.service_bytes) || 0), 0)
 }

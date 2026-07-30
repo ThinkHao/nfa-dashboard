@@ -5,6 +5,7 @@ import {
   formatDailyTrafficBytes,
   meanDailyTrafficBytes,
   totalDailyTrafficBytes,
+  uniqueDailyTrafficSchools,
 } from '../daily-traffic-volume'
 
 describe('daily traffic volume helpers', () => {
@@ -28,5 +29,16 @@ describe('daily traffic volume helpers', () => {
     expect(totalDailyTrafficBytes(rows)).toBe(350)
     expect(meanDailyTrafficBytes(rows)).toBe(175)
     expect(meanDailyTrafficBytes([])).toBe(0)
+  })
+
+  it('deduplicates school options when CP is not selected', () => {
+    expect(uniqueDailyTrafficSchools([
+      { school_name: '学校A', region: '北京市', cp: 'bilibili' },
+      { school_name: '学校A', region: '北京市', cp: 'douyin' },
+      { school_name: '学校B', region: '北京市', cp: 'bilibili' },
+    ])).toEqual([
+      { school_name: '学校A', region: '北京市', cp: 'bilibili' },
+      { school_name: '学校B', region: '北京市', cp: 'bilibili' },
+    ])
   })
 })

@@ -20,6 +20,8 @@ import {
   formatDailyTrafficBytes,
   meanDailyTrafficBytes,
   totalDailyTrafficBytes,
+  uniqueDailyTrafficSchools,
+  type DailyTrafficSchoolOption,
   type DailyTrafficVolumeRow,
 } from './daily-traffic-volume'
 
@@ -33,7 +35,7 @@ const queryForm = reactive({
 const dateRange = ref<[string, string] | null>(defaultDailyTrafficDateRange())
 const regions = ref<string[]>([])
 const cps = ref<string[]>([])
-const schools = ref<Array<{ school_name: string; region: string; cp: string }>>([])
+const schools = ref<DailyTrafficSchoolOption[]>([])
 const rows = ref<DailyTrafficVolumeRow[]>([])
 const loading = ref(false)
 const filterLoading = ref(false)
@@ -94,7 +96,7 @@ async function loadSchools() {
       offset: 0,
       sort: 'school_name',
     })
-    schools.value = Array.isArray(data?.items) ? data.items : []
+    schools.value = uniqueDailyTrafficSchools(Array.isArray(data?.items) ? data.items : [])
   } finally {
     filterLoading.value = false
   }
@@ -114,6 +116,7 @@ async function handleRegionChange() {
     })
     const items = Array.isArray(data?.items) ? data.items : []
     cps.value = [...new Set<string>(items.map((item: any) => String(item.cp || '')).filter(Boolean))].sort()
+    schools.value = uniqueDailyTrafficSchools(items)
   } finally {
     filterLoading.value = false
   }
@@ -130,8 +133,8 @@ async function runQuery() {
     ElMessage.warning('请选择日期范围')
     return
   }
-  if (!queryForm.region || !queryForm.cp || !queryForm.school_name) {
-    ElMessage.warning('请选择区域、CP和院校名称')
+  if (!queryForm.region || !queryForm.school_name) {
+    ElMessage.warning('请选择区域和院校名称')
     return
   }
   loading.value = true
@@ -178,7 +181,7 @@ onMounted(async () => {
             v-model="queryForm.cp"
             :options="cps"
             :loading="filterLoading"
-            placeholder="选择 CP"
+            placeholder="全部 CP（可选）"
             class="field-sm"
             @change="handleCPChange"
           />
@@ -215,7 +218,11 @@ onMounted(async () => {
       <el-table v-loading="loading" :data="rows" stripe>
         <el-table-column prop="date" label="日期" width="130" />
         <el-table-column prop="region" label="区域" min-width="120" />
-        <el-table-column prop="cp" label="CP" min-width="120" />
+        <el-table-column prop="cp" label="CP" min-width="120">
+          <template #default="{ row }">
+            {{ row.cp || '全部' }}
+          </template>
+        </el-table-column>
         <el-table-column prop="school_name" label="院校名称" min-width="220" />
         <el-table-column label="日服务流量" min-width="150" align="right">
           <template #default="{ row }">
