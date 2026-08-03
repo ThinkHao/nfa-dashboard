@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { normalizeRangeValue, type RangeValue, type UnifiedRangeType } from './unified-date-range-utils'
 
 const props = withDefaults(defineProps<{
@@ -42,6 +42,44 @@ const defaultTime = computed(() => {
   return [new Date(2000, 0, 1, 0, 0, 0), new Date(2000, 0, 1, 23, 59, 59)]
 })
 
+const pickerType = computed(() => props.type === 'datetimerange' ? 'daterange' : props.type)
+const pendingStartDate = ref<Date | null>(null)
+
+function resolveShortcutStartDate(): Date {
+  if (pendingStartDate.value) return pendingStartDate.value
+  const currentStart = props.modelValue?.[0]
+  if (!currentStart) return new Date()
+  const timestamp = /^\d+$/.test(currentStart) ? Number(currentStart) : currentStart.replace(' ', 'T')
+  const parsed = new Date(timestamp)
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed
+}
+
+const hasShortcutStartDate = computed(() => Boolean(pendingStartDate.value || props.modelValue?.[0]))
+
+const shortcuts = computed(() => {
+  if (props.type === 'monthrange') return []
+  if (!hasShortcutStartDate.value) {
+    return [{ text: '先选开始日期', value: () => undefined }]
+  }
+
+  const start = resolveShortcutStartDate()
+  const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate())
+  const today = new Date()
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1)
+  const previousMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0)
+
+  return [
+    { text: '结束到今天', date: today },
+    { text: '结束到昨天', date: yesterday },
+    { text: '结束到上月底', date: previousMonthEnd },
+  ]
+    .filter(({ date }) => date >= startDay)
+    .map(({ text, date }) => ({
+      text,
+      value: () => [start, date],
+    }))
+})
+
 const pickerValue = computed(() => normalizeRangeValue(props.modelValue as RangeValue, props.type, props.valueFormat))
 
 function normalizePickerValue(value: [string, string] | null) {
@@ -50,7 +88,12 @@ function normalizePickerValue(value: [string, string] | null) {
 
 function onPickerModelUpdate(value: [string, string] | null) {
   const normalized = normalizePickerValue(value)
+  pendingStartDate.value = null
   emit('update:modelValue', normalized)
+}
+
+function onCalendarChange(value: [Date | null, Date | null]) {
+  pendingStartDate.value = value?.[0] instanceof Date ? value[0] : null
 }
 
 function onPickerChange(value: [string, string] | null) {
@@ -62,15 +105,17 @@ function onPickerChange(value: [string, string] | null) {
 <template>
   <el-date-picker
     :model-value="pickerValue"
-    :type="type"
+    :type="pickerType"
     range-separator="至"
     :start-placeholder="resolvedStartPlaceholder"
     :end-placeholder="resolvedEndPlaceholder"
     :format="format"
     :value-format="valueFormat"
     :default-time="defaultTime"
+    :shortcuts="shortcuts"
     class="field-w-300 unified-date-range"
     @update:model-value="onPickerModelUpdate"
+    @calendar-change="onCalendarChange"
     @change="onPickerChange"
   />
 </template>
