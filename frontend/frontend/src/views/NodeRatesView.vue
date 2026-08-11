@@ -164,7 +164,7 @@
             >
               <template #option="{ option }">
                 <div class="entity-option">
-                  <span class="entity-option-name">{{ (option as EDCEntityOption).display_name }}</span>
+                  <span class="entity-option-name">{{ (option as EDCEntityOption).alias || (option as EDCEntityOption).display_name }}</span>
                   <span class="entity-option-meta">{{ (option as EDCEntityOption).region }} / {{ (option as EDCEntityOption).cp }}</span>
                 </div>
               </template>
@@ -338,6 +338,7 @@ type EDCEntityOption = {
   id: number
   label: string
   display_name: string
+  alias?: string
   region: string
   cp: string
   edc_name?: string
@@ -488,16 +489,18 @@ function normalizeEDCEntities(payload: any): EDCEntityOption[] {
   return items.map((item: any) => {
     const id = Number(item.id)
     const displayName = String(item.display_name || '')
+    const alias = item.alias ? String(item.alias) : ''
     const region = String(item.region || '')
     const cp = String(item.cp || '')
     const edcName = item.edc_name ? String(item.edc_name) : ''
     const sn = item.sn ? String(item.sn) : ''
     const suffix = [region, cp].filter(Boolean).join(' / ')
-    const raw = [displayName, edcName, sn].filter(Boolean).join(' · ')
+    const raw = [alias || displayName, edcName, sn].filter(Boolean).join(' · ')
     return {
       id,
       label: suffix ? `${raw || id} (${suffix})` : `${raw || id}`,
       display_name: displayName,
+      alias,
       region,
       cp,
       edc_name: edcName,

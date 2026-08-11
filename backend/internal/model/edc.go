@@ -2,13 +2,22 @@ package model
 
 import "time"
 
+const (
+	EDCEntityTypeNode         = "node"
+	EDCEntityTypeTransmission = "transmission"
+)
+
 type EDCEntity struct {
 	ID          uint64    `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
 	EDCName     string    `gorm:"column:edc_name;not null" json:"edc_name"`
 	SN          string    `gorm:"column:sn" json:"sn"`
 	DisplayName string    `gorm:"column:display_name;not null" json:"display_name"`
+	Alias       *string   `gorm:"column:alias" json:"alias"`
 	Region      string    `gorm:"column:region;not null" json:"region"`
 	CP          string    `gorm:"column:cp;not null" json:"cp"`
+	EntityType  *string   `gorm:"column:entity_type" json:"entity_type"`
+	SrcRegion   *string   `gorm:"column:src_region" json:"src_region"`
+	DstRegion   *string   `gorm:"column:dst_region" json:"dst_region"`
 	IsBackup    bool      `gorm:"column:is_backup;not null;default:false" json:"is_backup"`
 	Enabled     bool      `gorm:"column:enabled;not null;default:true" json:"enabled"`
 	Remark      string    `gorm:"column:remark" json:"remark"`
@@ -24,6 +33,10 @@ type EDCTraffic5m struct {
 	EntityID    uint64    `gorm:"column:entity_id;primaryKey" json:"entity_id"`
 	Region      string    `gorm:"column:region;not null" json:"region"`
 	CP          string    `gorm:"column:cp;not null" json:"cp"`
+	EntityType  *string   `gorm:"column:entity_type" json:"entity_type"`
+	SrcRegion   *string   `gorm:"column:src_region" json:"src_region"`
+	DstRegion   *string   `gorm:"column:dst_region" json:"dst_region"`
+	Alias       *string   `gorm:"column:alias" json:"alias"`
 	DisplayName string    `gorm:"column:display_name;not null" json:"display_name"`
 	ServiceSize int64     `gorm:"column:service_size;not null;default:0" json:"service_size"`
 	CacheSize   int64     `gorm:"column:cache_size;not null;default:0" json:"cache_size"`
@@ -38,6 +51,10 @@ type EDCNodeTrafficPoint struct {
 	EntityID    uint64    `gorm:"column:entity_id" json:"entity_id"`
 	Region      string    `gorm:"column:region" json:"region"`
 	CP          string    `gorm:"column:cp" json:"cp"`
+	EntityType  *string   `gorm:"column:entity_type" json:"entity_type"`
+	SrcRegion   *string   `gorm:"column:src_region" json:"src_region"`
+	DstRegion   *string   `gorm:"column:dst_region" json:"dst_region"`
+	Alias       *string   `gorm:"column:alias" json:"alias"`
 	DisplayName string    `gorm:"column:display_name" json:"display_name"`
 	ServiceSize int64     `gorm:"column:service_size" json:"service_size"`
 	CacheSize   int64     `gorm:"column:cache_size" json:"cache_size"`
@@ -48,10 +65,21 @@ type EDCEntityFilter struct {
 	DisplayName      string
 	Region           string
 	CP               string
+	EntityType       string
+	SrcRegion        string
+	DstRegion        string
 	EnabledOnly      bool
 	AllowedEntityIDs []uint64
 	Limit            int
 	Offset           int
+}
+
+type EDCFilterOptions struct {
+	EntityTypes []string `json:"entity_types"`
+	Regions     []string `json:"regions"`
+	CPs         []string `json:"cps"`
+	SrcRegions  []string `json:"src_regions"`
+	DstRegions  []string `json:"dst_regions"`
 }
 
 type EDCTrafficFilter struct {
@@ -61,6 +89,9 @@ type EDCTrafficFilter struct {
 	EntityIDs        []uint64  `form:"-" json:"-"`
 	Region           string    `form:"region"`
 	CP               string    `form:"cp"`
+	EntityType       string    `form:"entity_type"`
+	SrcRegion        string    `form:"src_region"`
+	DstRegion        string    `form:"dst_region"`
 	AllowedEntityIDs []uint64  `form:"-" json:"-"`
 	ScopeSource      string    `form:"-" json:"-"`
 }
@@ -69,8 +100,12 @@ type EDCTrafficResponse struct {
 	Bucket5m    time.Time `gorm:"column:bucket_5m" json:"create_time"`
 	EntityID    uint64    `gorm:"column:entity_id" json:"entity_id,omitempty"`
 	DisplayName string    `gorm:"column:display_name" json:"display_name,omitempty"`
+	Alias       *string   `gorm:"column:alias" json:"alias"`
 	Region      string    `gorm:"column:region" json:"region,omitempty"`
 	CP          string    `gorm:"column:cp" json:"cp,omitempty"`
+	EntityType  *string   `gorm:"column:entity_type" json:"entity_type,omitempty"`
+	SrcRegion   *string   `gorm:"column:src_region" json:"src_region,omitempty"`
+	DstRegion   *string   `gorm:"column:dst_region" json:"dst_region,omitempty"`
 	ServiceSize int64     `gorm:"column:service_size" json:"service_size"`
 	CacheSize   int64     `gorm:"column:cache_size" json:"cache_size"`
 	Total       int64     `gorm:"-" json:"total"`

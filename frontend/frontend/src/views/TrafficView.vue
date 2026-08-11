@@ -21,7 +21,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent, GridComponent, DataZoomComponent, ToolboxComponent, MarkLineComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
-import { 
+import {
   ElForm, 
   ElFormItem, 
   ElSelect, 
@@ -33,6 +33,58 @@ import {
   ElPagination,
   ElMessage
 } from 'element-plus'
+
+type EDCEntityOption = Record<string, any>
+
+function normalizeEDCText(value: unknown): string {
+  const text = String(value ?? '').trim()
+  return text && text.toUpperCase() !== 'NULL' ? text : ''
+}
+
+function getEDCPrimaryLabel(entity: EDCEntityOption): string {
+  return normalizeEDCText(entity?.alias)
+    || normalizeEDCText(entity?.display_name)
+    || normalizeEDCText(entity?.edc_name)
+    || normalizeEDCText(entity?.school_name)
+    || (Number(entity?.id) > 0 ? `EDC#${entity.id}` : '未命名 EDC')
+}
+
+function getEDCOriginalName(entity: EDCEntityOption): string {
+  return normalizeEDCText(entity?.edc_name)
+}
+
+function getEDCSearchLabel(entity: EDCEntityOption): string {
+  const primary = getEDCPrimaryLabel(entity)
+  const names = [normalizeEDCText(entity?.display_name), normalizeEDCText(entity?.edc_name)]
+    .filter((name, index, values) => name && name !== primary && values.indexOf(name) === index)
+  return names.length > 0 ? `${primary}（${names.join(' / ')}）` : primary
+}
+
+function getEDCTypeLabel(value: unknown): string {
+  const type = normalizeEDCText(value)
+  if (type === 'node') return '节点'
+  if (type === 'transmission') return '传输'
+  return type
+}
+
+function formatEDCOptionMeta(entity: EDCEntityOption): string {
+  const originalName = getEDCOriginalName(entity)
+  const displayName = normalizeEDCText(entity?.display_name)
+  const names = originalName ? [`原名：${originalName}`] : []
+  if (displayName && displayName !== originalName) names.push(`显示名：${displayName}`)
+
+  const dimensions = [
+    normalizeEDCText(entity?.cp),
+    getEDCTypeLabel(entity?.entity_type),
+  ].filter(Boolean)
+  const srcRegion = normalizeEDCText(entity?.src_region)
+  const dstRegion = normalizeEDCText(entity?.dst_region)
+  if (srcRegion && dstRegion) dimensions.push(`${srcRegion} → ${dstRegion}`)
+  else if (srcRegion) dimensions.push(`源：${srcRegion}`)
+  else if (dstRegion) dimensions.push(`目：${dstRegion}`)
+
+  return [...names, ...dimensions].join(' · ')
+}
 
 function formatLabel(d: Date): string {
   const y = d.getFullYear()
@@ -180,6 +232,9 @@ const chartLoading = ref(false)
 const trafficData = ref([])
 const regions = ref([])
 const cps = ref([])
+const entityTypes = ref([])
+const srcRegions = ref([])
+const dstRegions = ref([])
 const schools = ref([])
 const total = ref(0)
 const currentPage = ref(1)
@@ -210,8 +265,11 @@ const queryForm = reactive({
   data_source: 'nfa' as 'nfa' | 'edc',
   school_name: '',
   edc_entity_ids: [] as number[],
+  entity_type: '',
   region: '',
   cp: '',
+  src_region: '',
+  dst_region: '',
   start_time: '',
   end_time: '',
   timeRange: 'last1h' as TrafficTimeRangeOption, // 默认选择过去1小时
@@ -238,19 +296,45 @@ const customDateRange = computed<[string, string] | null>({
 
 // 是否已选择任一筛选条件（地区/内容方/学校）
 const hasFilter = computed(() => {
-  return !!(queryForm.school_name || selectedEDCEntityIDs.value.length > 0 || queryForm.region || queryForm.cp)
+  return !!(
+    queryForm.school_name ||
+    selectedEDCEntityIDs.value.length > 0 ||
+    queryForm.entity_type ||
+    (queryForm.data_source !== 'edc' && queryForm.region) ||
+    queryForm.cp ||
+    queryForm.src_region ||
+    queryForm.dst_region
+  )
 })
 
 const entityLabel = computed(() => queryForm.data_source === 'edc' ? 'EDC名称' : '学校名称')
 const dataSourceTitle = computed(() => queryForm.data_source === 'edc' ? 'EDC流速监控' : '学校流速监控')
+const dataSourceDescription = computed(() => queryForm.data_source === 'edc'
+  ? '按类型、CP、源区域、目区域、EDC名称和时间范围查询流速趋势与明细。'
+  : '按地区、CP、学校和时间范围查询流速趋势与明细。')
+const selectedEDCEntities = computed<EDCEntityOption[]>(() => {
+  const byID = new Map<number, EDCEntityOption>()
+  ;(schools.value as EDCEntityOption[]).forEach((entity) => {
+    const id = Number(entity?.id)
+    if (Number.isFinite(id) && id > 0) byID.set(id, entity)
+  })
+  return selectedEDCEntityIDs.value.map((id) => byID.get(id) || { id, edc_name: `EDC#${id}` })
+})
+const selectedEDCAlias = computed(() => selectedEDCEntities.value.map((entity) => normalizeEDCText(entity?.alias)).filter(Boolean).join('、'))
+const selectedEDCEntityNames = computed(() => selectedEDCEntities.value.map(getEDCPrimaryLabel))
+const selectedEDCOriginalNames = computed(() => selectedEDCEntities.value.map(getEDCOriginalName))
 const selectedEDCEntityLabel = computed(() => {
   const ids = selectedEDCEntityIDs.value
   if (queryForm.data_source !== 'edc' || ids.length === 0) return ''
-  if (ids.length === 1) {
-    const selected = (schools.value || []).find((s: any) => Number(s?.id) === Number(ids[0]))
-    return String(selected?.display_name || selected?.school_name || '1个EDC节点')
-  }
-  return `${ids.length}个EDC节点`
+  return selectedEDCEntityNames.value.join('、')
+})
+const selectedEDCOriginalName = computed(() => {
+  if (queryForm.data_source !== 'edc' || selectedEDCEntityIDs.value.length === 0) return ''
+  return selectedEDCOriginalNames.value.filter(Boolean).join('、')
+})
+const selectedEDCSelectionSummary = computed(() => {
+  if (queryForm.data_source !== 'edc' || selectedEDCEntityIDs.value.length === 0) return ''
+  return `已选 EDC：${selectedEDCEntityLabel.value}`
 })
 
 // 预设时间范围选项
@@ -283,7 +367,8 @@ const chartOption = computed(() => {
     return {
       title: {
         text: dataSourceTitle.value,
-        left: 'center'
+        left: 'center',
+        subtext: selectedEDCSelectionSummary.value || undefined,
       },
       xAxis: { type: 'time' },
       yAxis: {
@@ -478,7 +563,8 @@ const chartOption = computed(() => {
   return {
     title: {
       text: `${dataSourceTitle.value} (bits/s) - ${formatGranularity(currentGranularity.value)}`,
-      left: 'center'
+      left: 'center',
+      subtext: selectedEDCSelectionSummary.value || undefined,
     },
     tooltip: {
       trigger: 'axis',
@@ -569,10 +655,12 @@ function applyRouteQueryFilters(q: RouteQueryLike, options: { autoQuery?: boolea
   const hasEDCEntityIDs = Object.prototype.hasOwnProperty.call(q, 'entity_ids')
   const hasRegion = Object.prototype.hasOwnProperty.call(q, 'region')
   const hasCp = Object.prototype.hasOwnProperty.call(q, 'cp')
+  const hasEntityType = Object.prototype.hasOwnProperty.call(q, 'entity_type')
+  const hasSrcRegion = Object.prototype.hasOwnProperty.call(q, 'src_region')
+  const hasDstRegion = Object.prototype.hasOwnProperty.call(q, 'dst_region')
   const hasDataSource = Object.prototype.hasOwnProperty.call(q, 'data_source')
-  const hasExplicitFilterKeys = hasSchool || hasEDCEntityIDs || hasRegion || hasCp
-
   if (hasDataSource && (q.data_source === 'nfa' || q.data_source === 'edc')) queryForm.data_source = q.data_source
+  const hasExplicitFilterKeys = hasSchool || hasEDCEntityIDs || (queryForm.data_source !== 'edc' && hasRegion) || hasCp || hasEntityType || hasSrcRegion || hasDstRegion
   if (hasSchool) queryForm.school_name = typeof q.school_name === 'string' ? q.school_name : ''
   if (hasEDCEntityIDs) {
     const raw = Array.isArray(q.entity_ids) ? q.entity_ids.join(',') : String(q.entity_ids || '')
@@ -581,8 +669,11 @@ function applyRouteQueryFilters(q: RouteQueryLike, options: { autoQuery?: boolea
       .map((v) => Number(String(v).trim()))
       .filter((v) => Number.isFinite(v) && v > 0)
   }
-  if (hasRegion) queryForm.region = typeof q.region === 'string' ? q.region : ''
+  if (hasRegion) queryForm.region = queryForm.data_source === 'edc' ? '' : (typeof q.region === 'string' ? q.region : '')
   if (hasCp) queryForm.cp = typeof q.cp === 'string' ? q.cp : ''
+  if (hasEntityType) queryForm.entity_type = q.entity_type === 'node' || q.entity_type === 'transmission' ? q.entity_type : ''
+  if (hasSrcRegion) queryForm.src_region = typeof q.src_region === 'string' ? q.src_region : ''
+  if (hasDstRegion) queryForm.dst_region = typeof q.dst_region === 'string' ? q.dst_region : ''
 
   if (options.autoQuery && hasExplicitFilterKeys && hasFilter.value) {
     currentPage.value = 1
@@ -658,8 +749,11 @@ onMounted(async () => {
     await loadRegionCpOptions()
     // 再加载学校数据（基于 v2，仅返回当前用户可见范围）
     await loadSchools()
+    if (queryForm.data_source === 'edc') {
+      computeEDCFilterOptions(schools.value)
+    }
     // 若未能从接口获得地区/运营商，则基于学校数据兜底派生
-    if ((!regions.value || regions.value.length === 0) || (!cps.value || cps.value.length === 0)) {
+    if (queryForm.data_source !== 'edc' && ((!regions.value || regions.value.length === 0) || (!cps.value || cps.value.length === 0))) {
       computeRegionCpOptions(true)
     }
     
@@ -715,20 +809,82 @@ function computeRegionCpOptions(forceOverwrite = false) {
   }
 }
 
+function computeEDCFilterOptions(items: any[]) {
+  const collect = (key: string) => {
+    const values = new Set<string>()
+    items.forEach((item: any) => {
+      const value = String(item?.[key] || '').trim()
+      if (value && value !== 'NULL') values.add(value)
+    })
+    return Array.from(values).sort()
+  }
+  if (!queryForm.entity_type) {
+  const discoveredTypes = collect('entity_type').filter((value) => value === 'node' || value === 'transmission')
+  entityTypes.value = discoveredTypes.length > 0 ? discoveredTypes : ['node', 'transmission']
+  }
+  regions.value = []
+  cps.value = collect('cp')
+  srcRegions.value = collect('src_region')
+  dstRegions.value = collect('dst_region')
+}
+
+function updateEDCDownstreamOptions(items: any[], level: 'type' | 'region' | 'cp' | 'src') {
+  const collect = (key: string) => {
+    const values = new Set<string>()
+    items.forEach((item: any) => {
+      const value = String(item?.[key] || '').trim()
+      if (value && value !== 'NULL') values.add(value)
+    })
+    return Array.from(values).sort()
+  }
+  if (level === 'type') {
+    regions.value = []
+    cps.value = collect('cp')
+    srcRegions.value = collect('src_region')
+    dstRegions.value = collect('dst_region')
+  } else if (level === 'region') {
+    cps.value = collect('cp')
+    srcRegions.value = collect('src_region')
+    dstRegions.value = collect('dst_region')
+  } else if (level === 'cp') {
+    srcRegions.value = collect('src_region')
+    dstRegions.value = collect('dst_region')
+  } else {
+    dstRegions.value = collect('dst_region')
+  }
+}
+
 // 通过 v2 接口加载地区/运营商选项（按用户可见范围过滤）
 async function loadRegionCpOptions() {
+  if (queryForm.data_source === 'edc') {
+    try {
+      const options = await (api as any).v2.edc.getFilterOptions()
+      entityTypes.value = sanitizeScopeOptionValues(Array.isArray(options?.entity_types) ? options.entity_types : []).sort()
+      if (entityTypes.value.length === 0) entityTypes.value = ['node', 'transmission']
+      regions.value = []
+      cps.value = sanitizeScopeOptionValues(Array.isArray(options?.cps) ? options.cps : []).sort()
+      srcRegions.value = sanitizeScopeOptionValues(Array.isArray(options?.src_regions) ? options.src_regions : []).sort()
+      dstRegions.value = sanitizeScopeOptionValues(Array.isArray(options?.dst_regions) ? options.dst_regions : []).sort()
+    } catch {
+      entityTypes.value = []
+      regions.value = []
+      cps.value = []
+      srcRegions.value = []
+      dstRegions.value = []
+    }
+    return
+  }
+  entityTypes.value = []
+  srcRegions.value = []
+  dstRegions.value = []
   try {
-    const r = queryForm.data_source === 'edc'
-      ? await (api as any).v2.edc.getRegions()
-      : await (api as any).v2.getRegions()
+    const r = await (api as any).v2.getRegions()
     regions.value = sanitizeScopeOptionValues(Array.isArray(r) ? r : []).sort()
   } catch {
     regions.value = []
   }
   try {
-    const c = queryForm.data_source === 'edc'
-      ? await (api as any).v2.edc.getCPs()
-      : await (api as any).v2.getCPs()
+    const c = await (api as any).v2.getCPs()
     cps.value = sanitizeScopeOptionValues(Array.isArray(c) ? c : []).sort()
   } catch {
     cps.value = []
@@ -736,15 +892,18 @@ async function loadRegionCpOptions() {
 }
 
 // 加载学校数据
-async function loadSchools(region = '', cp = '') {
+async function loadSchools(region = '', cp = '', entityType = '', srcRegion = '', dstRegion = '') {
   try {
     // 清空学校列表，避免显示旧数据
     schools.value = []
 
     // 构建请求参数
     const params: Record<string, any> = { limit: 500 }
-    if (region) params.region = region
+    if (queryForm.data_source !== 'edc' && region) params.region = region
     if (cp) params.cp = cp
+    if (entityType) params.entity_type = entityType
+    if (srcRegion) params.src_region = srcRegion
+    if (dstRegion) params.dst_region = dstRegion
 
     console.log('请求实体数据参数:', params)
     const res = queryForm.data_source === 'edc'
@@ -765,7 +924,7 @@ async function loadSchools(region = '', cp = '') {
     }
 
     // 地区已选且 CP 未选时，按该地区可见学校动态收敛 CP 选项
-    if (region && !cp) {
+    if (queryForm.data_source !== 'edc' && region && !cp) {
       const cpSet = new Set<string>()
       schoolsList.forEach((school: any) => {
         const v = String(school?.cp || '').trim()
@@ -781,11 +940,17 @@ async function loadSchools(region = '', cp = '') {
     if (queryForm.data_source === 'edc') {
       schools.value = schoolsList
         .filter((school: any) => Number(school?.id) > 0)
-        .map((school: any) => ({
-          ...school,
-          id: Number(school.id),
-          school_name: String(school?.display_name || '').trim(),
-        }))
+        .map((school: any) => {
+          const entity = {
+            ...school,
+            id: Number(school.id),
+          }
+          return {
+            ...entity,
+            school_name: getEDCPrimaryLabel(entity),
+            edc_search_label: getEDCSearchLabel(entity),
+          }
+        })
         .filter((school: any) => school.school_name)
     } else {
       // NFA 下拉按学校名称去重（不区分 CP），保持原有单选行为。
@@ -805,7 +970,7 @@ async function loadSchools(region = '', cp = '') {
     console.log('去重后的实体数据:', schools.value.length)
 
     // 仅在接口未返回地区/运营商时，才基于学校数据兜底填充
-    computeRegionCpOptions()
+    if (queryForm.data_source !== 'edc') computeRegionCpOptions()
 
     if (schools.value.length === 0) {
       console.warn('未获取到实体数据')
@@ -860,8 +1025,14 @@ async function loadTrafficData(signal?: AbortSignal) {
     }
     
     // 处理实体和内容方的过滤逻辑
-    if (queryForm.region) {
+    if (queryForm.data_source !== 'edc' && queryForm.region) {
       params.region = queryForm.region
+    }
+
+    if (queryForm.data_source === 'edc') {
+      if (queryForm.entity_type) params.entity_type = queryForm.entity_type
+      if (queryForm.src_region) params.src_region = queryForm.src_region
+      if (queryForm.dst_region) params.dst_region = queryForm.dst_region
     }
     
     const edcEntityIDs = selectedEDCEntityIDs.value
@@ -1010,14 +1181,21 @@ async function loadTrafficData(signal?: AbortSignal) {
       }
       
       // 预计算 bps，减少渲染与 tooltip 阶段的重复换算
-      const withBps = finalData.map((it: any) => ({
-        ...it,
-        school_name: it.school_name || it.display_name || selectedEDCEntityLabel.value || '',
-        total_recv: Number(it.total_recv ?? it.service_size) || 0,
-        total_send: Number(it.total_send ?? it.cache_size) || 0,
-        recv_bps: it && it.recv_bps != null ? Number(it.recv_bps) : convertToBitsPerSecond(Number(it.total_recv ?? it.service_size) || 0),
-        send_bps: it && it.send_bps != null ? Number(it.send_bps) : convertToBitsPerSecond(Number(it.total_send ?? it.cache_size) || 0),
-      }))
+      const withBps = finalData.map((it: any) => {
+        const isEDC = queryForm.data_source === 'edc'
+        const alias = isEDC ? (selectedEDCAlias.value || normalizeEDCText(it.alias)) : ''
+        const technicalName = isEDC ? (selectedEDCOriginalName.value || getEDCOriginalName(it)) : ''
+        return {
+          ...it,
+          edc_alias: alias,
+          edc_name: technicalName,
+          school_name: it.school_name || alias || it.alias || it.display_name || selectedEDCEntityLabel.value || '',
+          total_recv: Number(it.total_recv ?? it.service_size) || 0,
+          total_send: Number(it.total_send ?? it.cache_size) || 0,
+          recv_bps: it && it.recv_bps != null ? Number(it.recv_bps) : convertToBitsPerSecond(Number(it.total_recv ?? it.service_size) || 0),
+          send_bps: it && it.send_bps != null ? Number(it.send_bps) : convertToBitsPerSecond(Number(it.total_send ?? it.cache_size) || 0),
+        }
+      })
       trafficData.value = withBps
       total.value = withBps.length
       
@@ -1062,7 +1240,7 @@ async function loadTrafficData(signal?: AbortSignal) {
 // 查询按钮点击事件
 function handleQuery() {
   if (!hasFilter.value) {
-    ElMessage.info('请选择地区、内容方或学校后再查询')
+    ElMessage.info('请选择筛选条件后再查询')
     trafficData.value = []
     total.value = 0
     return
@@ -1075,6 +1253,9 @@ function handleQuery() {
 async function handleRegionChange(region) {
   queryForm.school_name = ''
   queryForm.edc_entity_ids = []
+  if (queryForm.data_source === 'edc') {
+    return
+  }
   queryForm.cp = ''
   if (!region) {
     await loadRegionCpOptions()
@@ -1087,31 +1268,69 @@ async function handleRegionChange(region) {
 
 // 当选择运营商变化时重新加载学校列表
 async function handleCPChange(cp) {
+  if (queryForm.data_source === 'edc') {
+    queryForm.school_name = ''
+    queryForm.edc_entity_ids = []
+    queryForm.src_region = ''
+    queryForm.dst_region = ''
+    await loadSchools(queryForm.region, cp, queryForm.entity_type)
+    updateEDCDownstreamOptions(schools.value, 'cp')
+    return
+  }
   const prevSchool = queryForm.school_name
-  const prevEDCEntityIDs = [...selectedEDCEntityIDs.value]
   // 按地区/运营商重新加载学校；仅当当前学校在新条件下不可见时才清空
   await loadSchools(queryForm.region, cp)
-  if (queryForm.data_source === 'edc') {
-    const visibleIDs = new Set((schools.value || []).map((s: any) => Number(s?.id)).filter((id) => Number.isFinite(id) && id > 0))
-    queryForm.edc_entity_ids = prevEDCEntityIDs.filter((id) => visibleIDs.has(Number(id)))
-    queryForm.school_name = ''
-  } else if (prevSchool) {
+  if (prevSchool) {
     const stillVisible = (schools.value || []).some((s: any) => String(s?.school_name || '') === String(prevSchool))
     queryForm.school_name = stillVisible ? prevSchool : ''
   }
   console.log('基于运营商筛选学校:', queryForm.region, cp)
 }
 
-async function handleDataSourceChange() {
+async function handleEntityTypeChange(entityType) {
+  if (queryForm.data_source !== 'edc') return
   queryForm.school_name = ''
   queryForm.edc_entity_ids = []
   queryForm.region = ''
   queryForm.cp = ''
+  queryForm.src_region = ''
+  queryForm.dst_region = ''
+  await loadSchools('', '', entityType || '')
+  updateEDCDownstreamOptions(schools.value, 'type')
+}
+
+async function handleSrcRegionChange(srcRegion) {
+  if (queryForm.data_source !== 'edc') return
+  queryForm.school_name = ''
+  queryForm.edc_entity_ids = []
+  queryForm.dst_region = ''
+  await loadSchools(queryForm.region, queryForm.cp, queryForm.entity_type, srcRegion || '')
+  updateEDCDownstreamOptions(schools.value, 'src')
+}
+
+async function handleDstRegionChange(dstRegion) {
+  if (queryForm.data_source !== 'edc') return
+  queryForm.school_name = ''
+  queryForm.edc_entity_ids = []
+  await loadSchools(queryForm.region, queryForm.cp, queryForm.entity_type, queryForm.src_region, dstRegion || '')
+}
+
+async function handleDataSourceChange() {
+  queryForm.school_name = ''
+  queryForm.edc_entity_ids = []
+  queryForm.entity_type = ''
+  queryForm.region = ''
+  queryForm.cp = ''
+  queryForm.src_region = ''
+  queryForm.dst_region = ''
   trafficData.value = []
   total.value = 0
   currentPage.value = 1
   await loadRegionCpOptions()
   await loadSchools('', '')
+  if (queryForm.data_source === 'edc') {
+    computeEDCFilterOptions(schools.value)
+  }
 }
 
 // 处理预设时间范围变化
@@ -1139,8 +1358,11 @@ function handleReset() {
   // 重置表单
   queryForm.school_name = ''
   queryForm.edc_entity_ids = []
+  queryForm.entity_type = ''
   queryForm.region = ''
   queryForm.cp = ''
+  queryForm.src_region = ''
+  queryForm.dst_region = ''
   queryForm.timeRange = 'last1h'
   
   // 设置默认时间范围为最近1小时
@@ -1251,7 +1473,7 @@ usePageRefresh(() => {
 
 <template>
   <div class="page-container">
-    <PageHeader title="流速监控" description="按地区、CP、学校和时间范围查询流速趋势与明细。" />
+    <PageHeader title="流速监控" :description="dataSourceDescription" />
     
     <!-- 查询表单 -->
     <FilterPanel>
@@ -1267,12 +1489,31 @@ usePageRefresh(() => {
           />
         </ElFormItem>
 
-        <ElFormItem label="地区">
+        <ElFormItem v-if="queryForm.data_source === 'edc'" label="类型">
+          <SearchSelect
+            v-model="queryForm.entity_type"
+            :options="entityTypes"
+            placeholder="选择类型"
+            clearable
+            class="field-sm"
+            @change="handleEntityTypeChange"
+          />
+        </ElFormItem>
+
+        <ElFormItem v-if="queryForm.data_source !== 'edc'" label="地区">
           <SearchSelect v-model="queryForm.region" :options="regions" placeholder="选择地区" clearable @change="handleRegionChange" class="field-sm" />
         </ElFormItem>
         
         <ElFormItem label="CP">
           <SearchSelect v-model="queryForm.cp" :options="cps" placeholder="选择 CP" clearable @change="handleCPChange" class="field-sm" />
+        </ElFormItem>
+
+        <ElFormItem v-if="queryForm.data_source === 'edc'" label="源区域">
+          <SearchSelect v-model="queryForm.src_region" :options="srcRegions" placeholder="选择源区域" clearable @change="handleSrcRegionChange" class="field-sm" />
+        </ElFormItem>
+
+        <ElFormItem v-if="queryForm.data_source === 'edc'" label="目区域">
+          <SearchSelect v-model="queryForm.dst_region" :options="dstRegions" placeholder="选择目区域" clearable @change="handleDstRegionChange" class="field-sm" />
         </ElFormItem>
         
         <ElFormItem :label="entityLabel">
@@ -1280,7 +1521,7 @@ usePageRefresh(() => {
             v-if="queryForm.data_source === 'edc'"
             v-model="queryForm.edc_entity_ids"
             :options="schools"
-            label-key="school_name"
+            label-key="edc_search_label"
             value-key="id"
             :placeholder="`选择${entityLabel}`"
             clearable
@@ -1291,8 +1532,8 @@ usePageRefresh(() => {
             @change="queryForm.school_name = ''"
           >
             <template #option="{ option }">
-              <span>{{ (option as any).display_name || (option as any).school_name }}</span>
-              <span class="edc-option-meta">{{ (option as any).region }} / {{ (option as any).cp }}</span>
+              <span class="edc-option-main">{{ getEDCPrimaryLabel(option as EDCEntityOption) }}</span>
+              <span class="edc-option-meta">{{ formatEDCOptionMeta(option as EDCEntityOption) }}</span>
             </template>
           </SearchSelect>
           <SearchSelect
@@ -1359,8 +1600,20 @@ usePageRefresh(() => {
               : (scope.row.time_str || scope.row.create_time) }}
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="school_name" :label="entityLabel" />
-        <ElTableColumn prop="region" label="地区" />
+        <template v-if="queryForm.data_source === 'edc'">
+          <ElTableColumn prop="edc_alias" label="EDC别名" min-width="160">
+            <template #default="scope">
+              {{ scope.row.edc_alias || '—' }}
+            </template>
+          </ElTableColumn>
+          <ElTableColumn prop="edc_name" label="EDC原名" min-width="180">
+            <template #default="scope">
+              {{ scope.row.edc_name || '—' }}
+            </template>
+          </ElTableColumn>
+        </template>
+        <ElTableColumn v-else prop="school_name" :label="entityLabel" />
+        <ElTableColumn v-if="queryForm.data_source !== 'edc'" prop="region" label="地区" />
         <ElTableColumn prop="cp" label="内容方" />
         <ElTableColumn prop="total_recv" label="服务流速">
           <template #default="scope">
@@ -1422,8 +1675,16 @@ usePageRefresh(() => {
 }
 
 .edc-option-meta {
-  margin-left: 8px;
+  display: block;
+  margin-left: 0;
   color: var(--el-text-color-secondary);
   font-size: 12px;
+  line-height: 1.45;
+  white-space: normal;
+}
+
+.edc-option-main {
+  display: block;
+  font-weight: 500;
 }
 </style>

@@ -13,6 +13,7 @@ type EDCService interface {
 	ListEntities(filter model.EDCEntityFilter) ([]model.EDCEntity, int64, error)
 	ListRegions(allowedEntityIDs []uint64) ([]string, error)
 	ListCPs(allowedEntityIDs []uint64) ([]string, error)
+	ListFilterOptions(allowedEntityIDs []uint64) (model.EDCFilterOptions, error)
 	GetTrafficData(filter model.EDCTrafficFilter) ([]model.EDCTrafficResponse, error)
 	GetTrafficSummary(filter model.EDCTrafficFilter) (model.EDCTrafficResponse, error)
 }
@@ -39,6 +40,10 @@ func (s *edcService) ListRegions(allowedEntityIDs []uint64) ([]string, error) {
 
 func (s *edcService) ListCPs(allowedEntityIDs []uint64) ([]string, error) {
 	return s.repo.ListCPs(allowedEntityIDs)
+}
+
+func (s *edcService) ListFilterOptions(allowedEntityIDs []uint64) (model.EDCFilterOptions, error) {
+	return s.repo.ListFilterOptions(allowedEntityIDs)
 }
 
 func (s *edcService) GetTrafficData(filter model.EDCTrafficFilter) ([]model.EDCTrafficResponse, error) {

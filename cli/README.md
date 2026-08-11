@@ -63,8 +63,9 @@ By default, JSON responses are saved to a file under the temp directory and stdo
 
 ```powershell
 .\nfa-dashboard-cli.exe traffic data --query region=湖北 --query granularity=5m --svg
-.\nfa-dashboard-cli.exe edc data --query region=北京市 --query cp=bilibili --svg
-.\nfa-dashboard-cli.exe edc entities --query region=北京市 --query limit=20
+.\nfa-dashboard-cli.exe edc filter-options
+.\nfa-dashboard-cli.exe edc data --query entity_type=transmission --query src_region=北京市 --query dst_region=北京市 --svg
+.\nfa-dashboard-cli.exe edc entities --query entity_type=node --query src_region=北京市 --query limit=20
 .\nfa-dashboard-cli.exe settlement tasks list --query limit=20
 .\nfa-dashboard-cli.exe settlement tasks create-node-daily95 --body '{"start_date":"2026-04-01","end_date":"2026-04-30"}' --dry-run
 .\nfa-dashboard-cli.exe settlement data node --query region=北京市 --query cp=bilibili --query start_date=2026-04-01 --query end_date=2026-04-30
@@ -78,7 +79,9 @@ By default, JSON responses are saved to a file under the temp directory and stdo
 
 All commands support `--output json|table|csv`; `json` is the summary-and-save default, while `table` and `csv` print transformed response data to stdout. Traffic data (`traffic data` for NFA, `edc data` for EDC) can also write an SVG chart with `--svg` or `--svg-file PATH`; the summary includes point count, time bounds, average, max, and 95th percentile Mbps values. NFA traffic monitor points are converted with `raw_bytes * 8 / 60 / 1_000_000`, matching the web traffic page's decimal bit-rate formatter. The `traffic_byte_unit_base` setting is for byte-size display such as B/KB/MB/GB, not Mbps/Gbps.
 
-NFA (school) and EDC (node) traffic are two independent data links. `traffic *` queries NFA via `/api/v2/traffic`; `edc *` queries EDC via `/api/v2/edc/traffic`. EDC points expose `service_size` (服务流速) and `cache_size` (回源流速) instead of NFA's `total_recv`/`total_send`; the CLI aliases them so `edc data` reuses the same two-series chart, summary, and `*8/60/1_000_000` conversion.
+NFA (school) and EDC (node/transmission) traffic are two independent data links. `traffic *` queries NFA via `/api/v2/traffic`; `edc *` queries EDC via `/api/v2/edc/traffic`. EDC points expose `service_size` (服务流速) and `cache_size` (回源流速) instead of NFA's `total_recv`/`total_send`; the CLI aliases them so `edc data` reuses the same two-series chart, summary, and `*8/60/1_000_000` conversion.
+
+EDC entity and traffic queries accept the optional dimensions `region`, `cp`, `entity_type` (`node` or `transmission`), `src_region`, and `dst_region`. Traffic queries also accept comma-separated `entity_ids`. For entity-list queries, `display_name` matches the configured alias, display name, or raw EDC name; for traffic queries it matches alias or display name, while `entity_ids` provides exact raw-entity selection. Use `edc filter-options` to retrieve the current values for `entity_types`, `regions`, `cps`, `src_regions`, and `dst_regions`; omit a dimension when it is not selected. In particular, omitting `dst_region` keeps records whose destination region is NULL, while selecting a destination applies an exact match.
 
 Use `traffic daily-volume` for school daily service volume. It calls `/api/v2/traffic/daily-volume` with `start_date`, `end_date`, `region`, `cp`, and `school_name`; returned `service_bytes` already includes the five-minute integration and V4/V6 aggregation, so callers must not multiply it again.
 

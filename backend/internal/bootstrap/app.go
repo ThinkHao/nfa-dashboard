@@ -143,6 +143,7 @@ func BuildEngine() *gin.Engine {
 			v2.GET("/edc/entities", authMW.AuthRequired(), authMW.PermissionRequired("traffic.read"), edcController.ListEntities)
 			v2.GET("/edc/regions", authMW.AuthRequired(), authMW.PermissionRequired("traffic.read"), edcController.ListRegions)
 			v2.GET("/edc/cps", authMW.AuthRequired(), authMW.PermissionRequired("traffic.read"), edcController.ListCPs)
+			v2.GET("/edc/filter-options", authMW.AuthRequired(), authMW.PermissionRequired("traffic.read"), edcController.ListFilterOptions)
 			v2.GET("/edc/traffic", authMW.AuthRequired(), authMW.PermissionRequired("traffic.read"), edcController.GetTrafficData)
 			v2.GET("/edc/traffic/summary", authMW.AuthRequired(), authMW.PermissionRequired("traffic.read"), edcController.GetTrafficSummary)
 

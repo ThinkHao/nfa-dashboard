@@ -583,11 +583,12 @@ func typedRoutes() map[string]route {
 		"traffic daily-volume": {http.MethodGet, "/api/v2/traffic/daily-volume"},
 		"traffic summary":      {http.MethodGet, "/api/v2/traffic/summary"},
 
-		"edc entities": {http.MethodGet, "/api/v2/edc/entities"},
-		"edc regions":  {http.MethodGet, "/api/v2/edc/regions"},
-		"edc cps":      {http.MethodGet, "/api/v2/edc/cps"},
-		"edc data":     {http.MethodGet, "/api/v2/edc/traffic"},
-		"edc summary":  {http.MethodGet, "/api/v2/edc/traffic/summary"},
+		"edc entities":       {http.MethodGet, "/api/v2/edc/entities"},
+		"edc regions":        {http.MethodGet, "/api/v2/edc/regions"},
+		"edc cps":            {http.MethodGet, "/api/v2/edc/cps"},
+		"edc filter-options": {http.MethodGet, "/api/v2/edc/filter-options"},
+		"edc data":           {http.MethodGet, "/api/v2/edc/traffic"},
+		"edc summary":        {http.MethodGet, "/api/v2/edc/traffic/summary"},
 
 		"settlement config get":                    {http.MethodGet, "/api/v1/settlement/config"},
 		"settlement config update":                 {http.MethodPut, "/api/v1/settlement/config"},
@@ -1880,9 +1881,10 @@ func printHelp(w io.Writer, args []string) {
 		})
 	case "edc":
 		printTypedHelp(w, "edc", []string{
-			"edc entities --query region=北京市 --query cp=bilibili --query limit=20",
-			"edc data --query display_name=节点A --query start_time=\"2026-05-08 00:00:00\" --query end_time=\"2026-05-14 23:59:59\" --svg",
-			"edc summary --query region=北京市 --query cp=bilibili",
+			"edc filter-options",
+			"edc entities --query entity_type=node --query src_region=北京市 --query dst_region=北京市 --query limit=20",
+			"edc data --query display_name=节点A --query entity_type=transmission --query src_region=北京市 --query start_time=\"2026-05-08 00:00:00\" --query end_time=\"2026-05-14 23:59:59\" --svg",
+			"edc summary --query region=北京市 --query cp=本地传输",
 		})
 	case "settlement":
 		if hasHelpToken(args, "user-panel") {
@@ -1957,7 +1959,7 @@ Commands:
   auth        login, profile, refresh, change-password
   api         raw API get/post/put/delete for endpoints without typed commands
   traffic     NFA schools, regions, cps, data, summary
-  edc         EDC entities, regions, cps, data, summary
+  edc         EDC entities, regions, cps, filter-options, data, summary
   settlement  config, tasks (incl. node-daily95/node-monthly95), data, user-panel, node-panel, entities
   rates       customer, node, node-groups, final, final-node, sync/filter/discount rules
   system      users, roles, permissions, traffic scopes, edc-traffic-scopes, settings
@@ -1981,7 +1983,7 @@ Examples:
   nfa-dashboard-cli auth profile
   nfa-dashboard-cli version
   nfa-dashboard-cli traffic data --query region=北京市 --query cp=bilibili --query granularity=5m --svg
-  nfa-dashboard-cli edc data --query region=北京市 --query cp=bilibili --svg
+  nfa-dashboard-cli edc data --query entity_type=transmission --query src_region=北京市 --query dst_region=北京市 --svg
   nfa-dashboard-cli settlement user-panel --query channel_owner_user_id=9 --query cp=bilibili
   nfa-dashboard-cli settlement node-panel --query region=北京市 --query cp=bilibili --query start_date=2026-04-01 --query end_date=2026-04-30
   nfa-dashboard-cli api get --path /api/v1/auth/profile --print-body

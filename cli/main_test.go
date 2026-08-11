@@ -439,19 +439,49 @@ func TestTypedEDCDataUsesV2EndpointAndQuery(t *testing.T) {
 		if r.URL.Path != "/api/v2/edc/traffic" {
 			t.Fatalf("path=%s", r.URL.Path)
 		}
-		if r.URL.Query().Get("region") != "北京市" || r.URL.Query().Get("cp") != "bilibili" {
+		if r.URL.Query().Get("region") != "北京市" ||
+			r.URL.Query().Get("cp") != "本地传输" ||
+			r.URL.Query().Get("entity_type") != "transmission" ||
+			r.URL.Query().Get("src_region") != "北京市" ||
+			r.URL.Query().Get("dst_region") != "北京市" {
 			t.Fatalf("query=%s", r.URL.RawQuery)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": []any{map[string]any{"display_name": "节点A"}}})
 	}))
 	defer srv.Close()
 
-	out, errOut, code := runTestCLI(t, "--base-url", srv.URL, "--token", "access-1", "--print-body", "edc", "data", "--query", "region=北京市", "--query", "cp=bilibili")
+	out, errOut, code := runTestCLI(t, "--base-url", srv.URL, "--token", "access-1", "--print-body", "edc", "data", "--query", "region=北京市", "--query", "cp=本地传输", "--query", "entity_type=transmission", "--query", "src_region=北京市", "--query", "dst_region=北京市")
 	if code != 0 {
 		t.Fatalf("code=%d stderr=%s", code, errOut)
 	}
 	if !strings.Contains(out, `"display_name": "节点A"`) {
 		t.Fatalf("unexpected output: %s", out)
+	}
+}
+
+func TestTypedEDCFilterOptionsUsesV2Endpoint(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/edc/filter-options" {
+			t.Fatalf("path=%s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+			"entity_types": []string{"node", "transmission"},
+			"regions":      []string{"北京市"},
+			"cps":          []string{"本地传输"},
+			"src_regions":  []string{"北京市"},
+			"dst_regions":  []string{"北京市"},
+		}})
+	}))
+	defer srv.Close()
+
+	out, errOut, code := runTestCLI(t, "--base-url", srv.URL, "--token", "access-1", "--print-body", "edc", "filter-options")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, errOut)
+	}
+	for _, expected := range []string{"entity_types", "transmission", "本地传输", "src_regions", "dst_regions"} {
+		if !strings.Contains(out, expected) {
+			t.Fatalf("filter options missing %q: %s", expected, out)
+		}
 	}
 }
 

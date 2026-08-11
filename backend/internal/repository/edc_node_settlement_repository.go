@@ -31,7 +31,7 @@ func NewEDCNodeSettlementRepository() EDCNodeSettlementRepository {
 
 func (r *edcNodeSettlementRepository) ListEnabledEntities() ([]model.EDCEntity, error) {
 	var entities []model.EDCEntity
-	err := model.DB.Where("enabled = ? AND is_backup = ?", true, false).Order("region ASC, cp ASC, display_name ASC").Find(&entities).Error
+	err := model.DB.Where("enabled = ? AND is_backup = ? AND (entity_type = ? OR entity_type IS NULL)", true, false, "node").Order("region ASC, cp ASC, display_name ASC").Find(&entities).Error
 	return entities, err
 }
 
@@ -39,7 +39,7 @@ func (r *edcNodeSettlementRepository) ListTrafficPoints(entityID uint64, start, 
 	var points []model.EDCTraffic5m
 	err := model.DB.Table("edc_traffic_5m AS t").
 		Select("t.*").
-		Joins("JOIN edc_entities AS e ON e.id = t.entity_id AND e.enabled = ? AND e.is_backup = ?", true, false).
+		Joins("JOIN edc_entities AS e ON e.id = t.entity_id AND e.enabled = ? AND e.is_backup = ? AND (e.entity_type = ? OR e.entity_type IS NULL)", true, false, "node").
 		Where("t.entity_id = ? AND t.bucket_5m >= ? AND t.bucket_5m < ?", entityID, start, end).
 		Order("t.bucket_5m ASC").Find(&points).Error
 	return points, err
@@ -57,7 +57,7 @@ func (r *edcNodeSettlementRepository) ListTrafficPointsByEntities(entityIDs []ui
 			SUM(t.cache_size) AS cache_size,
 			SUM(t.record_count) AS record_count`).
 		Joins("JOIN edc_entities AS e ON e.id = t.entity_id").
-		Where("e.enabled = ? AND e.is_backup = ? AND t.bucket_5m >= ? AND t.bucket_5m < ?", true, false, start, end)
+		Where("e.enabled = ? AND e.is_backup = ? AND (e.entity_type = ? OR e.entity_type IS NULL) AND t.bucket_5m >= ? AND t.bucket_5m < ?", true, false, "node", start, end)
 	if len(entityIDs) > 0 {
 		q = q.Where("t.entity_id IN ?", entityIDs)
 	}
@@ -74,7 +74,7 @@ func (r *edcNodeSettlementRepository) ListTrafficPointsByDisplayNode(start, end 
 			SUM(t.cache_size) AS cache_size,
 			SUM(t.record_count) AS record_count`).
 		Joins("JOIN edc_entities AS e ON e.id = t.entity_id").
-		Where("e.enabled = ? AND e.is_backup = ? AND t.bucket_5m >= ? AND t.bucket_5m < ?", true, false, start, end).
+		Where("e.enabled = ? AND e.is_backup = ? AND (e.entity_type = ? OR e.entity_type IS NULL) AND t.bucket_5m >= ? AND t.bucket_5m < ?", true, false, "node", start, end).
 		Group("e.region, e.cp, e.display_name, t.bucket_5m").
 		Order("e.region ASC, e.cp ASC, e.display_name ASC, t.bucket_5m ASC").
 		Scan(&points).Error
@@ -86,7 +86,7 @@ func (r *edcNodeSettlementRepository) ExistsTrafficPointByDisplayNode(start, end
 	tx := model.DB.Table("edc_traffic_5m AS t").
 		Select("1").
 		Joins("JOIN edc_entities AS e ON e.id = t.entity_id").
-		Where("e.enabled = ? AND e.is_backup = ? AND t.bucket_5m >= ? AND t.bucket_5m < ?", true, false, start, end).
+		Where("e.enabled = ? AND e.is_backup = ? AND (e.entity_type = ? OR e.entity_type IS NULL) AND t.bucket_5m >= ? AND t.bucket_5m < ?", true, false, "node", start, end).
 		Limit(1).
 		Scan(&hit)
 	if tx.Error != nil {

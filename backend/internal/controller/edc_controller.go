@@ -36,6 +36,9 @@ func (c *EDCController) ListEntities(ctx *gin.Context) {
 		DisplayName:      ctx.Query("display_name"),
 		Region:           ctx.Query("region"),
 		CP:               ctx.Query("cp"),
+		EntityType:       ctx.Query("entity_type"),
+		SrcRegion:        ctx.Query("src_region"),
+		DstRegion:        ctx.Query("dst_region"),
 		AllowedEntityIDs: scope.AllowedEntityIDs,
 		Limit:            limit,
 		Offset:           offset,
@@ -79,6 +82,23 @@ func (c *EDCController) ListCPs(ctx *gin.Context) {
 		return
 	}
 	ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取 EDC 内容方列表成功", "data": cps, "scope_source": scope.Source})
+}
+
+func (c *EDCController) ListFilterOptions(ctx *gin.Context) {
+	scope, ok := c.resolveEDCScopeOrRespond(ctx)
+	if !ok {
+		return
+	}
+	if scope.Source == model.EDCTrafficScopeSourceNone {
+		ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取 EDC 筛选项成功", "data": model.EDCFilterOptions{}, "scope_source": scope.Source})
+		return
+	}
+	options, err := c.edcService.ListFilterOptions(scope.AllowedEntityIDs)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取 EDC 筛选项失败", "error": err.Error()})
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取 EDC 筛选项成功", "data": options, "scope_source": scope.Source})
 }
 
 func (c *EDCController) GetTrafficData(ctx *gin.Context) {
@@ -172,6 +192,13 @@ func parseEDCTrafficFilter(ctx *gin.Context) (model.EDCTrafficFilter, bool) {
 	}
 	filter.Region = ctx.Query("region")
 	filter.CP = ctx.Query("cp")
+	filter.EntityType = ctx.Query("entity_type")
+	if filter.EntityType != "" && filter.EntityType != model.EDCEntityTypeNode && filter.EntityType != model.EDCEntityTypeTransmission {
+		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "entity_type 只能是 node 或 transmission"})
+		return filter, false
+	}
+	filter.SrcRegion = ctx.Query("src_region")
+	filter.DstRegion = ctx.Query("dst_region")
 	return filter, true
 }
 

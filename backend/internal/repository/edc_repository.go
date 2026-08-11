@@ -13,6 +13,7 @@ type EDCRepository interface {
 	ListEntities(filter model.EDCEntityFilter) ([]model.EDCEntity, int64, error)
 	ListRegions(allowedEntityIDs []uint64) ([]string, error)
 	ListCPs(allowedEntityIDs []uint64) ([]string, error)
+	ListFilterOptions(allowedEntityIDs []uint64) (model.EDCFilterOptions, error)
 	GetTrafficData(filter model.EDCTrafficFilter) ([]model.EDCTrafficResponse, error)
 	GetTrafficSummary(filter model.EDCTrafficFilter) (model.EDCTrafficResponse, error)
 }
@@ -60,42 +61,82 @@ func (r *edcRepository) ListCPs(allowedEntityIDs []uint64) ([]string, error) {
 	return cps, nil
 }
 
+func (r *edcRepository) ListFilterOptions(allowedEntityIDs []uint64) (model.EDCFilterOptions, error) {
+	options := model.EDCFilterOptions{
+		EntityTypes: []string{model.EDCEntityTypeNode, model.EDCEntityTypeTransmission},
+	}
+	queries := []struct {
+		column string
+		values *[]string
+	}{
+		{column: "region", values: &options.Regions},
+		{column: "cp", values: &options.CPs},
+		{column: "src_region", values: &options.SrcRegions},
+		{column: "dst_region", values: &options.DstRegions},
+	}
+	for _, item := range queries {
+		q := model.DB.Model(&model.EDCEntity{}).
+			Where("enabled = ? AND is_backup = ?", true, false).
+			Where(item.column + " IS NOT NULL AND " + item.column + " <> ''")
+		q = applyAllowedEDCEntityIDs(q, allowedEntityIDs)
+		if err := q.Distinct().Order(item.column+" ASC").Pluck(item.column, item.values).Error; err != nil {
+			return model.EDCFilterOptions{}, err
+		}
+	}
+	return options, nil
+}
+
 func (r *edcRepository) GetTrafficData(filter model.EDCTrafficFilter) ([]model.EDCTrafficResponse, error) {
 	filter = normalizeEDCTimeFilter(filter)
-	selectDims := []string{"t.bucket_5m"}
 	selectExpr := []string{
 		"t.bucket_5m",
 		"CAST(0 AS UNSIGNED) AS entity_id",
 		"'' AS display_name",
+		"'' AS alias",
 		"'' AS region",
 		"'' AS cp",
+		"'' AS entity_type",
+		"'' AS src_region",
+		"'' AS dst_region",
 		"SUM(t.service_size) AS service_size",
 		"SUM(t.cache_size) AS cache_size",
 	}
 	groupBy := []string{"t.bucket_5m"}
-	orderBy := "t.bucket_5m ASC"
+	orderBy := buildEDCTrafficOrderBy(filter, false)
 
 	if filter.DisplayName != "" && len(filter.EntityIDs) == 0 {
 		selectExpr[1] = "t.entity_id"
 		selectExpr[2] = "t.display_name"
-		selectExpr[3] = "t.region"
-		selectExpr[4] = "t.cp"
-		groupBy = append(groupBy, "t.entity_id", "t.display_name", "t.region", "t.cp")
-		orderBy += ", t.region ASC, t.cp ASC, t.display_name ASC"
+		selectExpr[3] = "t.alias"
+		selectExpr[4] = "t.region"
+		selectExpr[5] = "t.cp"
+		selectExpr[6] = "t.entity_type"
+		selectExpr[7] = "t.src_region"
+		selectExpr[8] = "t.dst_region"
+		groupBy = append(groupBy, "t.entity_id", "t.display_name", "t.alias", "t.region", "t.cp", "t.entity_type", "t.src_region", "t.dst_region")
+		orderBy = buildEDCTrafficOrderBy(filter, true)
 	} else {
 		if filter.Region != "" {
-			selectExpr[3] = "t.region"
+			selectExpr[4] = "t.region"
 			groupBy = append(groupBy, "t.region")
-			selectDims = append(selectDims, "t.region")
 		}
 		if filter.CP != "" {
-			selectExpr[4] = "t.cp"
+			selectExpr[5] = "t.cp"
 			groupBy = append(groupBy, "t.cp")
-			selectDims = append(selectDims, "t.cp")
 		}
-		if len(selectDims) > 1 {
-			orderBy += ", t.region ASC, t.cp ASC"
+		if filter.EntityType != "" {
+			selectExpr[6] = "t.entity_type"
+			groupBy = append(groupBy, "t.entity_type")
 		}
+		if filter.SrcRegion != "" {
+			selectExpr[7] = "t.src_region"
+			groupBy = append(groupBy, "t.src_region")
+		}
+		if filter.DstRegion != "" {
+			selectExpr[8] = "t.dst_region"
+			groupBy = append(groupBy, "t.dst_region")
+		}
+		orderBy = buildEDCTrafficOrderBy(filter, false)
 	}
 
 	q := model.DB.Table("edc_traffic_5m AS t").
@@ -114,6 +155,28 @@ func (r *edcRepository) GetTrafficData(filter model.EDCTrafficFilter) ([]model.E
 		rows[i].Total = rows[i].ServiceSize + rows[i].CacheSize
 	}
 	return rows, nil
+}
+
+func buildEDCTrafficOrderBy(filter model.EDCTrafficFilter, includeEntityDetails bool) string {
+	orderBy := "t.bucket_5m ASC"
+	if includeEntityDetails {
+		return orderBy + ", t.region ASC, t.cp ASC, t.display_name ASC"
+	}
+	for _, dimension := range []struct {
+		value  string
+		column string
+	}{
+		{filter.Region, "t.region"},
+		{filter.CP, "t.cp"},
+		{filter.EntityType, "t.entity_type"},
+		{filter.SrcRegion, "t.src_region"},
+		{filter.DstRegion, "t.dst_region"},
+	} {
+		if strings.TrimSpace(dimension.value) != "" {
+			orderBy += ", " + dimension.column + " ASC"
+		}
+	}
+	return orderBy
 }
 
 func (r *edcRepository) GetTrafficSummary(filter model.EDCTrafficFilter) (model.EDCTrafficResponse, error) {
@@ -196,7 +259,7 @@ func (r *edcTrafficScopeRepository) MatchEntities(dimension, value string) ([]mo
 	case model.EDCTrafficScopeDimensionCP:
 		q = q.Where("cp = ?", value)
 	case model.EDCTrafficScopeDimensionEntity:
-		q = q.Where("display_name = ? OR edc_name = ? OR CAST(id AS CHAR) = ?", value, value, value)
+		q = q.Where("alias = ? OR display_name = ? OR edc_name = ? OR CAST(id AS CHAR) = ?", value, value, value, value)
 	default:
 		return []model.EDCEntity{}, nil
 	}
@@ -240,9 +303,9 @@ func applyEDCEntityFilter(q *gorm.DB, filter model.EDCEntityFilter) *gorm.DB {
 	}
 	if filter.DisplayName != "" {
 		if strings.ContainsAny(filter.DisplayName, "%_") {
-			q = q.Where("display_name LIKE ? OR edc_name LIKE ?", filter.DisplayName, filter.DisplayName)
+			q = q.Where("alias LIKE ? OR display_name LIKE ? OR edc_name LIKE ?", filter.DisplayName, filter.DisplayName, filter.DisplayName)
 		} else {
-			q = q.Where("display_name = ? OR edc_name = ?", filter.DisplayName, filter.DisplayName)
+			q = q.Where("alias = ? OR display_name = ? OR edc_name = ?", filter.DisplayName, filter.DisplayName, filter.DisplayName)
 		}
 	}
 	if filter.Region != "" {
@@ -250,6 +313,15 @@ func applyEDCEntityFilter(q *gorm.DB, filter model.EDCEntityFilter) *gorm.DB {
 	}
 	if filter.CP != "" {
 		q = q.Where("cp = ?", filter.CP)
+	}
+	if filter.EntityType != "" {
+		q = q.Where("entity_type = ?", filter.EntityType)
+	}
+	if filter.SrcRegion != "" {
+		q = q.Where("src_region = ?", filter.SrcRegion)
+	}
+	if filter.DstRegion != "" {
+		q = q.Where("dst_region = ?", filter.DstRegion)
 	}
 	return applyAllowedEDCEntityIDs(q, filter.AllowedEntityIDs)
 }
@@ -263,9 +335,9 @@ func applyEDCTrafficFilter(q *gorm.DB, filter model.EDCTrafficFilter) *gorm.DB {
 	}
 	if filter.DisplayName != "" {
 		if strings.ContainsAny(filter.DisplayName, "%_") {
-			q = q.Where("t.display_name LIKE ?", filter.DisplayName)
+			q = q.Where("t.alias LIKE ? OR t.display_name LIKE ?", filter.DisplayName, filter.DisplayName)
 		} else {
-			q = q.Where("t.display_name = ?", filter.DisplayName)
+			q = q.Where("t.alias = ? OR t.display_name = ?", filter.DisplayName, filter.DisplayName)
 		}
 	}
 	if len(filter.EntityIDs) > 0 {
@@ -276,6 +348,15 @@ func applyEDCTrafficFilter(q *gorm.DB, filter model.EDCTrafficFilter) *gorm.DB {
 	}
 	if filter.CP != "" {
 		q = q.Where("t.cp = ?", filter.CP)
+	}
+	if filter.EntityType != "" {
+		q = q.Where("t.entity_type = ?", filter.EntityType)
+	}
+	if filter.SrcRegion != "" {
+		q = q.Where("t.src_region = ?", filter.SrcRegion)
+	}
+	if filter.DstRegion != "" {
+		q = q.Where("t.dst_region = ?", filter.DstRegion)
 	}
 	return applyAllowedEDCTrafficEntityIDs(q, filter.AllowedEntityIDs)
 }

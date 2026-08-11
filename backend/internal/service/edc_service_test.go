@@ -47,6 +47,10 @@ func (s *edcRepoStub) ListCPs(allowedEntityIDs []uint64) ([]string, error) {
 	return []string{"bilibili", "baidu"}, nil
 }
 
+func (s *edcRepoStub) ListFilterOptions(allowedEntityIDs []uint64) (model.EDCFilterOptions, error) {
+	return model.EDCFilterOptions{EntityTypes: []string{"node", "transmission"}}, nil
+}
+
 func (s *edcRepoStub) GetTrafficData(filter model.EDCTrafficFilter) ([]model.EDCTrafficResponse, error) {
 	s.trafficFilter = filter
 	return []model.EDCTrafficResponse{{EntityID: 10, DisplayName: "TJ-Bilibili", ServiceSize: 300, CacheSize: 100, Total: 400}}, nil
@@ -210,6 +214,9 @@ func TestEDCServicePassesAllowedEntityIDsToTrafficQueries(t *testing.T) {
 	_, err := svc.GetTrafficData(model.EDCTrafficFilter{
 		StartTime:        start,
 		EndTime:          end,
+		EntityType:       "transmission",
+		SrcRegion:        "北京市",
+		DstRegion:        "天津市",
 		AllowedEntityIDs: []uint64{10, 20},
 	})
 	if err != nil {
@@ -217,6 +224,9 @@ func TestEDCServicePassesAllowedEntityIDsToTrafficQueries(t *testing.T) {
 	}
 	if len(repo.trafficFilter.AllowedEntityIDs) != 2 || repo.trafficFilter.AllowedEntityIDs[0] != 10 || repo.trafficFilter.AllowedEntityIDs[1] != 20 {
 		t.Fatalf("AllowedEntityIDs=%v, want [10 20]", repo.trafficFilter.AllowedEntityIDs)
+	}
+	if repo.trafficFilter.EntityType != "transmission" || repo.trafficFilter.SrcRegion != "北京市" || repo.trafficFilter.DstRegion != "天津市" {
+		t.Fatalf("dimensions=%q/%q/%q", repo.trafficFilter.EntityType, repo.trafficFilter.SrcRegion, repo.trafficFilter.DstRegion)
 	}
 }
 

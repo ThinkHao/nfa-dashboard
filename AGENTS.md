@@ -41,8 +41,12 @@
 
 ## Local Development And Verification
 
-- The local backend commonly runs on `http://localhost:8081`; the frontend dev server commonly runs on `http://localhost:5173`. If `go run main.go` fails with `listen tcp :8081: bind`, identify and stop the existing backend process rather than starting another server on a random port without telling the user.
-- Backend code changes do not affect the running local server until the `go run main.go` process is restarted.
+- 本地开发服务一律在 VS Code 的集成终端或调试配置中前台运行，不使用 `Start-Process`、后台进程、服务管理器或其他脱离 VS Code 的方式启动。
+- dashboard 后端应在 VS Code 集成终端执行 `go run .`（工作目录为 `backend/`），前端应在 VS Code 集成终端执行 `npm run dev -- --host 127.0.0.1`（工作目录为 `frontend/frontend/`）。需要停止或重启时，回到对应 VS Code 终端操作。
+- 如果无法使用 VS Code 集成终端，应先向用户说明并暂停，不要自行改用隐藏后台进程。
+- 本地开发服务必须与远端及生产容器区分；启动、停止、重启前核对工作目录、端口和数据库配置，不操作 `192.168.9.104` 的生产实例。
+- The local backend commonly runs on `http://localhost:8081`; the frontend dev server commonly runs on `http://localhost:5173`. If `go run .` fails with `listen tcp :8081: bind`, identify and stop the existing backend process from its VS Code terminal rather than starting another server on a random port without telling the user.
+- Backend code changes do not affect the running local server until the `go run .` process is restarted from its VS Code terminal.
 - For settlement-related frontend/backend changes, run targeted tests first, then broader checks when practical:
   - `cd backend && go test ./internal/service`
   - `cd backend && go test ./internal/controller`
