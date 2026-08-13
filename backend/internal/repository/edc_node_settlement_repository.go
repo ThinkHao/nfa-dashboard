@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -42,6 +43,10 @@ func (r *edcNodeSettlementRepository) ListTrafficPoints(entityID uint64, start, 
 		Joins("JOIN edc_entities AS e ON e.id = t.entity_id AND e.enabled = ? AND e.is_backup = ? AND (e.entity_type = ? OR e.entity_type IS NULL)", true, false, "node").
 		Where("t.entity_id = ? AND t.bucket_5m >= ? AND t.bucket_5m < ?", entityID, start, end).
 		Order("t.bucket_5m ASC").Find(&points).Error
+	for i := range points {
+		points[i].ServiceSize = nonNegativeEDCSize(points[i].ServiceSize)
+		points[i].CacheSize = nonNegativeEDCSize(points[i].CacheSize)
+	}
 	return points, err
 }
 
@@ -53,8 +58,8 @@ func (r *edcNodeSettlementRepository) ListTrafficPointsByEntities(entityIDs []ui
 	var points []model.EDCNodeTrafficPoint
 	q := model.DB.Table("edc_traffic_5m AS t").
 		Select(`e.id AS entity_id, e.region, e.cp, e.display_name, t.bucket_5m,
-			SUM(t.service_size) AS service_size,
-			SUM(t.cache_size) AS cache_size,
+			SUM(GREATEST(t.service_size, 0)) AS service_size,
+			SUM(GREATEST(t.cache_size, 0)) AS cache_size,
 			SUM(t.record_count) AS record_count`).
 		Joins("JOIN edc_entities AS e ON e.id = t.entity_id").
 		Where("e.enabled = ? AND e.is_backup = ? AND (e.entity_type = ? OR e.entity_type IS NULL) AND t.bucket_5m >= ? AND t.bucket_5m < ?", true, false, "node", start, end)
@@ -70,8 +75,8 @@ func (r *edcNodeSettlementRepository) ListTrafficPointsByDisplayNode(start, end 
 	var points []model.EDCNodeTrafficPoint
 	err := model.DB.Table("edc_traffic_5m AS t").
 		Select(`MIN(e.id) AS entity_id, e.region, e.cp, e.display_name, t.bucket_5m,
-			SUM(t.service_size) AS service_size,
-			SUM(t.cache_size) AS cache_size,
+			SUM(GREATEST(t.service_size, 0)) AS service_size,
+			SUM(GREATEST(t.cache_size, 0)) AS cache_size,
 			SUM(t.record_count) AS record_count`).
 		Joins("JOIN edc_entities AS e ON e.id = t.entity_id").
 		Where("e.enabled = ? AND e.is_backup = ? AND (e.entity_type = ? OR e.entity_type IS NULL) AND t.bucket_5m >= ? AND t.bucket_5m < ?", true, false, "node", start, end).
@@ -79,6 +84,13 @@ func (r *edcNodeSettlementRepository) ListTrafficPointsByDisplayNode(start, end 
 		Order("e.region ASC, e.cp ASC, e.display_name ASC, t.bucket_5m ASC").
 		Scan(&points).Error
 	return points, err
+}
+
+func nonNegativeEDCSize(value int64) int64 {
+	if value < 0 {
+		return 0
+	}
+	return value
 }
 
 func (r *edcNodeSettlementRepository) ExistsTrafficPointByDisplayNode(start, end time.Time) (bool, error) {
@@ -90,6 +102,27 @@ func (r *edcNodeSettlementRepository) ExistsTrafficPointByDisplayNode(start, end
 		Limit(1).
 		Scan(&hit)
 	if tx.Error != nil {
+		return false, tx.Error
+	}
+	return tx.RowsAffected > 0, nil
+}
+
+// HasUnreadyEntityCandidates reports whether an unknown or failed EDC mapping
+// overlaps the requested settlement period. The candidate table is created by
+// edc-extractor; older dashboard databases continue to operate when it is absent.
+func (r *edcNodeSettlementRepository) HasUnreadyEntityCandidates(start, end time.Time) (bool, error) {
+	var hit int
+	tx := model.DB.Table("edc_entity_candidates").
+		Select("1").
+		Where("status IN ?", []string{"pending", "backfill_pending", "backfilling", "failed"}).
+		Where("(latest_seen_at IS NULL OR latest_seen_at >= ?) AND (first_seen_at IS NULL OR first_seen_at < ?)", start, end).
+		Limit(1).
+		Scan(&hit)
+	if tx.Error != nil {
+		message := strings.ToLower(tx.Error.Error())
+		if strings.Contains(message, "doesn't exist") || strings.Contains(message, "unknown table") {
+			return false, nil
+		}
 		return false, tx.Error
 	}
 	return tx.RowsAffected > 0, nil

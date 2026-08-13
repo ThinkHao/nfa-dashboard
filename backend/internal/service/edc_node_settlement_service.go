@@ -18,6 +18,12 @@ type EDCNodeSettlementService interface {
 	ListMonthlySettlements(filter map[string]interface{}, page, pageSize int) ([]model.SettlementNodeMonthly95, int64, error)
 }
 
+// EDCSettlementReadinessService is optional so older test doubles and
+// deployments without the extractor candidate table remain compatible.
+type EDCSettlementReadinessService interface {
+	CheckSettlementReadiness(start, end time.Time) (bool, error)
+}
+
 type edcNodeSettlementService struct {
 	repo           repository.EDCNodeSettlementRepository
 	ratesRepo      repository.RatesRepository
@@ -34,6 +40,20 @@ func (s *edcNodeSettlementService) HasSettlementTraffic(start, end time.Time) (b
 		return false, err
 	}
 	return ok, nil
+}
+
+func (s *edcNodeSettlementService) CheckSettlementReadiness(start, end time.Time) (bool, error) {
+	checker, ok := s.repo.(interface {
+		HasUnreadyEntityCandidates(start, end time.Time) (bool, error)
+	})
+	if !ok {
+		return true, nil
+	}
+	unready, err := checker.HasUnreadyEntityCandidates(start, end)
+	if err != nil {
+		return false, err
+	}
+	return !unready, nil
 }
 
 func (s *edcNodeSettlementService) ExecuteDailyTask(taskID int64, day time.Time) error {

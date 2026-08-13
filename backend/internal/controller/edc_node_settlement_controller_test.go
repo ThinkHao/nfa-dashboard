@@ -65,11 +65,15 @@ type edcNodeSettlementServiceForTaskTest struct {
 	executedMonthEnd      time.Time
 	executed              chan struct{}
 	executedMonthly       chan struct{}
+	settlementReady       bool
 }
 
 func (s *edcNodeSettlementServiceForTaskTest) HasSettlementTraffic(start, end time.Time) (bool, error) {
 	s.hasTrafficCalls++
 	return true, nil
+}
+func (s *edcNodeSettlementServiceForTaskTest) CheckSettlementReadiness(start, end time.Time) (bool, error) {
+	return s.settlementReady, nil
 }
 func (s *edcNodeSettlementServiceForTaskTest) ExecuteDailyTask(taskID int64, day time.Time) error {
 	return nil
@@ -101,7 +105,7 @@ func (s *edcNodeSettlementServiceForTaskTest) ListMonthlySettlements(filter map[
 func TestCreateNodeDailyTaskRangeCreatesSingleTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	settlementSvc := &settlementServiceForNodeTaskTest{}
-	nodeSvc := &edcNodeSettlementServiceForTaskTest{executed: make(chan struct{}), executedMonthly: make(chan struct{})}
+	nodeSvc := &edcNodeSettlementServiceForTaskTest{executed: make(chan struct{}), executedMonthly: make(chan struct{}), settlementReady: true}
 	controller := NewEDCNodeSettlementController(settlementSvc, nodeSvc)
 
 	rec := httptest.NewRecorder()
@@ -145,7 +149,7 @@ func TestCreateNodeDailyTaskRangeCreatesSingleTask(t *testing.T) {
 func TestCreateNodeMonthlyTaskRangeCreatesSingleTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	settlementSvc := &settlementServiceForNodeTaskTest{}
-	nodeSvc := &edcNodeSettlementServiceForTaskTest{executed: make(chan struct{}), executedMonthly: make(chan struct{})}
+	nodeSvc := &edcNodeSettlementServiceForTaskTest{executed: make(chan struct{}), executedMonthly: make(chan struct{}), settlementReady: true}
 	controller := NewEDCNodeSettlementController(settlementSvc, nodeSvc)
 
 	rec := httptest.NewRecorder()
@@ -183,5 +187,28 @@ func TestCreateNodeMonthlyTaskRangeCreatesSingleTask(t *testing.T) {
 	}
 	if nodeSvc.hasTrafficCalls != 1 {
 		t.Fatalf("traffic precheck calls=%d, want 1", nodeSvc.hasTrafficCalls)
+	}
+}
+
+func TestCreateNodeDailyTaskBlocksWhenEDCBackfillIsNotReady(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	settlementSvc := &settlementServiceForNodeTaskTest{}
+	nodeSvc := &edcNodeSettlementServiceForTaskTest{
+		executed: make(chan struct{}), executedMonthly: make(chan struct{}), settlementReady: false,
+	}
+	controller := NewEDCNodeSettlementController(settlementSvc, nodeSvc)
+
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/settlement/tasks/node-daily95", strings.NewReader(`{"date":"2026-06-01"}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	controller.CreateNodeDailyTask(ctx)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status=%d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+	if len(settlementSvc.createdTypes) != 0 {
+		t.Fatalf("created task count=%d, want 0", len(settlementSvc.createdTypes))
 	}
 }

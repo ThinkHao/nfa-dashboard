@@ -50,6 +50,17 @@ func (c *EDCNodeSettlementController) CreateNodeDailyTask(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, gin.H{"message": "end_date must not be before start_date"})
 		return
 	}
+	if checker, ok := c.nodeSvc.(service.EDCSettlementReadinessService); ok {
+		ready, err := checker.CheckSettlementReadiness(start, end.AddDate(0, 0, 1))
+		if err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+			return
+		}
+		if !ready {
+			ctx.JSON(http.StatusConflict, gin.H{"message": "结算周期内存在未完成的 EDC 录入或历史补录，请先处理后再创建结算任务"})
+			return
+		}
+	}
 	hasTraffic, err := c.nodeSvc.HasSettlementTraffic(start, end.AddDate(0, 0, 1))
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
@@ -103,6 +114,17 @@ func (c *EDCNodeSettlementController) CreateNodeMonthlyTask(ctx *gin.Context) {
 	if end.Before(start) {
 		ctx.JSON(http.StatusBadRequest, gin.H{"message": "end_month must not be before start_month"})
 		return
+	}
+	if checker, ok := c.nodeSvc.(service.EDCSettlementReadinessService); ok {
+		ready, err := checker.CheckSettlementReadiness(start, end.AddDate(0, 1, 0))
+		if err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+			return
+		}
+		if !ready {
+			ctx.JSON(http.StatusConflict, gin.H{"message": "结算周期内存在未完成的 EDC 录入或历史补录，请先处理后再创建结算任务"})
+			return
+		}
 	}
 	hasTraffic, err := c.nodeSvc.HasSettlementTraffic(start, end.AddDate(0, 1, 0))
 	if err != nil {
