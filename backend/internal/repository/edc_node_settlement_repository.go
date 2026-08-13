@@ -114,6 +114,7 @@ func (r *edcNodeSettlementRepository) HasUnreadyEntityCandidates(start, end time
 	var hit int
 	tx := model.DB.Table("edc_entity_candidates").
 		Select("1").
+		Where("is_backup = ?", false).
 		Where("status IN ?", []string{"pending", "backfill_pending", "backfilling", "failed"}).
 		Where("(latest_seen_at IS NULL OR latest_seen_at >= ?) AND (first_seen_at IS NULL OR first_seen_at < ?)", start, end).
 		Limit(1).
