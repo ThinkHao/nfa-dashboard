@@ -50,6 +50,8 @@ type SettlementRepository interface {
 	CalculateDaily95WithRegionAndCPForAllRegionsAndCPs(date time.Time, schoolID string) ([]model.SchoolSettlement, error)
 	// CalculateDaily95ForCombos 单次扫描当天流量数据，按组合分组计算日95（仅返回 combos 中命中的组合）
 	CalculateDaily95ForCombos(date time.Time, combos []model.SchoolRegionCP) ([]model.SchoolSettlement, error)
+	// RecalculateDaily95Range 按筛选范围从原始流量重新计算并覆盖日95源数据
+	RecalculateDaily95Range(region, cp, school string, start, end time.Time) (int64, error)
 	// CountValidSchoolCombos 统计有效学校-地区-运营商组合数量
 	CountValidSchoolCombos(userID *uint64) (int64, error)
 	// ListValidSchoolCombos 列出有效学校-地区-运营商组合
@@ -679,6 +681,47 @@ WHERE school_id IS NOT NULL AND school_id <> ''
 	return combos, nil
 }
 
+func filterSchoolCombos(combos []model.SchoolRegionCP, region, cp, school string) []model.SchoolRegionCP {
+	filtered := make([]model.SchoolRegionCP, 0, len(combos))
+	for _, combo := range combos {
+		if region != "" && combo.Region != region {
+			continue
+		}
+		if cp != "" && combo.CP != cp {
+			continue
+		}
+		if school != "" && combo.SchoolName != school {
+			continue
+		}
+		filtered = append(filtered, combo)
+	}
+	return filtered
+}
+
+// RecalculateDaily95Range 从 nfa_school_traffic 重算指定范围的日95，供客户结算复算回填使用。
+func (r *settlementRepository) RecalculateDaily95Range(region, cp, school string, start, end time.Time) (int64, error) {
+	combos, err := r.ListValidSchoolCombos(nil)
+	if err != nil {
+		return 0, fmt.Errorf("获取有效学校组合失败: %v", err)
+	}
+	combos = filterSchoolCombos(combos, region, cp, school)
+
+	startDay := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, start.Location())
+	endDay := time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, end.Location())
+	var affected int64
+	for day := startDay; !day.After(endDay); day = day.AddDate(0, 0, 1) {
+		settlements, err := r.CalculateDaily95ForCombos(day, combos)
+		if err != nil {
+			return affected, err
+		}
+		if err := r.BatchCreateSettlements(settlements); err != nil {
+			return affected, fmt.Errorf("保存重算日95失败: %v", err)
+		}
+		affected += int64(len(settlements))
+	}
+	return affected, nil
+}
+
 func (r *settlementRepository) getAggregatedSettlements(filter model.SettlementFilter) ([]model.SettlementResponse, int64, error) {
 	log.Printf("开始聚合查询结算数据")
 
@@ -989,13 +1032,44 @@ func (r *settlementRepository) CalculateDaily95ForCombos(date time.Time, combos 
 		}
 		valid[comboKey(c.SchoolID, c.Region, c.CP)] = c
 	}
+	if len(valid) == 0 {
+		return []model.SchoolSettlement{}, nil
+	}
 
 	// 注意（本次范围外的两个后续优化点）：
 	// 1) 分组正确性依赖 MySQL ORDER BY 排序与 Go 字节级 comboKey 一致（假设大小写敏感 collation）；
 	// 2) 大数据量下可考虑 (create_time, school_id, region, cp, total_recv) 覆盖索引以避免 filesort。
-	rows, err := model.DB.Model(&model.SchoolTraffic{}).
+	trafficQuery := model.DB.Model(&model.SchoolTraffic{}).
 		Select("school_id, region, cp, total_recv, create_time").
-		Where("create_time BETWEEN ? AND ?", startTime, endTime).
+		Where("create_time BETWEEN ? AND ?", startTime, endTime)
+	// 复算通常只含少量组合；先按各维度集合缩小扫描范围，最终仍由 comboKey 精确过滤。
+	if len(valid) <= 100 {
+		schoolIDs := make([]string, 0, len(valid))
+		regions := make([]string, 0, len(valid))
+		cps := make([]string, 0, len(valid))
+		schoolIDSet := map[string]struct{}{}
+		regionSet := map[string]struct{}{}
+		cpSet := map[string]struct{}{}
+		for _, combo := range valid {
+			if _, ok := schoolIDSet[combo.SchoolID]; !ok {
+				schoolIDSet[combo.SchoolID] = struct{}{}
+				schoolIDs = append(schoolIDs, combo.SchoolID)
+			}
+			if _, ok := regionSet[combo.Region]; !ok {
+				regionSet[combo.Region] = struct{}{}
+				regions = append(regions, combo.Region)
+			}
+			if _, ok := cpSet[combo.CP]; !ok {
+				cpSet[combo.CP] = struct{}{}
+				cps = append(cps, combo.CP)
+			}
+		}
+		trafficQuery = trafficQuery.
+			Where("school_id IN ?", schoolIDs).
+			Where("region IN ?", regions).
+			Where("cp IN ?", cps)
+	}
+	rows, err := trafficQuery.
 		Order("school_id, region, cp").
 		Rows()
 	if err != nil {

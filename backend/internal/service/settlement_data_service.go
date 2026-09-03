@@ -188,7 +188,7 @@ func (s *settlementDataService) ListAll(ctx context.Context, filter SettlementCu
 	return rows, err
 }
 
-// Recalculate 轻量实现：按筛选范围从 nfa_school_settlement 回填/覆盖 settlement_customer 基础字段
+// Recalculate 从原始流量重算日95后，按筛选范围回填/覆盖 settlement_customer。
 func (s *settlementDataService) Recalculate(filter SettlementCustomerFilter) (int64, error) {
 	return s.RecalculateWithProgress(filter, nil)
 }
@@ -200,6 +200,9 @@ func (s *settlementDataService) RecalculateWithProgress(filter SettlementCustome
 	}
 	if filter.End != nil {
 		end = *filter.End
+	}
+	if _, err := s.settlementRepo.RecalculateDaily95Range(filter.Region, filter.CP, filter.School, start, end); err != nil {
+		return 0, err
 	}
 	return s.repo.BackfillFromSchoolSettlement(filter.Region, filter.CP, filter.School, start, end, true, progress)
 }

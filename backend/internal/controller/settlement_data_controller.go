@@ -308,7 +308,6 @@ func (c *SettlementDataController) ExportCustomerData(ctx *gin.Context) {
 }
 
 // RecalculateCustomerData POST /api/v1/settlement/data/customer/recalculate
-// 注：此为占位实现，仅更新标记，后续将补充实际重算逻辑（按服务年序分段计算并覆盖写入）
 func (c *SettlementDataController) RecalculateCustomerData(ctx *gin.Context) {
 	type Req struct {
 		Region string `json:"region"`
