@@ -98,8 +98,8 @@ func (r *edcRepository) GetTrafficData(filter model.EDCTrafficFilter) ([]model.E
 		"'' AS entity_type",
 		"'' AS src_region",
 		"'' AS dst_region",
-		"SUM(t.service_size) AS service_size",
-		"SUM(t.cache_size) AS cache_size",
+		"SUM(GREATEST(t.service_size, 0)) AS service_size",
+		"SUM(GREATEST(t.cache_size, 0)) AS cache_size",
 	}
 	groupBy := []string{"t.bucket_5m"}
 	orderBy := buildEDCTrafficOrderBy(filter, false)
@@ -184,7 +184,7 @@ func (r *edcRepository) GetTrafficSummary(filter model.EDCTrafficFilter) (model.
 	var row model.EDCTrafficResponse
 	q := model.DB.Table("edc_traffic_5m AS t").
 		Joins("JOIN edc_entities AS e ON e.id = t.entity_id AND e.enabled = ? AND e.is_backup = ?", true, false).
-		Select("SUM(t.service_size) AS service_size, SUM(t.cache_size) AS cache_size")
+		Select("SUM(GREATEST(t.service_size, 0)) AS service_size, SUM(GREATEST(t.cache_size, 0)) AS cache_size")
 	q = applyEDCTrafficFilter(q, filter)
 	if err := q.Scan(&row).Error; err != nil {
 		return row, err
@@ -297,10 +297,9 @@ func normalizeEDCTimeFilter(filter model.EDCTrafficFilter) model.EDCTrafficFilte
 }
 
 func applyEDCEntityFilter(q *gorm.DB, filter model.EDCEntityFilter) *gorm.DB {
-	q = q.Where("is_backup = ?", false)
-	if filter.EnabledOnly {
-		q = q.Where("enabled = ?", true)
-	}
+	// 查询列表只暴露当前有效的主条目；禁用条目仍保留在库中，供历史数据
+	// 关联和审计使用，但不应再出现在前端可选项或实体列表中。
+	q = q.Where("enabled = ? AND is_backup = ?", true, false)
 	if filter.DisplayName != "" {
 		if strings.ContainsAny(filter.DisplayName, "%_") {
 			q = q.Where("alias LIKE ? OR display_name LIKE ? OR edc_name LIKE ?", filter.DisplayName, filter.DisplayName, filter.DisplayName)

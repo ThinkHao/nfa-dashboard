@@ -1,9 +1,15 @@
 package repository
 
 import (
+	"database/sql"
+	"strings"
 	"testing"
 
 	"nfa-dashboard/internal/model"
+
+	_ "github.com/go-sql-driver/mysql"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
 )
 
 func TestBuildEDCTrafficOrderByOnlyOrdersGroupedDimensions(t *testing.T) {
@@ -41,5 +47,29 @@ func TestBuildEDCTrafficOrderByOnlyOrdersGroupedDimensions(t *testing.T) {
 				t.Fatalf("buildEDCTrafficOrderBy() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestApplyEDCEntityFilterAlwaysExcludesDisabledAndBackups(t *testing.T) {
+	sqlDB, err := sql.Open("mysql", "root:password@tcp(127.0.0.1:1)/nfa_test")
+	if err != nil {
+		t.Fatalf("open sql db: %v", err)
+	}
+	defer sqlDB.Close()
+
+	db, err := gorm.Open(mysql.New(mysql.Config{
+		Conn:                      sqlDB,
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{DryRun: true, DisableAutomaticPing: true})
+	if err != nil {
+		t.Fatalf("open dry-run db: %v", err)
+	}
+
+	var entities []model.EDCEntity
+	query := applyEDCEntityFilter(db.Model(&model.EDCEntity{}), model.EDCEntityFilter{})
+	query.Find(&entities)
+	sql := query.Statement.SQL.String()
+	if !strings.Contains(sql, "enabled = ?") || !strings.Contains(sql, "is_backup = ?") {
+		t.Fatalf("entity filter SQL = %q, want enabled and backup predicates", sql)
 	}
 }

@@ -219,6 +219,8 @@ assert_db_schema() {
     "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='edc_node_settlement_group_members';|edc_node_settlement_group_members 表缺失"
     "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='edc_traffic_scope_rule_groups';|edc_traffic_scope_rule_groups 表缺失"
     "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='edc_traffic_scope_rule_conditions';|edc_traffic_scope_rule_conditions 表缺失"
+    "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='edc_entity_source_keys';|edc_entity_source_keys 表缺失"
+    "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='edc_entity_switch_events';|edc_entity_switch_events 表缺失"
     "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='rate_final_node';|rate_final_node 表缺失"
     "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='rate_final_node' AND COLUMN_NAME='cp_fee';|rate_final_node.cp_fee 列缺失"
     "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='rate_final_node' AND COLUMN_NAME='cp_fee_owner_id';|rate_final_node.cp_fee_owner_id 列缺失"
