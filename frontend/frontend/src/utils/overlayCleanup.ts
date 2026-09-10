@@ -1,15 +1,25 @@
+function isVisibleElement(el: HTMLElement): boolean {
+  let current: HTMLElement | null = el
+  while (current) {
+    const style = getComputedStyle(current)
+    if (style.display === 'none' || style.visibility === 'hidden') return false
+    current = current.parentElement
+  }
+  return true
+}
+
 function hasActiveModalContent(root: ParentNode): boolean {
+  // Element Plus puts aria-modal on the overlay's dialog wrapper
+  // (.el-overlay-dialog), not on the inner .el-dialog element.
   const selectors = [
-    '.el-dialog[aria-modal="true"]',
-    '.el-drawer[aria-modal="true"]',
-    '.el-message-box',
+    '[role="dialog"][aria-modal="true"]',
+    // Image viewer markup has varied between Element Plus versions.
     '.el-image-viewer__wrapper',
   ]
   return selectors.some((selector) =>
-    Array.from(root.querySelectorAll(selector)).some((node) => {
-      const el = node as HTMLElement
-      return getComputedStyle(el).display !== 'none'
-    }),
+    Array.from(root.querySelectorAll(selector)).some((node) =>
+      isVisibleElement(node as HTMLElement),
+    ),
   )
 }
 

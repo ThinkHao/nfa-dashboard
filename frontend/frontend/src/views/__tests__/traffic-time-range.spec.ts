@@ -25,4 +25,26 @@ describe('traffic-time-range', () => {
       '2026-04-14 11:27:29',
     ])
   })
+
+  it('supports calendar month and year presets', () => {
+    const now = new Date(2026, 8, 9, 11, 27, 29)
+
+    expect(resolvePresetTrafficRange('last6mo', now)).toEqual([
+      '2026-03-09 11:27:29',
+      '2026-09-09 11:27:29',
+    ])
+    expect(resolvePresetTrafficRange('last1y', now)).toEqual([
+      '2025-09-09 11:27:29',
+      '2026-09-09 11:27:29',
+    ])
+  })
+
+  it('clamps month-end dates when subtracting calendar months', () => {
+    const now = new Date(2026, 2, 31, 11, 27, 29)
+
+    expect(resolvePresetTrafficRange('last6mo', now)).toEqual([
+      '2025-09-30 11:27:29',
+      '2026-03-31 11:27:29',
+    ])
+  })
 })

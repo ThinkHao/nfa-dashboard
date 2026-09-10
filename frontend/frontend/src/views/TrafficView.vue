@@ -35,6 +35,27 @@ import {
 } from 'element-plus'
 
 type EDCEntityOption = Record<string, any>
+type TrafficDataSource = 'nfa' | 'edc'
+
+interface TrafficQueryState {
+  data_source: TrafficDataSource
+  school_name: string
+  edc_entity_ids: number[]
+  entity_type: string
+  region: string
+  cp: string
+  src_region: string
+  dst_region: string
+  start_time: string
+  end_time: string
+  timeRange: TrafficTimeRangeOption
+}
+
+interface TrafficQuerySnapshot extends TrafficQueryState {
+  edc_alias: string
+  edc_entity_label: string
+  edc_original_name: string
+}
 
 function normalizeEDCText(value: unknown): string {
   const text = String(value ?? '').trim()
@@ -230,6 +251,8 @@ const route = useRoute()
 const loading = ref(false)
 const chartLoading = ref(false)
 const trafficData = ref([])
+// 结果侧只使用最后一次成功查询的快照，避免编辑查询条件时重算旧结果。
+const appliedQuery = ref<TrafficQuerySnapshot | null>(null)
 const regions = ref([])
 const cps = ref([])
 const entityTypes = ref([])
@@ -261,7 +284,7 @@ const pagedTrafficData = computed(() => {
 })
 
 // 查询表单
-const queryForm = reactive({
+const queryForm = reactive<TrafficQueryState>({
   data_source: 'nfa' as 'nfa' | 'edc',
   school_name: '',
   edc_entity_ids: [] as number[],
@@ -294,17 +317,80 @@ const customDateRange = computed<[string, string] | null>({
   },
 })
 
-// 是否已选择任一筛选条件（地区/内容方/学校）
-const hasFilter = computed(() => {
+function queryHasFilter(query: TrafficQueryState): boolean {
   return !!(
-    queryForm.school_name ||
-    selectedEDCEntityIDs.value.length > 0 ||
-    queryForm.entity_type ||
-    (queryForm.data_source !== 'edc' && queryForm.region) ||
-    queryForm.cp ||
-    queryForm.src_region ||
-    queryForm.dst_region
+    query.school_name ||
+    query.edc_entity_ids.length > 0 ||
+    query.entity_type ||
+    (query.data_source !== 'edc' && query.region) ||
+    query.cp ||
+    query.src_region ||
+    query.dst_region
   )
+}
+
+// 是否已选择任一筛选条件（地区/内容方/学校）
+const hasFilter = computed(() => queryHasFilter(queryForm))
+const appliedHasFilter = computed(() => !!appliedQuery.value && queryHasFilter(appliedQuery.value))
+const displayedDataSource = computed<TrafficDataSource>(() => appliedQuery.value?.data_source || queryForm.data_source)
+const displayedEntityLabel = computed(() => displayedDataSource.value === 'edc' ? 'EDC名称' : '学校名称')
+const displayedDataSourceTitle = computed(() => displayedDataSource.value === 'edc' ? 'EDC流速监控' : '学校流速监控')
+const displayedEDCSelectionSummary = computed(() => {
+  const query = appliedQuery.value
+  if (!query || query.data_source !== 'edc' || query.edc_entity_ids.length === 0 || !query.edc_entity_label) return ''
+  return `已选 EDC：${query.edc_entity_label}`
+})
+const appliedQueryWindow = computed(() => {
+  const query = appliedQuery.value
+  if (!query || !query.start_time || !query.end_time) return ''
+  return `${query.start_time} 至 ${query.end_time}`
+})
+
+function createQuerySnapshot(now = new Date()): TrafficQuerySnapshot {
+  const presetRange = queryForm.timeRange === 'custom'
+    ? [queryForm.start_time, queryForm.end_time]
+    : resolvePresetTrafficRange(queryForm.timeRange, now)
+
+  return {
+    data_source: queryForm.data_source,
+    school_name: queryForm.school_name,
+    edc_entity_ids: [...selectedEDCEntityIDs.value],
+    entity_type: queryForm.entity_type,
+    region: queryForm.region,
+    cp: queryForm.cp,
+    src_region: queryForm.src_region,
+    dst_region: queryForm.dst_region,
+    start_time: presetRange?.[0] || '',
+    end_time: presetRange?.[1] || '',
+    timeRange: queryForm.timeRange,
+    edc_alias: selectedEDCAlias.value,
+    edc_entity_label: selectedEDCEntityLabel.value,
+    edc_original_name: selectedEDCOriginalName.value,
+  }
+}
+
+function queryFormMatchesSnapshot(query: TrafficQuerySnapshot): boolean {
+  const sameEDCSelection = query.edc_entity_ids.length === selectedEDCEntityIDs.value.length
+    && query.edc_entity_ids.every((id, index) => id === selectedEDCEntityIDs.value[index])
+  const sameTimeRange = queryForm.timeRange !== 'custom'
+    || (query.start_time === queryForm.start_time && query.end_time === queryForm.end_time)
+
+  return query.data_source === queryForm.data_source
+    && query.school_name === queryForm.school_name
+    && sameEDCSelection
+    && query.entity_type === queryForm.entity_type
+    && query.region === queryForm.region
+    && query.cp === queryForm.cp
+    && query.src_region === queryForm.src_region
+    && query.dst_region === queryForm.dst_region
+    && query.timeRange === queryForm.timeRange
+    && sameTimeRange
+}
+
+const hasPendingQueryChanges = computed(() => {
+  const query = appliedQuery.value
+  if (!query) return false
+  return !queryFormMatchesSnapshot(query)
 })
 
 const entityLabel = computed(() => queryForm.data_source === 'edc' ? 'EDC名称' : '学校名称')
@@ -332,30 +418,32 @@ const selectedEDCOriginalName = computed(() => {
   if (queryForm.data_source !== 'edc' || selectedEDCEntityIDs.value.length === 0) return ''
   return selectedEDCOriginalNames.value.filter(Boolean).join('、')
 })
-const selectedEDCSelectionSummary = computed(() => {
-  if (queryForm.data_source !== 'edc' || selectedEDCEntityIDs.value.length === 0) return ''
-  return `已选 EDC：${selectedEDCEntityLabel.value}`
-})
-
 // 预设时间范围选项
 const timeRangeOptions = [
   { label: '过去1小时', value: 'last1h' },
-  { label: '过去3小时', value: 'last3h' },
   { label: '过去6小时', value: 'last6h' },
   { label: '过去12小时', value: 'last12h' },
   { label: '过去24小时', value: 'last24h' },
   { label: '过去2天', value: 'last2d' },
   { label: '过去7天', value: 'last7d' },
   { label: '过去30天', value: 'last30d' },
+  { label: '过去6个月', value: 'last6mo' },
+  { label: '过去1年', value: 'last1y' },
   { label: '自定义时间', value: 'custom' }
 ]
 
 // 图表选项
 const chartOption = computed(() => {
-  // 无筛选时，不显示图表数据
-  if (!hasFilter.value) {
+  const resultQuery = appliedQuery.value
+
+  // 没有成功查询结果时，不显示图表数据；表单条件只用于提示，不参与旧结果计算。
+  if (!resultQuery || !appliedHasFilter.value) {
     return {
-      title: { text: dataSourceTitle.value, left: 'center', subtext: '请选择任一筛选条件后再查询' },
+      title: {
+        text: dataSourceTitle.value,
+        left: 'center',
+        subtext: hasFilter.value ? '查询条件已修改，请点击查询' : '请选择任一筛选条件后再查询',
+      },
       xAxis: { type: 'time' },
       yAxis: { type: 'value', name: '流速 (bits/s)' },
       series: []
@@ -366,9 +454,9 @@ const chartOption = computed(() => {
   if (trafficData.value.length === 0) {
     return {
       title: {
-        text: dataSourceTitle.value,
+        text: displayedDataSourceTitle.value,
         left: 'center',
-        subtext: selectedEDCSelectionSummary.value || undefined,
+        subtext: displayedEDCSelectionSummary.value || undefined,
       },
       xAxis: { type: 'time' },
       yAxis: {
@@ -418,7 +506,7 @@ const chartOption = computed(() => {
     animation: false,
   }
 
-  const compareByCP = !!(queryForm.school_name && !queryForm.cp)
+  const compareByCP = !!(resultQuery.school_name && !resultQuery.cp)
   let legendData: string[] = []
   let series: any[] = []
   let p95Result: TrafficP95Result | null = null
@@ -500,7 +588,7 @@ const chartOption = computed(() => {
       mergedByTime[p.t].send += Number(p.send) || 0
     })
     const timeline = Object.keys(mergedByTime).map((k) => Number(k)).sort((a, b) => a - b)
-    const shouldShowP95 = !!(queryForm.school_name && queryForm.cp)
+    const shouldShowP95 = !!(resultQuery.school_name && resultQuery.cp)
     p95Result = shouldShowP95
       ? calculateTrafficP95(timeline.map((t) => ({ time: t, recvBps: mergedByTime[t].recv })))
       : null
@@ -562,9 +650,9 @@ const chartOption = computed(() => {
 
   return {
     title: {
-      text: `${dataSourceTitle.value} (bits/s) - ${formatGranularity(currentGranularity.value)}`,
+      text: `${displayedDataSourceTitle.value} (bits/s) - ${formatGranularity(currentGranularity.value)}`,
       left: 'center',
-      subtext: selectedEDCSelectionSummary.value || undefined,
+      subtext: displayedEDCSelectionSummary.value || undefined,
     },
     tooltip: {
       trigger: 'axis',
@@ -676,8 +764,7 @@ function applyRouteQueryFilters(q: RouteQueryLike, options: { autoQuery?: boolea
   if (hasDstRegion) queryForm.dst_region = typeof q.dst_region === 'string' ? q.dst_region : ''
 
   if (options.autoQuery && hasExplicitFilterKeys && hasFilter.value) {
-    currentPage.value = 1
-    queryCtl.run((signal) => loadTrafficData(signal), { showCancelMessage: false })
+    runTrafficQuery(createQuerySnapshot(), { showCancelMessage: false })
   }
 }
 
@@ -736,11 +823,6 @@ function resizeTrafficChart() {
 onMounted(async () => {
   try {
     await trafficSettings.ensureLoaded()
-    // 设置默认时间范围为最近1小时（与 timeRange 保持一致）
-    const initialRange = resolvePresetTrafficRange('last1h')
-    queryForm.start_time = initialRange?.[0] || ''
-    queryForm.end_time = initialRange?.[1] || ''
-    
     // 读取路由查询参数作为默认过滤
     const q = (route.query || {}) as RouteQueryLike
     applyRouteQueryFilters(q, { autoQuery: false })
@@ -766,11 +848,6 @@ onMounted(async () => {
 
 onActivated(() => {
   resizeTrafficChart()
-})
-
-// 监听分页变化
-watch(currentPage, () => {
-  queryCtl.run((signal) => loadTrafficData(signal), { showCancelMessage: false })
 })
 
 // 监听路由查询变化（在已处于 /traffic 页面时再次从外部带参跳转也能生效）
@@ -986,13 +1063,13 @@ async function loadSchools(region = '', cp = '', entityType = '', srcRegion = ''
 
 
 // 加载流量数据
-async function loadTrafficData(signal?: AbortSignal) {
+async function loadTrafficData(query: TrafficQuerySnapshot, signal?: AbortSignal) {
   try {
     chartLoading.value = true
     loading.value = true
     
     // 计算时间范围
-    const normalizedRange = normalizeTimeRangeForRequest(queryForm.start_time, queryForm.end_time)
+    const normalizedRange = normalizeTimeRangeForRequest(query.start_time, query.end_time)
     const startDate = normalizedRange.startDate
     const endDate = normalizedRange.endDate
     const diffMinutes = (endDate.getTime() - startDate.getTime()) / (1000 * 60)
@@ -1025,34 +1102,34 @@ async function loadTrafficData(signal?: AbortSignal) {
     }
     
     // 处理实体和内容方的过滤逻辑
-    if (queryForm.data_source !== 'edc' && queryForm.region) {
-      params.region = queryForm.region
+    if (query.data_source !== 'edc' && query.region) {
+      params.region = query.region
     }
 
-    if (queryForm.data_source === 'edc') {
-      if (queryForm.entity_type) params.entity_type = queryForm.entity_type
-      if (queryForm.src_region) params.src_region = queryForm.src_region
-      if (queryForm.dst_region) params.dst_region = queryForm.dst_region
+    if (query.data_source === 'edc') {
+      if (query.entity_type) params.entity_type = query.entity_type
+      if (query.src_region) params.src_region = query.src_region
+      if (query.dst_region) params.dst_region = query.dst_region
     }
     
-    const edcEntityIDs = selectedEDCEntityIDs.value
-    if (queryForm.data_source === 'edc' && edcEntityIDs.length > 0) {
+    const edcEntityIDs = query.edc_entity_ids
+    if (query.data_source === 'edc' && edcEntityIDs.length > 0) {
       params.entity_ids = edcEntityIDs.join(',')
-      if (queryForm.cp) {
-        params.cp = queryForm.cp
+      if (query.cp) {
+        params.cp = query.cp
       }
-    } else if (queryForm.school_name) {
-      if (queryForm.data_source === 'edc') {
-        params.display_name = queryForm.school_name
+    } else if (query.school_name) {
+      if (query.data_source === 'edc') {
+        params.display_name = query.school_name
       } else {
-        params.school_name = queryForm.school_name
+        params.school_name = query.school_name
       }
-      if (queryForm.cp) {
-        params.cp = queryForm.cp
+      if (query.cp) {
+        params.cp = query.cp
       }
-    } else if (queryForm.cp) {
+    } else if (query.cp) {
       // 如果只选择了内容方而没有选择学校，则使用内容方过滤
-      params.cp = queryForm.cp
+      params.cp = query.cp
     }
     
     // 在图表上显示当前使用的粒度
@@ -1084,7 +1161,7 @@ async function loadTrafficData(signal?: AbortSignal) {
         }
         console.log(`分片请求[${++idx}]`, chunkParams)
         if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
-        const res = queryForm.data_source === 'edc'
+        const res = query.data_source === 'edc'
           ? await (api as any).v2.edc.getTrafficData(chunkParams, { signal })
           : await (api as any).v2.getTrafficData(chunkParams, { signal })
         let list: any[] = []
@@ -1098,7 +1175,7 @@ async function loadTrafficData(signal?: AbortSignal) {
     } else {
       // 小范围直接一次性请求
       if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
-      const res = queryForm.data_source === 'edc'
+      const res = query.data_source === 'edc'
         ? await (api as any).v2.edc.getTrafficData(params, { signal })
         : await (api as any).v2.getTrafficData(params, { signal })
       if (Array.isArray(res)) { rawList = res }
@@ -1139,7 +1216,7 @@ async function loadTrafficData(signal?: AbortSignal) {
       // 2) 已选择学校且已指定 CP 时，按时间点聚合，避免同时间桶重复记录。
       // 3) 已选择学校但未指定 CP 时，保留 CP 维度，便于查看同院校不同 CP。
       let finalData = filteredData
-      if (!queryForm.school_name && !queryForm.region && !queryForm.cp) {
+      if (!query.school_name && !query.region && !query.cp) {
         const dataByTimeAll: Record<string, any> = {}
         filteredData.forEach((item: any) => {
           const key = toMinuteKeyStr(item.time_str || item.create_time)
@@ -1153,7 +1230,7 @@ async function loadTrafficData(signal?: AbortSignal) {
           dataByTimeAll[key].cache_size = dataByTimeAll[key].total_send
         })
         finalData = Object.values(dataByTimeAll).sort((a: any, b: any) => (a.create_time as string).localeCompare(b.create_time as string))
-      } else if (queryForm.school_name && queryForm.cp) {
+      } else if (query.school_name && query.cp) {
         const dataByTime: Record<string, any> = {}
         filteredData.forEach((item: any) => {
           const key = toMinuteKeyStr(item.time_str || item.create_time)
@@ -1161,10 +1238,10 @@ async function loadTrafficData(signal?: AbortSignal) {
           if (!dataByTime[key]) {
             dataByTime[key] = {
               create_time: key,
-              school_name: queryForm.school_name,
-              display_name: queryForm.school_name,
+              school_name: query.school_name,
+              display_name: query.school_name,
               region: item.region || '',
-              cp: queryForm.cp,
+              cp: query.cp,
               total_recv: 0,
               total_send: 0,
               service_size: 0,
@@ -1182,22 +1259,23 @@ async function loadTrafficData(signal?: AbortSignal) {
       
       // 预计算 bps，减少渲染与 tooltip 阶段的重复换算
       const withBps = finalData.map((it: any) => {
-        const isEDC = queryForm.data_source === 'edc'
-        const alias = isEDC ? (selectedEDCAlias.value || normalizeEDCText(it.alias)) : ''
-        const technicalName = isEDC ? (selectedEDCOriginalName.value || getEDCOriginalName(it)) : ''
+        const isEDC = query.data_source === 'edc'
+        const alias = isEDC ? (query.edc_alias || normalizeEDCText(it.alias)) : ''
+        const technicalName = isEDC ? (query.edc_original_name || getEDCOriginalName(it)) : ''
         return {
           ...it,
           edc_alias: alias,
           edc_name: technicalName,
-          school_name: it.school_name || alias || it.alias || it.display_name || selectedEDCEntityLabel.value || '',
+          school_name: it.school_name || alias || it.alias || it.display_name || query.edc_entity_label || '',
           total_recv: Number(it.total_recv ?? it.service_size) || 0,
           total_send: Number(it.total_send ?? it.cache_size) || 0,
-          recv_bps: it && it.recv_bps != null ? Number(it.recv_bps) : convertToBitsPerSecond(Number(it.total_recv ?? it.service_size) || 0),
-          send_bps: it && it.send_bps != null ? Number(it.send_bps) : convertToBitsPerSecond(Number(it.total_send ?? it.cache_size) || 0),
+          recv_bps: it && it.recv_bps != null ? Number(it.recv_bps) : convertToBitsPerSecond(Number(it.total_recv ?? it.service_size) || 0, query.data_source),
+          send_bps: it && it.send_bps != null ? Number(it.send_bps) : convertToBitsPerSecond(Number(it.total_send ?? it.cache_size) || 0, query.data_source),
         }
       })
       trafficData.value = withBps
       total.value = withBps.length
+      appliedQuery.value = query
       
       console.log(`加载流量数据成功: 原始${rawList.length}条, 处理后${processedData.length}条, 过滤后${filteredData.length}条`)
       console.debug(`[traffic.view] response rows=${rawList.length} start=${normalizedRange.startRFC3339} end=${normalizedRange.endRFC3339}`)
@@ -1229,12 +1307,25 @@ async function loadTrafficData(signal?: AbortSignal) {
     } else {
       ElMessage.error('加载流量数据失败')
     }
-    trafficData.value = []
-    total.value = 0
   } finally {
     chartLoading.value = false
     loading.value = false
   }
+}
+
+function refreshQuerySnapshot(query: TrafficQuerySnapshot, now = new Date()): TrafficQuerySnapshot {
+  if (query.timeRange === 'custom') return query
+  const range = resolvePresetTrafficRange(query.timeRange, now)
+  return {
+    ...query,
+    start_time: range?.[0] || '',
+    end_time: range?.[1] || '',
+  }
+}
+
+function runTrafficQuery(query: TrafficQuerySnapshot, options: { toggleIfRunning?: boolean; showCancelMessage?: boolean } = {}) {
+  currentPage.value = 1
+  void queryCtl.run((signal) => loadTrafficData(query, signal), options)
 }
 
 // 查询按钮点击事件
@@ -1243,10 +1334,10 @@ function handleQuery() {
     ElMessage.info('请选择筛选条件后再查询')
     trafficData.value = []
     total.value = 0
+    appliedQuery.value = null
     return
   }
-  currentPage.value = 1
-  queryCtl.run((signal) => loadTrafficData(signal), { toggleIfRunning: true })
+  runTrafficQuery(createQuerySnapshot(), { toggleIfRunning: true })
 }
 
 // 当选择省份变化时重新加载学校列表
@@ -1323,8 +1414,6 @@ async function handleDataSourceChange() {
   queryForm.cp = ''
   queryForm.src_region = ''
   queryForm.dst_region = ''
-  trafficData.value = []
-  total.value = 0
   currentPage.value = 1
   await loadRegionCpOptions()
   await loadSchools('', '')
@@ -1342,15 +1431,10 @@ function handleTimeRangeChange(value: TrafficTimeRangeOption) {
     return
   }
 
-  const presetRange = resolvePresetTrafficRange(value)
-  queryForm.start_time = presetRange?.[0] || ''
-  queryForm.end_time = presetRange?.[1] || ''
-  
-  // 重置分页到第一页
+  // 预设时间在真正点击查询时按当前时刻计算，避免选择后长时间停留导致窗口过期。
+  queryForm.start_time = ''
+  queryForm.end_time = ''
   currentPage.value = 1
-  
-  // 只有在存在筛选条件时才查询
-  if (hasFilter.value) queryCtl.run((signal) => loadTrafficData(signal), { showCancelMessage: false })
 }
 
 // 重置按钮点击事件
@@ -1364,16 +1448,14 @@ function handleReset() {
   queryForm.src_region = ''
   queryForm.dst_region = ''
   queryForm.timeRange = 'last1h'
-  
-  // 设置默认时间范围为最近1小时
-  const resetRange = resolvePresetTrafficRange('last1h')
-  queryForm.start_time = resetRange?.[0] || ''
-  queryForm.end_time = resetRange?.[1] || ''
+  queryForm.start_time = ''
+  queryForm.end_time = ''
   
   // 清空数据并不自动加载
   currentPage.value = 1
   trafficData.value = []
   total.value = 0
+  appliedQuery.value = null
 }
 
 // 格式化流量数据
@@ -1392,10 +1474,10 @@ function formatTraffic(bytes, withUnit = true) {
 }
 
 // 将原始数据转换为 bits/s
-function convertToBitsPerSecond(bytes) {
+function convertToBitsPerSecond(bytes, dataSource: TrafficDataSource = displayedDataSource.value) {
   // NFA 原始点按 60 秒口径；EDC 原始点是 5 分钟聚合，按 300 秒口径。
   // *8 是将字节转换为比特
-  const factor = queryForm.data_source === 'edc' ? 300 : 60
+  const factor = dataSource === 'edc' ? 300 : 60
   
   // 将字节转换为比特，然后除以时间因子
   return (bytes * 8) / factor
@@ -1465,9 +1547,9 @@ function formatDate(date: Date | string, granularity: string) {
 }
 
 usePageRefresh(() => {
-  if (!hasFilter.value) return
-  currentPage.value = 1
-  queryCtl.run((signal) => loadTrafficData(signal), { showCancelMessage: false })
+  const query = appliedQuery.value
+  if (!query) return
+  runTrafficQuery(refreshQuerySnapshot(query), { showCancelMessage: false })
 })
 </script>
 
@@ -1567,6 +1649,8 @@ usePageRefresh(() => {
               value-format="YYYY-MM-DD HH:mm:ss"
             />
           </template>
+          <span v-if="appliedQueryWindow" class="query-window-hint">当前结果：{{ appliedQueryWindow }}</span>
+          <span v-if="hasPendingQueryChanges" class="query-pending-hint">查询条件已修改，点击查询后生效</span>
         </ElFormItem>
         
 
@@ -1600,7 +1684,7 @@ usePageRefresh(() => {
               : (scope.row.time_str || scope.row.create_time) }}
           </template>
         </ElTableColumn>
-        <template v-if="queryForm.data_source === 'edc'">
+        <template v-if="displayedDataSource === 'edc'">
           <ElTableColumn prop="edc_alias" label="EDC别名" min-width="160">
             <template #default="scope">
               {{ scope.row.edc_alias || '—' }}
@@ -1612,8 +1696,8 @@ usePageRefresh(() => {
             </template>
           </ElTableColumn>
         </template>
-        <ElTableColumn v-else prop="school_name" :label="entityLabel" />
-        <ElTableColumn v-if="queryForm.data_source !== 'edc'" prop="region" label="地区" />
+        <ElTableColumn v-else prop="school_name" :label="displayedEntityLabel" />
+        <ElTableColumn v-if="displayedDataSource !== 'edc'" prop="region" label="地区" />
         <ElTableColumn prop="cp" label="内容方" />
         <ElTableColumn prop="total_recv" label="服务流速">
           <template #default="scope">
@@ -1654,6 +1738,18 @@ usePageRefresh(() => {
 
 .date-separator {
   margin: 0 10px;
+}
+
+.query-window-hint {
+  margin-left: 10px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.query-pending-hint {
+  margin-left: 10px;
+  color: var(--el-color-warning);
+  font-size: 12px;
 }
 
 .filter-form { row-gap: var(--form-item-gap); }
