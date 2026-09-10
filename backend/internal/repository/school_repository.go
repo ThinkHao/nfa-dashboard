@@ -80,7 +80,17 @@ func (r *schoolRepository) GetAllSchools(filter map[string]interface{}, limit, o
 				query = query.Where(key+" = ?", strValue)
 			case "region", "cp":
 				// 对于枚举类型的字段，使用等于查询
-				query = query.Where(key+" = ?", strValue)
+				if key == "cp" {
+					if cps := splitCPFilter(strValue); len(cps) > 0 {
+						if len(cps) == 1 {
+							query = query.Where(key+" = ?", cps[0])
+						} else {
+							query = query.Where(key+" IN ?", cps)
+						}
+					}
+				} else {
+					query = query.Where(key+" = ?", strValue)
+				}
 			case "school_name":
 				// 对于需要模糊匹配的字段，使用前缀匹配以提高性能
 				query = query.Where(key+" LIKE ?", strValue+"%")
@@ -107,6 +117,25 @@ func (r *schoolRepository) GetAllSchools(filter map[string]interface{}, limit, o
 	}
 
 	return schools, count, nil
+}
+
+// splitCPFilter 兼容旧的单值 cp 参数，并支持前端传入逗号分隔的多选值。
+func splitCPFilter(raw string) []string {
+	parts := strings.Split(raw, ",")
+	values := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		value := strings.TrimSpace(part)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		values = append(values, value)
+	}
+	return values
 }
 
 // GetAllRegions 获取所有地区
@@ -228,9 +257,9 @@ func (r *schoolRepository) GetTrafficData(ctx context.Context, filter model.Traf
 		query += " AND region = ?"
 		args = append(args, filter.Region)
 	}
-	if filter.CP != "" {
-		query += " AND cp = ?"
-		args = append(args, filter.CP)
+	if cps := splitCPFilter(filter.CP); len(cps) > 0 {
+		query += " AND cp IN ?"
+		args = append(args, cps)
 	}
 	if len(filter.AllowedSchoolKeys) > 0 {
 		query, args = appendAllowedSchoolKeysSQL(query, args, filter.AllowedSchoolKeys)
@@ -347,9 +376,9 @@ func (r *schoolRepository) GetDailyTrafficVolume(ctx context.Context, filter mod
 		query += " AND region = ?"
 		args = append(args, filter.Region)
 	}
-	if filter.CP != "" {
-		query += " AND cp = ?"
-		args = append(args, filter.CP)
+	if cps := splitCPFilter(filter.CP); len(cps) > 0 {
+		query += " AND cp IN ?"
+		args = append(args, cps)
 	}
 	if len(filter.AllowedSchoolKeys) > 0 {
 		query, args = appendAllowedSchoolKeysSQL(query, args, filter.AllowedSchoolKeys)
@@ -390,8 +419,8 @@ func (r *schoolRepository) GetTrafficSummary(ctx context.Context, filter model.T
 	if filter.Region != "" {
 		query = query.Where("region = ?", filter.Region)
 	}
-	if filter.CP != "" {
-		query = query.Where("cp = ?", filter.CP)
+	if cps := splitCPFilter(filter.CP); len(cps) > 0 {
+		query = query.Where("cp IN ?", cps)
 	}
 	// v2：按范围过滤可见院校范围
 	if len(filter.AllowedSchoolKeys) > 0 {

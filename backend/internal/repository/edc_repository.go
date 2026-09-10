@@ -310,8 +310,8 @@ func applyEDCEntityFilter(q *gorm.DB, filter model.EDCEntityFilter) *gorm.DB {
 	if filter.Region != "" {
 		q = q.Where("region = ?", filter.Region)
 	}
-	if filter.CP != "" {
-		q = q.Where("cp = ?", filter.CP)
+	if cps := splitEDCCPFilter(filter.CP); len(cps) > 0 {
+		q = q.Where("cp IN ?", cps)
 	}
 	if filter.EntityType != "" {
 		q = q.Where("entity_type = ?", filter.EntityType)
@@ -345,8 +345,8 @@ func applyEDCTrafficFilter(q *gorm.DB, filter model.EDCTrafficFilter) *gorm.DB {
 	if filter.Region != "" {
 		q = q.Where("t.region = ?", filter.Region)
 	}
-	if filter.CP != "" {
-		q = q.Where("t.cp = ?", filter.CP)
+	if cps := splitEDCCPFilter(filter.CP); len(cps) > 0 {
+		q = q.Where("t.cp IN ?", cps)
 	}
 	if filter.EntityType != "" {
 		q = q.Where("t.entity_type = ?", filter.EntityType)
@@ -358,6 +358,25 @@ func applyEDCTrafficFilter(q *gorm.DB, filter model.EDCTrafficFilter) *gorm.DB {
 		q = q.Where("t.dst_region = ?", filter.DstRegion)
 	}
 	return applyAllowedEDCTrafficEntityIDs(q, filter.AllowedEntityIDs)
+}
+
+// splitEDCCPFilter 兼容旧的单值 cp 参数，并支持逗号分隔的多选值。
+func splitEDCCPFilter(raw string) []string {
+	parts := strings.Split(raw, ",")
+	values := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		value := strings.TrimSpace(part)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		values = append(values, value)
+	}
+	return values
 }
 
 func applyAllowedEDCEntityIDs(q *gorm.DB, ids []uint64) *gorm.DB {

@@ -43,7 +43,7 @@ interface TrafficQueryState {
   edc_entity_ids: number[]
   entity_type: string
   region: string
-  cp: string
+  cp: string[]
   src_region: string
   dst_region: string
   start_time: string
@@ -60,6 +60,29 @@ interface TrafficQuerySnapshot extends TrafficQueryState {
 function normalizeEDCText(value: unknown): string {
   const text = String(value ?? '').trim()
   return text && text.toUpperCase() !== 'NULL' ? text : ''
+}
+
+function normalizeCPSelection(value: unknown): string[] {
+  const rawValues = Array.isArray(value) ? value : [value]
+  const values: string[] = []
+  const seen = new Set<string>()
+  rawValues.forEach((raw) => {
+    String(raw ?? '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .forEach((item) => {
+        if (!seen.has(item)) {
+          seen.add(item)
+          values.push(item)
+        }
+      })
+  })
+  return values
+}
+
+function cpQueryValue(value: unknown): string {
+  return normalizeCPSelection(value).join(',')
 }
 
 function getEDCPrimaryLabel(entity: EDCEntityOption): string {
@@ -290,7 +313,7 @@ const queryForm = reactive<TrafficQueryState>({
   edc_entity_ids: [] as number[],
   entity_type: '',
   region: '',
-  cp: '',
+  cp: [],
   src_region: '',
   dst_region: '',
   start_time: '',
@@ -323,7 +346,7 @@ function queryHasFilter(query: TrafficQueryState): boolean {
     query.edc_entity_ids.length > 0 ||
     query.entity_type ||
     (query.data_source !== 'edc' && query.region) ||
-    query.cp ||
+    query.cp.length > 0 ||
     query.src_region ||
     query.dst_region
   )
@@ -357,7 +380,7 @@ function createQuerySnapshot(now = new Date()): TrafficQuerySnapshot {
     edc_entity_ids: [...selectedEDCEntityIDs.value],
     entity_type: queryForm.entity_type,
     region: queryForm.region,
-    cp: queryForm.cp,
+    cp: [...queryForm.cp],
     src_region: queryForm.src_region,
     dst_region: queryForm.dst_region,
     start_time: presetRange?.[0] || '',
@@ -380,7 +403,8 @@ function queryFormMatchesSnapshot(query: TrafficQuerySnapshot): boolean {
     && sameEDCSelection
     && query.entity_type === queryForm.entity_type
     && query.region === queryForm.region
-    && query.cp === queryForm.cp
+    && query.cp.length === queryForm.cp.length
+    && query.cp.every((cp, index) => cp === queryForm.cp[index])
     && query.src_region === queryForm.src_region
     && query.dst_region === queryForm.dst_region
     && query.timeRange === queryForm.timeRange
@@ -506,7 +530,8 @@ const chartOption = computed(() => {
     animation: false,
   }
 
-  const compareByCP = !!(resultQuery.school_name && !resultQuery.cp)
+  const selectedCPCount = resultQuery.cp.length
+  const compareByCP = selectedCPCount > 1 || !!(resultQuery.school_name && selectedCPCount === 0)
   let legendData: string[] = []
   let series: any[] = []
   let p95Result: TrafficP95Result | null = null
@@ -588,7 +613,7 @@ const chartOption = computed(() => {
       mergedByTime[p.t].send += Number(p.send) || 0
     })
     const timeline = Object.keys(mergedByTime).map((k) => Number(k)).sort((a, b) => a - b)
-    const shouldShowP95 = !!(resultQuery.school_name && resultQuery.cp)
+    const shouldShowP95 = !!(resultQuery.school_name && selectedCPCount === 1)
     p95Result = shouldShowP95
       ? calculateTrafficP95(timeline.map((t) => ({ time: t, recvBps: mergedByTime[t].recv })))
       : null
@@ -758,7 +783,7 @@ function applyRouteQueryFilters(q: RouteQueryLike, options: { autoQuery?: boolea
       .filter((v) => Number.isFinite(v) && v > 0)
   }
   if (hasRegion) queryForm.region = queryForm.data_source === 'edc' ? '' : (typeof q.region === 'string' ? q.region : '')
-  if (hasCp) queryForm.cp = typeof q.cp === 'string' ? q.cp : ''
+  if (hasCp) queryForm.cp = normalizeCPSelection(q.cp)
   if (hasEntityType) queryForm.entity_type = q.entity_type === 'node' || q.entity_type === 'transmission' ? q.entity_type : ''
   if (hasSrcRegion) queryForm.src_region = typeof q.src_region === 'string' ? q.src_region : ''
   if (hasDstRegion) queryForm.dst_region = typeof q.dst_region === 'string' ? q.dst_region : ''
@@ -969,15 +994,16 @@ async function loadRegionCpOptions() {
 }
 
 // 加载学校数据
-async function loadSchools(region = '', cp = '', entityType = '', srcRegion = '', dstRegion = '') {
+async function loadSchools(region = '', cp: string | string[] = '', entityType = '', srcRegion = '', dstRegion = '') {
   try {
     // 清空学校列表，避免显示旧数据
     schools.value = []
 
     // 构建请求参数
     const params: Record<string, any> = { limit: 500 }
+    const cpValue = cpQueryValue(cp)
     if (queryForm.data_source !== 'edc' && region) params.region = region
-    if (cp) params.cp = cp
+    if (cpValue) params.cp = cpValue
     if (entityType) params.entity_type = entityType
     if (srcRegion) params.src_region = srcRegion
     if (dstRegion) params.dst_region = dstRegion
@@ -1001,17 +1027,15 @@ async function loadSchools(region = '', cp = '', entityType = '', srcRegion = ''
     }
 
     // 地区已选且 CP 未选时，按该地区可见学校动态收敛 CP 选项
-    if (queryForm.data_source !== 'edc' && region && !cp) {
+    if (queryForm.data_source !== 'edc' && region && !cpValue) {
       const cpSet = new Set<string>()
       schoolsList.forEach((school: any) => {
         const v = String(school?.cp || '').trim()
         if (v && v !== 'NULL') cpSet.add(v)
       })
       cps.value = Array.from(cpSet).sort()
-      // 若当前已选 CP 不在该地区范围内，则清空
-      if (queryForm.cp && !cpSet.has(queryForm.cp)) {
-        queryForm.cp = ''
-      }
+      // 若当前已选 CP 不在该地区范围内，则仅保留仍可见的值
+      queryForm.cp = queryForm.cp.filter((value) => cpSet.has(value))
     }
 
     if (queryForm.data_source === 'edc') {
@@ -1113,10 +1137,11 @@ async function loadTrafficData(query: TrafficQuerySnapshot, signal?: AbortSignal
     }
     
     const edcEntityIDs = query.edc_entity_ids
+    const cpValue = cpQueryValue(query.cp)
     if (query.data_source === 'edc' && edcEntityIDs.length > 0) {
       params.entity_ids = edcEntityIDs.join(',')
-      if (query.cp) {
-        params.cp = query.cp
+      if (cpValue) {
+        params.cp = cpValue
       }
     } else if (query.school_name) {
       if (query.data_source === 'edc') {
@@ -1124,12 +1149,12 @@ async function loadTrafficData(query: TrafficQuerySnapshot, signal?: AbortSignal
       } else {
         params.school_name = query.school_name
       }
-      if (query.cp) {
-        params.cp = query.cp
+      if (cpValue) {
+        params.cp = cpValue
       }
-    } else if (query.cp) {
+    } else if (cpValue) {
       // 如果只选择了内容方而没有选择学校，则使用内容方过滤
-      params.cp = query.cp
+      params.cp = cpValue
     }
     
     // 在图表上显示当前使用的粒度
@@ -1213,10 +1238,10 @@ async function loadTrafficData(query: TrafficQuerySnapshot, signal?: AbortSignal
 
       // 聚合策略：
       // 1) 无任何筛选（理论上不会触发查询）时，按时间点聚合。
-      // 2) 已选择学校且已指定 CP 时，按时间点聚合，避免同时间桶重复记录。
-      // 3) 已选择学校但未指定 CP 时，保留 CP 维度，便于查看同院校不同 CP。
+      // 2) 已选择学校且只指定一个 CP 时，按时间点聚合，避免同时间桶重复记录。
+      // 3) 多选 CP 或未指定 CP 时，保留 CP 维度，便于比较不同 CP。
       let finalData = filteredData
-      if (!query.school_name && !query.region && !query.cp) {
+      if (!query.school_name && !query.region && query.cp.length === 0) {
         const dataByTimeAll: Record<string, any> = {}
         filteredData.forEach((item: any) => {
           const key = toMinuteKeyStr(item.time_str || item.create_time)
@@ -1230,7 +1255,7 @@ async function loadTrafficData(query: TrafficQuerySnapshot, signal?: AbortSignal
           dataByTimeAll[key].cache_size = dataByTimeAll[key].total_send
         })
         finalData = Object.values(dataByTimeAll).sort((a: any, b: any) => (a.create_time as string).localeCompare(b.create_time as string))
-      } else if (query.school_name && query.cp) {
+      } else if (query.school_name && query.cp.length === 1) {
         const dataByTime: Record<string, any> = {}
         filteredData.forEach((item: any) => {
           const key = toMinuteKeyStr(item.time_str || item.create_time)
@@ -1241,7 +1266,7 @@ async function loadTrafficData(query: TrafficQuerySnapshot, signal?: AbortSignal
               school_name: query.school_name,
               display_name: query.school_name,
               region: item.region || '',
-              cp: query.cp,
+              cp: query.cp[0],
               total_recv: 0,
               total_send: 0,
               service_size: 0,
@@ -1347,7 +1372,7 @@ async function handleRegionChange(region) {
   if (queryForm.data_source === 'edc') {
     return
   }
-  queryForm.cp = ''
+  queryForm.cp = []
   if (!region) {
     await loadRegionCpOptions()
     await loadSchools('', '')
@@ -1383,7 +1408,7 @@ async function handleEntityTypeChange(entityType) {
   queryForm.school_name = ''
   queryForm.edc_entity_ids = []
   queryForm.region = ''
-  queryForm.cp = ''
+  queryForm.cp = []
   queryForm.src_region = ''
   queryForm.dst_region = ''
   await loadSchools('', '', entityType || '')
@@ -1411,7 +1436,7 @@ async function handleDataSourceChange() {
   queryForm.edc_entity_ids = []
   queryForm.entity_type = ''
   queryForm.region = ''
-  queryForm.cp = ''
+  queryForm.cp = []
   queryForm.src_region = ''
   queryForm.dst_region = ''
   currentPage.value = 1
@@ -1444,7 +1469,7 @@ function handleReset() {
   queryForm.edc_entity_ids = []
   queryForm.entity_type = ''
   queryForm.region = ''
-  queryForm.cp = ''
+  queryForm.cp = []
   queryForm.src_region = ''
   queryForm.dst_region = ''
   queryForm.timeRange = 'last1h'
@@ -1587,7 +1612,17 @@ usePageRefresh(() => {
         </ElFormItem>
         
         <ElFormItem label="CP">
-          <SearchSelect v-model="queryForm.cp" :options="cps" placeholder="选择 CP" clearable @change="handleCPChange" class="field-sm" />
+          <SearchSelect
+            v-model="queryForm.cp"
+            :options="cps"
+            placeholder="选择 CP（可多选）"
+            clearable
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            class="field-sm"
+            @change="handleCPChange"
+          />
         </ElFormItem>
 
         <ElFormItem v-if="queryForm.data_source === 'edc'" label="源区域">
