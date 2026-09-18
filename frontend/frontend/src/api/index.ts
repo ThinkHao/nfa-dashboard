@@ -108,6 +108,9 @@ export default {
     updateTask(id: number, data: any) {
       return api.put(`/api/v1/traffic-reports/tasks/${id}`, data).then((d: any) => d as { task: TrafficReportTask })
     },
+    migrateTaskToGoV1(id: number) {
+      return api.post(`/api/v1/traffic-reports/tasks/${id}/migrate-go-v1`).then((d: any) => d as { task: TrafficReportTask; warnings?: string[] })
+    },
     runTask(id: number) {
       return api.post(`/api/v1/traffic-reports/tasks/${id}/run`).then((d: any) => d as { run_id: string })
     },

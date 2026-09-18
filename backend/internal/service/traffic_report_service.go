@@ -47,6 +47,11 @@ type TrafficReportTaskUpdate struct {
 	ScheduleExpr *string `json:"schedule_expr"`
 }
 
+type TrafficReportTaskMigrationResult struct {
+	Task     *model.TrafficReportTask `json:"task"`
+	Warnings []string                 `json:"warnings,omitempty"`
+}
+
 type trafficReportParams struct {
 	SchoolName     string   `json:"school_name"`
 	SchoolNames    []string `json:"school_names"`
@@ -93,6 +98,7 @@ type TrafficReportService interface {
 	GetTask(ownerID, id uint64) (*model.TrafficReportTask, error)
 	ListTasks(ownerID uint64, page, pageSize int) ([]model.TrafficReportTask, int64, error)
 	UpdateTask(ownerID, id uint64, input TrafficReportTaskUpdate) (*model.TrafficReportTask, error)
+	MigrateTaskToGoV1(ownerID, id uint64) (*TrafficReportTaskMigrationResult, error)
 	StartRun(ownerID, taskID uint64) (string, error)
 	GetRun(ownerID uint64, runID string) (*model.TrafficReportRun, error)
 	ListRuns(ownerID, taskID uint64, page, pageSize int) ([]model.TrafficReportRun, int64, error)
@@ -233,6 +239,79 @@ func (s *trafficReportService) UpdateTask(ownerID, id uint64, input TrafficRepor
 		return nil, err
 	}
 	return task, nil
+}
+
+func (s *trafficReportService) MigrateTaskToGoV1(ownerID, id uint64) (*TrafficReportTaskMigrationResult, error) {
+	task, err := s.repo.GetTask(id, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	if _, ok := legacyTaskID(task.Params); !ok {
+		return nil, NewBadRequest("仅支持将导入的 nfatool 任务迁移到 go-v1")
+	}
+
+	legacyParams := legacyOriginalParams(task.Params)
+	params, warnings, err := migrateLegacyParamsToGoV1(task.DataSourceType, legacyParams)
+	if err != nil {
+		return nil, NewBadRequest(err.Error())
+	}
+	params["_traffic_report_migration"] = map[string]interface{}{
+		"source_task_id": id,
+		"source_engine":  trafficReportLegacyNativeEngineVersion,
+		"created_at":     time.Now().UTC().Format(time.RFC3339),
+	}
+	paramBytes, err := json.Marshal(params)
+	if err != nil {
+		return nil, err
+	}
+
+	windowParams := cloneJSONMap(task.WindowParams)
+	if task.WindowSelector == "custom" {
+		if _, ok := windowParams["start_time"]; !ok {
+			if value, exists := legacyParams["start_time"]; exists {
+				windowParams["start_time"] = value
+			}
+		}
+		if _, ok := windowParams["end_time"]; !ok {
+			if value, exists := legacyParams["end_time"]; exists {
+				windowParams["end_time"] = value
+			}
+		}
+	}
+	windowBytes, err := json.Marshal(windowParams)
+	if err != nil {
+		return nil, err
+	}
+
+	name := strings.TrimSpace(task.Name) + "（go-v1迁移）"
+	if len([]rune(name)) > 200 {
+		name = string([]rune(name)[:200])
+	}
+	clone := &model.TrafficReportTask{
+		OwnerUserID:    ownerID,
+		Name:           name,
+		Kind:           task.Kind,
+		Active:         false,
+		DataSourceType: task.DataSourceType,
+		Timezone:       task.Timezone,
+		WindowSelector: task.WindowSelector,
+		WindowParams:   windowBytes,
+		Params:         paramBytes,
+		ExportFormats:  append([]byte(nil), task.ExportFormats...),
+	}
+	if task.ScheduleType != nil {
+		value := *task.ScheduleType
+		clone.ScheduleType = &value
+	}
+	if task.ScheduleExpr != nil {
+		value := *task.ScheduleExpr
+		clone.ScheduleExpr = &value
+	}
+	warnings = append(warnings, "新任务默认暂停；完成与原任务的结果比对后再启用周期计划")
+	if err := s.repo.CreateTask(clone); err != nil {
+		return nil, err
+	}
+	return &TrafficReportTaskMigrationResult{Task: clone, Warnings: warnings}, nil
 }
 
 func (s *trafficReportService) StartRun(ownerID, taskID uint64) (string, error) {

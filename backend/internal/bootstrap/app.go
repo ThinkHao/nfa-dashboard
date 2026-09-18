@@ -169,6 +169,7 @@ func BuildEngine() *gin.Engine {
 			reports.GET("/tasks", authMW.PermissionRequired("traffic.report.read"), trafficReportController.ListTasks)
 			reports.POST("/tasks", authMW.PermissionRequired("traffic.report.write"), trafficReportController.CreateTask)
 			reports.PUT("/tasks/:id", authMW.PermissionRequired("traffic.report.write"), trafficReportController.UpdateTask)
+			reports.POST("/tasks/:id/migrate-go-v1", authMW.PermissionRequired("traffic.report.write"), trafficReportController.MigrateTaskToGoV1)
 			reports.POST("/tasks/:id/run", authMW.PermissionRequired("traffic.report.write"), trafficReportController.StartRun)
 			reports.GET("/runs", authMW.PermissionRequired("traffic.report.read"), trafficReportController.ListRuns)
 			reports.GET("/runs/:id", authMW.PermissionRequired("traffic.report.read"), trafficReportController.GetRun)

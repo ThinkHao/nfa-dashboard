@@ -117,6 +117,46 @@ func TestLegacyEDCNamePredicateMapsPrefixAndGlob(t *testing.T) {
 	}
 }
 
+func TestMigrateLegacyNFAParamsMapsAliases(t *testing.T) {
+	params, warnings, err := migrateLegacyParamsToGoV1("nfa", map[string]interface{}{
+		"school":              "示例大学",
+		"province":            "北京",
+		"cp":                  "aliyun",
+		"direction":           "recv",
+		"unit_base":           float64(1000),
+		"data_budget_enabled": true,
+		"combine_v4_v6":       true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := params["school_name"]; got != "示例大学" {
+		t.Fatalf("school_name = %#v", got)
+	}
+	if got := params["region"]; got != "北京" {
+		t.Fatalf("region = %#v", got)
+	}
+	if len(warnings) != 1 {
+		t.Fatalf("warnings = %#v", warnings)
+	}
+}
+
+func TestMigrateLegacyNFAParamsRejectsAggregateMode(t *testing.T) {
+	if _, _, err := migrateLegacyParamsToGoV1("nfa", map[string]interface{}{"aggregate_all": true}); err == nil {
+		t.Fatal("expected aggregate_all migration to be rejected")
+	}
+}
+
+func TestMigrateLegacyEDCParamsRejectsPrefixMatch(t *testing.T) {
+	_, _, err := migrateLegacyParamsToGoV1("edc", map[string]interface{}{
+		"edc_name":       "BJ-jinshan-*",
+		"edc_match_mode": "prefix",
+	})
+	if err == nil {
+		t.Fatal("expected non-exact EDC match to be rejected")
+	}
+}
+
 func TestLegacySafeArtifactNameReplacesWindowsWildcards(t *testing.T) {
 	if got := legacySafeArtifactName("BJ-jinshan-*-raw"); got != "BJ-jinshan-_-raw" {
 		t.Fatalf("legacySafeArtifactName() = %q", got)

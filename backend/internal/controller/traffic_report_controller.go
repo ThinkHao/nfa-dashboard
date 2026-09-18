@@ -85,6 +85,25 @@ func (c *TrafficReportController) UpdateTask(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"task": task})
 }
 
+func (c *TrafficReportController) MigrateTaskToGoV1(ctx *gin.Context) {
+	uid, ok := currentUserID(ctx)
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"message": "unauthorized"})
+		return
+	}
+	id, err := strconv.ParseUint(ctx.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid task id"})
+		return
+	}
+	result, err := c.svc.MigrateTaskToGoV1(uid, id)
+	if err != nil {
+		writeTrafficReportServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusCreated, result)
+}
+
 func (c *TrafficReportController) StartRun(ctx *gin.Context) {
 	uid, ok := currentUserID(ctx)
 	if !ok {

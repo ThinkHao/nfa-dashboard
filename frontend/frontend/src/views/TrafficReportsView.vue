@@ -79,7 +79,8 @@
             <p>{{ taskObjectLabel(selectedTask) }} · {{ windowLabel(selectedTask) }}</p>
           </div>
           <div class="inspector-actions">
-            <el-button v-if="canWrite" type="primary" plain :disabled="selectedTask.kind === 'periodic' && !selectedTask.active" @click="runTask(selectedTask)">立即执行</el-button>
+            <el-button v-if="canWrite" type="primary" plain :disabled="selectedTask.kind === 'periodic' && !selectedTask.active && !isMigratedGoV1Task(selectedTask)" @click="runTask(selectedTask)">立即执行</el-button>
+            <el-button v-if="canWrite && isLegacyTask(selectedTask)" type="warning" plain @click="migrateTask(selectedTask)">迁移到 go-v1</el-button>
             <el-button text @click="showRuns(selectedTask)">运行记录</el-button>
           </div>
         </div>
@@ -184,7 +185,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Search } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import api from '@/api'
@@ -262,6 +263,8 @@ function sourceLabel(task: TrafficReportTask) { return task.data_source_type ===
 function kindLabel(task: TrafficReportTask) { return task.kind === 'periodic' ? '周期计划' : '一次性' }
 function windowLabel(task: TrafficReportTask) { const labels: Record<string, string> = { last_week: '上周', last_month: '上月', last_n_days: `最近${task.window_params?.n || 'N'}天`, custom: '自定义窗口' }; return labels[task.window_selector] || task.window_selector || '—' }
 function taskObjectLabel(task: TrafficReportTask) { const params = task.params || {}; const objectText = params.school_name || params.edc_name || (Array.isArray(params.entity_ids) ? `${params.entity_ids.length} 个对象` : '全部对象'); return String(objectText) }
+function isLegacyTask(task: TrafficReportTask | null) { const marker = task?.params?.legacy_nfatool; return Boolean(marker && (marker.source_task_id != null || marker.original_params)) }
+function isMigratedGoV1Task(task: TrafficReportTask | null) { return Boolean(task?.params?._traffic_report_migration) }
 function runTag(status: string) { return status === 'success' ? 'success' : status === 'failed' ? 'danger' : status === 'running' ? 'warning' : 'info' }
 function runText(status: string) { return ({ pending: '等待中', running: '执行中', success: '完成', failed: '失败' } as Record<string, string>)[status] || status }
 function summaryText(run: TrafficReportRun) { const summary = run.summary || {}; if (summary.range_95_mbps != null) { const budget = summary.budget_range_value != null ? ` · 预算95 ${formatNumber(summary.budget_range_value)}` : ''; return `区间95 ${formatNumber(summary.range_95_mbps)} Mbps · 日95平均 ${formatNumber(summary.daily_95_avg_mbps)} Mbps${budget}` }; if (summary.raw_rows != null) return `原始行 ${summary.raw_rows} · ${summary.instance || summary.source || '导出'}`; if (summary.range_points != null) return `${summary.range_points} 个点位 · ${summary.daily_days || 0} 天`; return run.error_message || '—' }
@@ -302,6 +305,21 @@ function trackRun(runId: string, title: string, taskId?: number) {
 async function submit() { if (!form.name.trim()) { ElMessage.warning('请填写报表名称'); return }; if (form.window_selector === 'custom' && (!customRange.value || customRange.value.length !== 2)) { ElMessage.warning('请选择自定义时间范围'); return }; if (!form.export_formats.length) { ElMessage.warning('至少选择一种导出格式'); return }; submitting.value = true; try { const res = await api.trafficReports.createTask(reportPayload()); ElMessage.success(form.kind === 'one_off' ? '报表任务已创建' : '周期计划已创建'); dialogVisible.value = false; await loadTasks(); if (res.run_id) { trackRun(res.run_id, form.name, res.task?.id); if (res.task) selectTask(res.task) } } catch (error: any) { ElMessage.error(error?.response?.data?.message || error?.message || '创建报表失败') } finally { submitting.value = false } }
 async function runTask(task: TrafficReportTask) { try { const res = await api.trafficReports.runTask(task.id); trackRun(res.run_id, task.name, task.id); selectedTask.value = task; await loadRuns(); ElMessage.success('已提交运行') } catch (error: any) { ElMessage.error(error?.response?.data?.message || error?.message || '提交运行失败') } }
 async function toggleTask(task: TrafficReportTask) { try { await api.trafficReports.updateTask(task.id, { active: !task.active }); await loadTasks(); ElMessage.success(task.active ? '已暂停计划' : '已启用计划') } catch (error: any) { ElMessage.error(error?.response?.data?.message || error?.message || '更新计划失败') } }
+async function migrateTask(task: TrafficReportTask) {
+  try {
+    await ElMessageBox.confirm('原 nfatool 任务会保留不变，并创建一个默认暂停的 go-v1 新任务。完成结果比对后，再启用新任务。', '迁移到 go-v1', { confirmButtonText: '创建迁移任务', cancelButtonText: '取消', type: 'warning' })
+    const res = await api.trafficReports.migrateTaskToGoV1(task.id)
+    await loadTasks()
+    const migrated = tasks.value.find((item) => item.id === res.task.id)
+    if (migrated) selectTask(migrated)
+    const warnings = res.warnings || []
+    if (warnings.length) await ElMessageBox.alert(warnings.join('\n'), '迁移任务已创建', { confirmButtonText: '知道了', type: 'success' })
+    else ElMessage.success('迁移任务已创建，当前处于暂停状态')
+  } catch (error: any) {
+    if (error === 'cancel' || error === 'close') return
+    ElMessage.error(error?.response?.data?.message || error?.message || '创建迁移任务失败')
+  }
+}
 async function download(artifact: TrafficReportArtifact) { try { const blob = await api.trafficReports.downloadArtifact(artifact.id); triggerBlobDownload(blob, artifact.file_name) } catch (error: any) { ElMessage.error(error?.response?.data?.message || error?.message || '下载失败') } }
 watch([searchText, sourceFilter, kindFilter, stateFilter, budgetOnly], () => { taskPage.value = 1 })
 onMounted(() => { void loadTasks(); if (route.query.create === '1') openCreate(); if (route.query.create) router.replace({ path: '/traffic-reports', query: {} }) })
@@ -335,7 +353,7 @@ onMounted(() => { void loadTasks(); if (route.query.create === '1') openCreate()
 .inspector-title-wrap { min-width: 0; }
 .inspector-title-wrap h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inspector-title-wrap p { margin: 7px 0 0; color: var(--text-muted); font-size: 12px; }
-.inspector-actions { display: flex; flex: 0 0 auto; gap: 4px; align-items: center; }
+.inspector-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 4px; align-items: center; justify-content: flex-end; }
 .inspector-status { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 20px; color: var(--text-muted); font-size: 12px; border-bottom: 1px solid var(--border-color); }
 .inspector-status .el-button { margin-left: auto; }
 .inspector-section { padding: 18px 20px; border-bottom: 1px solid var(--border-color); }
