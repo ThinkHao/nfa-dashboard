@@ -16,6 +16,7 @@ export const useAuthStore = defineStore('auth', {
     refresh_token: '' as string,
     user: null as AuthUser | null,
     permissions: [] as string[],
+    profileLoaded: false as boolean,
     loadingProfile: false as boolean,
   }),
   getters: {
@@ -34,6 +35,7 @@ export const useAuthStore = defineStore('auth', {
         this.refresh_token = refreshToken
         this.user = user ? JSON.parse(user) : null
         this.permissions = perms ? JSON.parse(perms) : []
+        this.profileLoaded = false
       } catch {}
     },
     async login(username: string, password: string) {
@@ -43,6 +45,7 @@ export const useAuthStore = defineStore('auth', {
       this.refresh_token = res.refresh_token
       this.user = res.user
       this.permissions = (res.permissions || []).map((p: any) => p.name || p)
+      this.profileLoaded = true
       localStorage.setItem('token', this.token)
       localStorage.setItem('refresh_token', this.refresh_token)
       localStorage.setItem('auth_user', JSON.stringify(this.user))
@@ -56,6 +59,7 @@ export const useAuthStore = defineStore('auth', {
         // 预期返回 { user, permissions }
         this.user = res.user
         this.permissions = (res.permissions || []).map((p: any) => p.name || p)
+        this.profileLoaded = true
         localStorage.setItem('auth_user', JSON.stringify(this.user))
         localStorage.setItem('auth_perms', JSON.stringify(this.permissions))
       } finally {
@@ -67,6 +71,7 @@ export const useAuthStore = defineStore('auth', {
       this.refresh_token = ''
       this.user = null
       this.permissions = []
+      this.profileLoaded = false
       localStorage.removeItem('token')
       localStorage.removeItem('refresh_token')
       localStorage.removeItem('auth_user')

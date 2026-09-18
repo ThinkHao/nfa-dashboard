@@ -69,7 +69,7 @@ router.beforeEach(async (to, from, next) => {
   }
 
   // 根据需要加载一次 Profile（避免页面刷新后权限丢失）
-  if ((!auth.user || !auth.permissions?.length) && !auth.loadingProfile) {
+  if (!auth.profileLoaded && !auth.loadingProfile) {
     try { await auth.loadProfile() } catch {}
   }
 
