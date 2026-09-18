@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, onActivated, nextTick, computed, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import FilterPanel from '@/components/ui/FilterPanel.vue'
@@ -14,6 +14,7 @@ import { calculateTrafficP95, type TrafficP95Result } from './traffic-percentile
 import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import { useSystemTrafficSettings } from '@/composables/useSystemTrafficSettings'
+import { useAuthStore } from '@/stores/auth'
 import { normalizeByteUnitBase } from '@/utils/traffic-units'
 import { sanitizeScopeOptionValues } from '@/utils/scope-options'
 import { use } from 'echarts/core'
@@ -269,6 +270,9 @@ use([
 
 // 路由
 const route = useRoute()
+const router = useRouter()
+const auth = useAuthStore()
+const canTrafficReport = computed(() => auth.hasPermission('traffic.report.read'))
 
 // 数据状态
 const loading = ref(false)
@@ -390,6 +394,23 @@ function createQuerySnapshot(now = new Date()): TrafficQuerySnapshot {
     edc_entity_label: selectedEDCEntityLabel.value,
     edc_original_name: selectedEDCOriginalName.value,
   }
+}
+
+function openTrafficReport() {
+  const query = appliedQuery.value || createQuerySnapshot()
+  router.push({
+    path: '/traffic-reports',
+    query: {
+      create: '1',
+      data_source_type: query.data_source,
+      school_name: query.school_name || undefined,
+      region: query.region || undefined,
+      cp: query.cp.length ? query.cp.join(',') : undefined,
+      entity_ids: query.edc_entity_ids.length ? query.edc_entity_ids.join(',') : undefined,
+      start_time: query.start_time || undefined,
+      end_time: query.end_time || undefined,
+    },
+  })
 }
 
 function queryFormMatchesSnapshot(query: TrafficQuerySnapshot): boolean {
@@ -1066,7 +1087,9 @@ async function loadSchools(region = '', cp: string | string[] = '', entityType =
           }
         }
       })
-      schools.value = Object.values(uniqueSchools)
+      schools.value = Object.values(uniqueSchools).sort((a, b) =>
+        a.school_name.localeCompare(b.school_name, 'zh-CN'),
+      )
     }
     console.log('去重后的实体数据:', schools.value.length)
 
@@ -1581,6 +1604,10 @@ usePageRefresh(() => {
 <template>
   <div class="page-container">
     <PageHeader title="流速监控" :description="dataSourceDescription" />
+    <div v-if="canTrafficReport" class="traffic-report-entry">
+      <ElButton type="primary" plain @click="openTrafficReport">从当前条件创建流量报表</ElButton>
+      <span class="entry-hint">会带入当前数据源、对象、筛选条件和时间范围</span>
+    </div>
     
     <!-- 查询表单 -->
     <FilterPanel>
@@ -1760,6 +1787,9 @@ usePageRefresh(() => {
 </template>
 
 <style scoped>
+.traffic-report-entry { display: flex; align-items: center; gap: 10px; margin: -4px 0 14px; }
+.entry-hint { color: var(--text-muted); font-size: 12px; }
+
 .traffic-chart {
   height: 400px;
   width: 100%;

@@ -18,6 +18,8 @@ ENV TZ=Asia/Shanghai
 WORKDIR /app
 COPY --from=builder /app/server /app/server
 COPY --from=builder /app/config /app/config
+RUN mkdir -p /app/storage/traffic-reports \
+    && chown -R app:app /app
 EXPOSE 8081
 USER app
 ENTRYPOINT ["/app/server"]

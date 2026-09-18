@@ -16,6 +16,7 @@ const router = createRouter({
         { path: '', name: 'home', component: HomeView, meta: { title: '首页', order: 0, icon: 'House' } },
         { path: 'traffic', name: 'traffic', component: () => import('../views/TrafficView.vue'), meta: { title: '流速监控', permissions: ['traffic.read'], order: 10, icon: 'TrendCharts' } },
         { path: 'traffic-volume', name: 'traffic-volume', component: () => import('../views/DailyTrafficVolumeView.vue'), meta: { title: '流量监控', permissions: ['traffic.read'], order: 11, icon: 'Histogram' } },
+        { path: 'traffic-reports', name: 'traffic-reports', component: () => import('../views/TrafficReportsView.vue'), meta: { title: '流量报表', permissions: ['traffic.report.read'], order: 12, icon: 'Document' } },
         { path: 'schools', name: 'schools', component: () => import('../views/SchoolsView.vue'), meta: { title: '学校管理', permissions: ['school.manage'], order: 20, icon: 'School' } },
         { path: 'settlement/user-query', name: 'settlement-user-query', component: () => import('../views/SettlementUserQueryView.vue'), meta: { title: '院校结算查询', permissions: ['settlement.data.read'], order: 33, icon: 'User', group: 'settlement-dashboard' } },
         { path: 'settlement/node-query', name: 'settlement-node-query', component: () => import('../views/SettlementNodeQueryView.vue'), meta: { title: '单节点结算查询', permissions: ['settlement.data.read'], order: 34, icon: 'Share', group: 'settlement-dashboard' } },

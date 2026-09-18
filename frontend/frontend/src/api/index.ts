@@ -49,6 +49,8 @@ import type {
   TrafficScopeUserLite,
   SystemTrafficSettings,
   SettlementRuleScopeOptions,
+  TrafficReportTask,
+  TrafficReportRun,
 } from '@/types/api'
 import type { AxiosRequestConfig } from 'axios'
 import { api, raw } from './httpClient'
@@ -94,6 +96,33 @@ export default {
   // 获取流量汇总数据
   getTrafficSummary(params?: any, config?: AxiosRequestConfig) {
     return api.get('/api/v1/traffic/summary', { params, ...(config || {}) }).then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+  },
+
+  trafficReports: {
+    listTasks(params?: any) {
+      return api.get('/api/v1/traffic-reports/tasks', { params }).then((d: any) => d as { items: TrafficReportTask[]; total: number })
+    },
+    createTask(data: any) {
+      return api.post('/api/v1/traffic-reports/tasks', data).then((d: any) => d as { task: TrafficReportTask; run_id?: string })
+    },
+    updateTask(id: number, data: any) {
+      return api.put(`/api/v1/traffic-reports/tasks/${id}`, data).then((d: any) => d as { task: TrafficReportTask })
+    },
+    runTask(id: number) {
+      return api.post(`/api/v1/traffic-reports/tasks/${id}/run`).then((d: any) => d as { run_id: string })
+    },
+    listRuns(params?: any) {
+      return api.get('/api/v1/traffic-reports/runs', { params }).then((d: any) => d as { items: TrafficReportRun[]; total: number })
+    },
+    getRun(id: string) {
+      return api.get(`/api/v1/traffic-reports/runs/${id}`).then((d: any) => d as { run: TrafficReportRun })
+    },
+    artifactUrl(id: number) {
+      return `/api/v1/traffic-reports/artifacts/${id}/download`
+    },
+    downloadArtifact(id: number): Promise<Blob> {
+      return api.get(`/api/v1/traffic-reports/artifacts/${id}/download`, { responseType: 'blob' as any }).then((d: any) => d as Blob)
+    },
   },
 
   // 结算系统相关API

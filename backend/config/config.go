@@ -17,12 +17,39 @@ type Config struct {
 	Binding         BindingConfig         `mapstructure:"binding"`
 	RatesOwnerRoles RatesOwnerRolesConfig `mapstructure:"rates_owner_roles"`
 	Scheduler       SchedulerConfig       `mapstructure:"scheduler"`
+	TrafficReport   TrafficReportConfig   `mapstructure:"traffic_report"`
 	Alert           AlertConfig           `mapstructure:"alert"`
 }
 
 // SchedulerConfig 结算调度器开关（多实例部署时只允许一个实例开启，或全部开启依赖 DB 锁互斥）
 type SchedulerConfig struct {
 	Enabled bool `mapstructure:"enabled"`
+}
+
+type TrafficReportConfig struct {
+	StorageDir          string                    `mapstructure:"storage_dir"`
+	LegacyBaseURL       string                    `mapstructure:"legacy_base_url"`
+	LegacyAPIKey        string                    `mapstructure:"legacy_api_key"`
+	LegacyNativeEnabled bool                      `mapstructure:"legacy_native_enabled"`
+	EDC                 TrafficReportSourceConfig `mapstructure:"edc"`
+}
+
+// TrafficReportSourceConfig contains the raw EDC source contract used by the
+// native legacy-compatible engine. Secrets are supplied through environment
+// variables in production and are never persisted in task rows.
+type TrafficReportSourceConfig struct {
+	Host           string `mapstructure:"host"`
+	Port           int    `mapstructure:"port"`
+	User           string `mapstructure:"user"`
+	Password       string `mapstructure:"password"`
+	DBName         string `mapstructure:"dbname"`
+	Table          string `mapstructure:"table"`
+	TimeColumn     string `mapstructure:"time_column"`
+	NameColumn     string `mapstructure:"name_column"`
+	ValueColumn    string `mapstructure:"value_column"`
+	ExcludeLike    string `mapstructure:"exclude_like"`
+	WildcardMode   string `mapstructure:"wildcard_mode"`
+	DailyRankIndex int    `mapstructure:"daily_rank_index"`
 }
 
 // AlertConfig 告警通道配置
@@ -130,6 +157,22 @@ func LoadConfig() {
 	_ = viper.BindEnv("auth.access_token_ttl_minutes", "AUTH_ACCESS_TOKEN_TTL_MINUTES")
 	_ = viper.BindEnv("auth.refresh_token_ttl_minutes", "AUTH_REFRESH_TOKEN_TTL_MINUTES")
 	_ = viper.BindEnv("scheduler.enabled", "SCHEDULER_ENABLED")
+	_ = viper.BindEnv("traffic_report.storage_dir", "TRAFFIC_REPORT_STORAGE_DIR")
+	_ = viper.BindEnv("traffic_report.legacy_base_url", "TRAFFIC_REPORT_LEGACY_BASE_URL")
+	_ = viper.BindEnv("traffic_report.legacy_api_key", "TRAFFIC_REPORT_LEGACY_API_KEY")
+	_ = viper.BindEnv("traffic_report.legacy_native_enabled", "TRAFFIC_REPORT_LEGACY_NATIVE_ENABLED")
+	_ = viper.BindEnv("traffic_report.edc.host", "TRAFFIC_REPORT_EDC_HOST")
+	_ = viper.BindEnv("traffic_report.edc.port", "TRAFFIC_REPORT_EDC_PORT")
+	_ = viper.BindEnv("traffic_report.edc.user", "TRAFFIC_REPORT_EDC_USER")
+	_ = viper.BindEnv("traffic_report.edc.password", "TRAFFIC_REPORT_EDC_PASSWORD")
+	_ = viper.BindEnv("traffic_report.edc.dbname", "TRAFFIC_REPORT_EDC_DB")
+	_ = viper.BindEnv("traffic_report.edc.table", "TRAFFIC_REPORT_EDC_TABLE")
+	_ = viper.BindEnv("traffic_report.edc.time_column", "TRAFFIC_REPORT_EDC_TIME_COLUMN")
+	_ = viper.BindEnv("traffic_report.edc.name_column", "TRAFFIC_REPORT_EDC_NAME_COLUMN")
+	_ = viper.BindEnv("traffic_report.edc.value_column", "TRAFFIC_REPORT_EDC_VALUE_COLUMN")
+	_ = viper.BindEnv("traffic_report.edc.exclude_like", "TRAFFIC_REPORT_EDC_EXCLUDE_LIKE")
+	_ = viper.BindEnv("traffic_report.edc.wildcard_mode", "TRAFFIC_REPORT_EDC_WILDCARD_MODE")
+	_ = viper.BindEnv("traffic_report.edc.daily_rank_index", "TRAFFIC_REPORT_EDC_DAILY_RANK_INDEX")
 	_ = viper.BindEnv("alert.feishu_webhook_url", "ALERT_FEISHU_WEBHOOK_URL")
 
 	if err := viper.ReadInConfig(); err != nil {
@@ -205,6 +248,24 @@ func validateAndSetDefaults() error {
 		if strings.TrimSpace(AppConfig.Server.TLS.CertFile) == "" || strings.TrimSpace(AppConfig.Server.TLS.KeyFile) == "" {
 			return fmt.Errorf("server.tls is enabled but cert_file/key_file is missing")
 		}
+	}
+	if AppConfig.TrafficReport.EDC.Port == 0 {
+		AppConfig.TrafficReport.EDC.Port = 3306
+	}
+	if strings.TrimSpace(AppConfig.TrafficReport.EDC.Table) == "" {
+		AppConfig.TrafficReport.EDC.Table = "edc_data"
+	}
+	if strings.TrimSpace(AppConfig.TrafficReport.EDC.TimeColumn) == "" {
+		AppConfig.TrafficReport.EDC.TimeColumn = "create_time"
+	}
+	if strings.TrimSpace(AppConfig.TrafficReport.EDC.NameColumn) == "" {
+		AppConfig.TrafficReport.EDC.NameColumn = "edc_name"
+	}
+	if strings.TrimSpace(AppConfig.TrafficReport.EDC.ValueColumn) == "" {
+		AppConfig.TrafficReport.EDC.ValueColumn = "service_size"
+	}
+	if AppConfig.TrafficReport.EDC.DailyRankIndex < 0 {
+		AppConfig.TrafficReport.EDC.DailyRankIndex = 14
 	}
 
 	// Database required fields
@@ -295,6 +356,13 @@ func GetOwnerRoles(t string) []string {
 // IsSchedulerEnabled 是否在本实例启动结算调度器
 func IsSchedulerEnabled() bool {
 	return AppConfig.Scheduler.Enabled
+}
+
+func GetTrafficReportStorageDir() string {
+	if strings.TrimSpace(AppConfig.TrafficReport.StorageDir) == "" {
+		return "./storage/traffic-reports"
+	}
+	return AppConfig.TrafficReport.StorageDir
 }
 
 // GetFeishuWebhookURL 飞书告警 webhook 地址，空串表示未配置

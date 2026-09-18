@@ -102,6 +102,49 @@ export interface TrafficData {
   [key: string]: any;
 }
 
+export interface TrafficReportTask {
+  id: number;
+  name: string;
+  kind: 'one_off' | 'periodic';
+  active: boolean;
+  data_source_type: 'nfa' | 'edc';
+  schedule_type?: string;
+  schedule_expr?: string;
+  timezone: string;
+  window_selector: string;
+  window_params?: Record<string, any>;
+  params?: Record<string, any>;
+  export_formats?: string[];
+  next_run_at?: string;
+  last_run_at?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface TrafficReportArtifact {
+  id: number;
+  run_id: string;
+  file_name: string;
+  media_type: string;
+  file_size: number;
+}
+
+export interface TrafficReportRun {
+  id: string;
+  task_id: number;
+  status: 'pending' | 'running' | 'success' | 'failed';
+  progress_pct: number;
+  progress_stage?: string;
+  engine_version: string;
+  row_count: number;
+  summary?: Record<string, any>;
+  error_message?: string;
+  created_at?: string;
+  started_at?: string;
+  finished_at?: string;
+  artifacts?: TrafficReportArtifact[];
+}
+
 // 操作日志
 export interface OperationLog {
   id: number;

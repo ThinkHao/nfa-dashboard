@@ -20,6 +20,8 @@ var BuiltinPermissions = []PermissionDef{
 	// Traffic monitor
 	{Code: "traffic.read", Name: "流速/流量监控查看", Description: s("查看流速和日流量监控面板")},
 	{Code: "traffic.scope.manage", Name: "流量监控范围管理", Description: s("配置用户的流速和流量监控数据可见范围")},
+	{Code: "traffic.report.read", Name: "流量报表查看", Description: s("查看导出计划、运行记录和下载文件")},
+	{Code: "traffic.report.write", Name: "流量报表创建", Description: s("创建、执行、暂停流量报表计划")},
 
 	// School management
 	{Code: "school.read", Name: "学校查看", Description: s("查看学校基础信息与列表")},

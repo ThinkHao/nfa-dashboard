@@ -110,14 +110,19 @@ func BuildEngine() *gin.Engine {
 	trafficScopeController := controller.NewSystemTrafficScopeController(trafficScopeService, userService, schoolService)
 	edcTrafficScopeController := controller.NewSystemEDCTrafficScopeController(edcScopeService, userService)
 	systemSettingsController := controller.NewSystemSettingsController(systemSettingsSvc)
+	trafficReportRepo := repository.NewTrafficReportRepository()
+	trafficReportSvc := service.NewTrafficReportService(trafficReportRepo, trafficScopeService, edcScopeService)
+	trafficReportController := controller.NewTrafficReportController(trafficReportSvc)
 
 	opLogRepo := repository.NewOperationLogRepository()
 	opLogService := service.NewOperationLogService(opLogRepo)
 	opLogController := controller.NewOperationLogController(opLogService)
 
 	settlementScheduler := scheduler.NewSettlementScheduler(settlementService, edcNodeSettlementSvc, notifier)
+	trafficReportScheduler := scheduler.NewTrafficReportScheduler(trafficReportSvc)
 	if config.IsSchedulerEnabled() {
 		settlementScheduler.Start()
+		trafficReportScheduler.Start()
 	} else {
 		log.Println("scheduler.enabled=false，本实例不启动结算调度器")
 	}
@@ -158,6 +163,17 @@ func BuildEngine() *gin.Engine {
 		api.GET("/cps", authMW.AuthRequired(), authMW.PermissionRequired("school.read"), schoolController.GetAllCPs)
 		api.GET("/traffic", authMW.AuthRequired(), authMW.PermissionRequired("traffic.read"), schoolController.GetTrafficData)
 		api.GET("/traffic/summary", authMW.AuthRequired(), authMW.PermissionRequired("traffic.read"), schoolController.GetTrafficSummary)
+
+		reports := api.Group("/traffic-reports", authMW.AuthRequired())
+		{
+			reports.GET("/tasks", authMW.PermissionRequired("traffic.report.read"), trafficReportController.ListTasks)
+			reports.POST("/tasks", authMW.PermissionRequired("traffic.report.write"), trafficReportController.CreateTask)
+			reports.PUT("/tasks/:id", authMW.PermissionRequired("traffic.report.write"), trafficReportController.UpdateTask)
+			reports.POST("/tasks/:id/run", authMW.PermissionRequired("traffic.report.write"), trafficReportController.StartRun)
+			reports.GET("/runs", authMW.PermissionRequired("traffic.report.read"), trafficReportController.ListRuns)
+			reports.GET("/runs/:id", authMW.PermissionRequired("traffic.report.read"), trafficReportController.GetRun)
+			reports.GET("/artifacts/:id/download", authMW.PermissionRequired("traffic.report.read"), trafficReportController.DownloadArtifact)
+		}
 
 		settlement := api.Group("/settlement", authMW.AuthRequired())
 		{
