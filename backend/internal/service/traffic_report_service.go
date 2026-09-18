@@ -110,10 +110,15 @@ type trafficReportService struct {
 	repo         repository.TrafficReportRepository
 	trafficScope TrafficScopeService
 	edcScope     EDCTrafficScopeService
+	roleRepo     trafficReportRoleRepository
 }
 
-func NewTrafficReportService(repo repository.TrafficReportRepository, trafficScope TrafficScopeService, edcScope EDCTrafficScopeService) TrafficReportService {
-	return &trafficReportService{repo: repo, trafficScope: trafficScope, edcScope: edcScope}
+type trafficReportRoleRepository interface {
+	GetUserRoles(userID uint64) ([]model.Role, error)
+}
+
+func NewTrafficReportService(repo repository.TrafficReportRepository, trafficScope TrafficScopeService, edcScope EDCTrafficScopeService, roleRepo trafficReportRoleRepository) TrafficReportService {
+	return &trafficReportService{repo: repo, trafficScope: trafficScope, edcScope: edcScope, roleRepo: roleRepo}
 }
 
 func (s *trafficReportService) CreateTask(ownerID uint64, input TrafficReportTaskInput) (*model.TrafficReportTask, error) {
@@ -195,15 +200,27 @@ func (s *trafficReportService) CreateTask(ownerID uint64, input TrafficReportTas
 }
 
 func (s *trafficReportService) GetTask(ownerID, id uint64) (*model.TrafficReportTask, error) {
-	return s.repo.GetTask(id, ownerID)
+	accessOwnerID, err := s.accessOwnerID(ownerID)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.GetTask(id, accessOwnerID)
 }
 
 func (s *trafficReportService) ListTasks(ownerID uint64, page, pageSize int) ([]model.TrafficReportTask, int64, error) {
-	return s.repo.ListTasks(ownerID, page, pageSize)
+	accessOwnerID, err := s.accessOwnerID(ownerID)
+	if err != nil {
+		return nil, 0, err
+	}
+	return s.repo.ListTasks(accessOwnerID, page, pageSize)
 }
 
 func (s *trafficReportService) UpdateTask(ownerID, id uint64, input TrafficReportTaskUpdate) (*model.TrafficReportTask, error) {
-	task, err := s.repo.GetTask(id, ownerID)
+	accessOwnerID, err := s.accessOwnerID(ownerID)
+	if err != nil {
+		return nil, err
+	}
+	task, err := s.repo.GetTask(id, accessOwnerID)
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +259,11 @@ func (s *trafficReportService) UpdateTask(ownerID, id uint64, input TrafficRepor
 }
 
 func (s *trafficReportService) MigrateTaskToGoV1(ownerID, id uint64) (*TrafficReportTaskMigrationResult, error) {
-	task, err := s.repo.GetTask(id, ownerID)
+	accessOwnerID, err := s.accessOwnerID(ownerID)
+	if err != nil {
+		return nil, err
+	}
+	task, err := s.repo.GetTask(id, accessOwnerID)
 	if err != nil {
 		return nil, err
 	}
@@ -315,7 +336,11 @@ func (s *trafficReportService) MigrateTaskToGoV1(ownerID, id uint64) (*TrafficRe
 }
 
 func (s *trafficReportService) StartRun(ownerID, taskID uint64) (string, error) {
-	task, err := s.repo.GetTask(taskID, ownerID)
+	accessOwnerID, err := s.accessOwnerID(ownerID)
+	if err != nil {
+		return "", err
+	}
+	task, err := s.repo.GetTask(taskID, accessOwnerID)
 	if err != nil {
 		return "", err
 	}
@@ -337,23 +362,57 @@ func (s *trafficReportService) StartRun(ownerID, taskID uint64) (string, error) 
 }
 
 func (s *trafficReportService) GetRun(ownerID uint64, runID string) (*model.TrafficReportRun, error) {
-	return s.repo.GetRun(runID, ownerID)
+	accessOwnerID, err := s.accessOwnerID(ownerID)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.GetRun(runID, accessOwnerID)
 }
 
 func (s *trafficReportService) ListRuns(ownerID, taskID uint64, page, pageSize int) ([]model.TrafficReportRun, int64, error) {
-	return s.repo.ListRuns(ownerID, taskID, page, pageSize)
+	accessOwnerID, err := s.accessOwnerID(ownerID)
+	if err != nil {
+		return nil, 0, err
+	}
+	return s.repo.ListRuns(accessOwnerID, taskID, page, pageSize)
 }
 
 func (s *trafficReportService) DownloadArtifact(ownerID, artifactID uint64) (*model.TrafficReportArtifact, error) {
+	accessOwnerID, err := s.accessOwnerID(ownerID)
+	if err != nil {
+		return nil, err
+	}
 	var artifact model.TrafficReportArtifact
 	q := model.DB.Table("traffic_report_artifacts AS a").
 		Joins("JOIN traffic_report_runs r ON r.id = a.run_id").
 		Joins("JOIN traffic_report_tasks t ON t.id = r.task_id").
-		Where("a.id = ? AND t.owner_user_id = ?", artifactID, ownerID)
+		Where("a.id = ?", artifactID)
+	if accessOwnerID > 0 {
+		q = q.Where("t.owner_user_id = ?", accessOwnerID)
+	}
 	if err := q.First(&artifact).Error; err != nil {
 		return nil, err
 	}
 	return &artifact, nil
+}
+
+func (s *trafficReportService) accessOwnerID(userID uint64) (uint64, error) {
+	if userID == 0 {
+		return 0, NewBadRequest("invalid user id")
+	}
+	if s.roleRepo == nil {
+		return userID, nil
+	}
+	roles, err := s.roleRepo.GetUserRoles(userID)
+	if err != nil {
+		return 0, err
+	}
+	for _, role := range roles {
+		if strings.EqualFold(strings.TrimSpace(role.Name), "admin") {
+			return 0, nil
+		}
+	}
+	return userID, nil
 }
 
 func (s *trafficReportService) RunDueTasks(ctx context.Context) {

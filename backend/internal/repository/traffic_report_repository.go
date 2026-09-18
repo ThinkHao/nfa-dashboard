@@ -44,7 +44,10 @@ func (r *trafficReportRepository) GetTask(id, ownerID uint64) (*model.TrafficRep
 func (r *trafficReportRepository) ListTasks(ownerID uint64, page, pageSize int) ([]model.TrafficReportTask, int64, error) {
 	var items []model.TrafficReportTask
 	var total int64
-	q := model.DB.Model(&model.TrafficReportTask{}).Where("owner_user_id = ?", ownerID)
+	q := model.DB.Model(&model.TrafficReportTask{})
+	if ownerID > 0 {
+		q = q.Where("owner_user_id = ?", ownerID)
+	}
 	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
@@ -113,8 +116,10 @@ func (r *trafficReportRepository) ListRuns(ownerID uint64, taskID uint64, page, 
 	var items []model.TrafficReportRun
 	var total int64
 	q := model.DB.Model(&model.TrafficReportRun{}).
-		Joins("JOIN traffic_report_tasks ON traffic_report_tasks.id = traffic_report_runs.task_id").
-		Where("traffic_report_tasks.owner_user_id = ?", ownerID)
+		Joins("JOIN traffic_report_tasks ON traffic_report_tasks.id = traffic_report_runs.task_id")
+	if ownerID > 0 {
+		q = q.Where("traffic_report_tasks.owner_user_id = ?", ownerID)
+	}
 	if taskID > 0 {
 		q = q.Where("traffic_report_runs.task_id = ?", taskID)
 	}

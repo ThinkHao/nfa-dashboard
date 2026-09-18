@@ -111,7 +111,7 @@ func BuildEngine() *gin.Engine {
 	edcTrafficScopeController := controller.NewSystemEDCTrafficScopeController(edcScopeService, userService)
 	systemSettingsController := controller.NewSystemSettingsController(systemSettingsSvc)
 	trafficReportRepo := repository.NewTrafficReportRepository()
-	trafficReportSvc := service.NewTrafficReportService(trafficReportRepo, trafficScopeService, edcScopeService)
+	trafficReportSvc := service.NewTrafficReportService(trafficReportRepo, trafficScopeService, edcScopeService, userRepo)
 	trafficReportController := controller.NewTrafficReportController(trafficReportSvc)
 
 	opLogRepo := repository.NewOperationLogRepository()
