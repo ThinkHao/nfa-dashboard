@@ -42,7 +42,7 @@
               <div class="download-month-label"><strong>{{ formatMonthLabel(latestDownloadMonth.month) }}</strong><el-tag size="small" type="primary" effect="plain">最新月份</el-tag></div>
               <span>{{ latestDownloadMonth.run_count }} 次成功运行 · {{ latestDownloadMonth.artifact_count }} 个文件 · {{ formatBytes(latestDownloadMonth.total_size) }}</span>
             </div>
-            <el-button type="primary" plain :loading="monthlyDownload === latestDownloadMonth.month" :disabled="latestDownloadMonth.artifact_count === 0" @click="downloadMonth(latestDownloadMonth)">下载整月 ZIP</el-button>
+            <div class="download-month-actions"><el-button text type="primary" @click="openMonthPicker(latestDownloadMonth)">选择文件</el-button><el-button type="primary" plain :loading="monthlyDownload === latestDownloadMonth.month" :disabled="latestDownloadMonth.artifact_count === 0" @click="downloadMonth(latestDownloadMonth)">下载全部 ZIP</el-button></div>
           </div>
           <el-collapse v-if="historicalDownloadMonths.length" v-model="historicalDownloadsExpanded" class="historical-downloads">
             <el-collapse-item name="history">
@@ -53,7 +53,7 @@
                     <strong>{{ formatMonthLabel(month.month) }}</strong>
                     <span>{{ month.run_count }} 次成功运行 · {{ month.artifact_count }} 个文件 · {{ formatBytes(month.total_size) }}</span>
                   </div>
-                  <el-button type="primary" plain :loading="monthlyDownload === month.month" :disabled="month.artifact_count === 0" @click="downloadMonth(month)">下载整月 ZIP</el-button>
+                  <div class="download-month-actions"><el-button text type="primary" @click="openMonthPicker(month)">选择文件</el-button><el-button type="primary" plain :loading="monthlyDownload === month.month" :disabled="month.artifact_count === 0" @click="downloadMonth(month)">下载全部 ZIP</el-button></div>
                 </div>
               </div>
             </el-collapse-item>
@@ -62,6 +62,18 @@
         <div v-else-if="!downloadsLoading" class="download-empty">完成一次成功运行后，这里会按月份汇总可下载报表。</div>
       </div>
     </section>
+
+    <el-dialog v-model="monthPickerVisible" :title="selectedMonth ? `选择文件 · ${formatMonthLabel(selectedMonth.month)}` : '选择文件'" width="min(760px, 92vw)" :close-on-click-modal="false">
+      <div class="month-picker-toolbar"><span>已选 {{ selectedArtifactIds.length }} / {{ monthPickerFiles.length }} 个文件</span><el-checkbox v-model="monthPickerAllSelected">全选</el-checkbox></div>
+      <el-checkbox-group v-model="selectedArtifactIds" class="month-file-list">
+        <el-checkbox v-for="file in monthPickerFiles" :key="file.id" :label="file.id" class="month-file-option">
+          <span class="month-file-name">{{ file.file_name }}</span>
+          <span class="month-file-meta">{{ formatTime(file.run_at) }} · {{ formatBytes(file.file_size) }}</span>
+        </el-checkbox>
+      </el-checkbox-group>
+      <div v-if="!monthPickerFiles.length" class="download-empty">该月份暂时没有可选择的文件。</div>
+      <template #footer><el-button @click="monthPickerVisible = false">取消</el-button><el-button type="primary" :disabled="!selectedArtifactIds.length" :loading="Boolean(monthlyDownload)" @click="downloadSelectedMonth">下载已选 ZIP</el-button></template>
+    </el-dialog>
 
     <div class="report-workspace">
       <section class="task-pane" aria-label="报表任务列表">
@@ -248,6 +260,9 @@ const selectedTask = ref<TrafficReportTask | null>(null)
 const runs = ref<TrafficReportRun[]>([])
 const downloadMonths = ref<TrafficReportDownloadMonth[]>([])
 const historicalDownloadsExpanded = ref<string[]>([])
+const monthPickerVisible = ref(false)
+const selectedMonth = ref<TrafficReportDownloadMonth | null>(null)
+const selectedArtifactIds = ref<number[]>([])
 const searchText = ref('')
 const sourceFilter = ref('')
 const kindFilter = ref('')
@@ -279,6 +294,11 @@ const visibleTasks = computed(() => filteredTasks.value.slice((taskPage.value - 
 const sortedDownloadMonths = computed(() => downloadMonths.value.slice().sort((a, b) => b.month.localeCompare(a.month)))
 const latestDownloadMonth = computed(() => sortedDownloadMonths.value[0] || null)
 const historicalDownloadMonths = computed(() => sortedDownloadMonths.value.slice(1))
+const monthPickerFiles = computed(() => selectedMonth.value?.files || [])
+const monthPickerAllSelected = computed({
+  get: () => Boolean(monthPickerFiles.value.length && selectedArtifactIds.value.length === monthPickerFiles.value.length),
+  set: (checked: boolean) => { selectedArtifactIds.value = checked ? monthPickerFiles.value.map((file) => file.id) : [] },
+})
 const latestRun = computed(() => runs.value.slice().sort(runSort)[0] || null)
 const latestSuccessfulRun = computed(() => runs.value.filter((run) => run.status === 'success').slice().sort(runSort)[0] || null)
 const budgetSummary = computed(() => {
@@ -371,7 +391,9 @@ async function migrateTask(task: TrafficReportTask) {
   }
 }
 async function download(artifact: TrafficReportArtifact) { try { const blob = await api.trafficReports.downloadArtifact(artifact.id); triggerBlobDownload(blob, artifact.file_name) } catch (error: any) { ElMessage.error(error?.response?.data?.message || error?.message || '下载失败') } }
-async function downloadMonth(month: TrafficReportDownloadMonth) { if (!month.artifact_count || monthlyDownload.value) return; monthlyDownload.value = month.month; try { const blob = await api.trafficReports.downloadMonthlyArchive(month.month); triggerBlobDownload(blob, `traffic-reports-${month.month}.zip`); ElMessage.success(`${formatMonthLabel(month.month)}报表已打包`) } catch (error: any) { ElMessage.error(error?.response?.data?.message || error?.message || '整月报表下载失败') } finally { monthlyDownload.value = '' } }
+function openMonthPicker(month: TrafficReportDownloadMonth) { selectedMonth.value = month; selectedArtifactIds.value = (month.files || []).map((file) => file.id); monthPickerVisible.value = true }
+async function downloadMonth(month: TrafficReportDownloadMonth, artifactIds?: number[]) { if (!month.artifact_count || monthlyDownload.value) return; const selected = artifactIds?.length ? artifactIds : undefined; monthlyDownload.value = month.month; try { const blob = await api.trafficReports.downloadMonthlyArchive(month.month, selected); const isFull = !selected || selected.length === month.artifact_count; triggerBlobDownload(blob, `traffic-reports-${month.month}${isFull ? '' : '-selected'}.zip`); ElMessage.success(`${formatMonthLabel(month.month)}报表已打包`) } catch (error: any) { ElMessage.error(error?.response?.data?.message || error?.message || '报表下载失败') } finally { monthlyDownload.value = '' } }
+async function downloadSelectedMonth() { if (!selectedMonth.value || !selectedArtifactIds.value.length) return; const month = selectedMonth.value; const artifactIds = selectedArtifactIds.value.slice(); monthPickerVisible.value = false; await downloadMonth(month, artifactIds) }
 watch([searchText, sourceFilter, kindFilter, stateFilter, budgetOnly], () => { taskPage.value = 1 })
 onMounted(() => { void loadTasks(); void loadDownloadMonths(); if (route.query.create === '1') openCreate(); if (route.query.create) router.replace({ path: '/traffic-reports', query: {} }) })
 </script>
@@ -394,6 +416,7 @@ onMounted(() => { void loadTasks(); void loadDownloadMonths(); if (route.query.c
 .download-month-label { display: flex; align-items: center; gap: 8px; }
 .download-month-main span { color: var(--text-muted); font-size: 12px; }
 .download-month-latest { padding-top: 14px; padding-bottom: 16px; }
+.download-month-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 4px; }
 .historical-downloads { border-top: 1px solid var(--border-color); border-bottom: 0; }
 .historical-downloads :deep(.el-collapse-item__header) { height: 44px; color: var(--text-default); font-size: 13px; font-weight: 600; }
 .historical-downloads :deep(.el-collapse-item__wrap) { border-bottom: 0; }
@@ -401,6 +424,12 @@ onMounted(() => { void loadTasks(); void loadDownloadMonths(); if (route.query.c
 .download-history-title { display: flex; align-items: center; gap: 8px; }
 .download-history-count { color: var(--text-muted); font-size: 12px; font-weight: 400; }
 .download-empty { padding: 14px 0; color: var(--text-muted); font-size: 12px; }
+.month-picker-toolbar { display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; color: var(--text-muted); font-size: 12px; }
+.month-file-list { display: grid; max-height: min(54vh, 480px); grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; overflow-y: auto; padding: 4px 2px; }
+.month-file-option { display: flex; min-width: 0; align-items: flex-start; margin-right: 0; padding: 10px 12px; background: var(--bg-page); border: 1px solid var(--border-color); border-radius: 8px; }
+.month-file-option :deep(.el-checkbox__label) { display: flex; min-width: 0; flex-direction: column; gap: 4px; overflow: hidden; }
+.month-file-name { overflow: hidden; color: var(--text-default); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.month-file-meta { color: var(--text-muted); font-size: 11px; }
 .report-workspace { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(360px, .85fr); gap: 16px; align-items: stretch; }
 .task-pane, .task-inspector { min-width: 0; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; }
 .task-pane { display: flex; flex-direction: column; min-height: 650px; overflow: hidden; }
@@ -460,5 +489,5 @@ onMounted(() => { void loadTasks(); void loadDownloadMonths(); if (route.query.c
 .budget-input { margin-left: 10px; }
 .formula-text { margin: 0 8px; color: var(--text-muted); }
 @media (max-width: 1050px) { .report-workspace { grid-template-columns: 1fr; } .task-pane, .task-inspector { min-height: auto; } .task-pane { max-height: 660px; } }
-@media (max-width: 680px) { .report-heading { align-items: stretch; flex-direction: column; } .report-toolbar > * { flex: 1 1 140px; } .report-toolbar .toolbar-spacer { display: none; } .search-field, .filter-field { width: auto; } .download-heading, .download-month-row { align-items: flex-start; flex-direction: column; } .download-month-row .el-button { width: 100%; } .task-row { align-items: flex-start; flex-direction: column; gap: 8px; } .task-row-side { align-items: flex-start; } .latest-metrics, .budget-grid { grid-template-columns: 1fr 1fr; } .inspector-head { flex-direction: column; } }
+@media (max-width: 680px) { .report-heading { align-items: stretch; flex-direction: column; } .report-toolbar > * { flex: 1 1 140px; } .report-toolbar .toolbar-spacer { display: none; } .search-field, .filter-field { width: auto; } .download-heading, .download-month-row { align-items: flex-start; flex-direction: column; } .download-month-actions { width: 100%; } .download-month-actions .el-button { flex: 1; } .task-row { align-items: flex-start; flex-direction: column; gap: 8px; } .task-row-side { align-items: flex-start; } .latest-metrics, .budget-grid { grid-template-columns: 1fr 1fr; } .inspector-head { flex-direction: column; } .month-file-list { grid-template-columns: 1fr; } }
 </style>

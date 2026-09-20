@@ -56,10 +56,20 @@ type TrafficReportTaskMigrationResult struct {
 }
 
 type TrafficReportDownloadMonth struct {
-	Month         string `json:"month"`
-	RunCount      int    `json:"run_count"`
-	ArtifactCount int    `json:"artifact_count"`
-	TotalSize     int64  `json:"total_size"`
+	Month         string                      `json:"month"`
+	RunCount      int                         `json:"run_count"`
+	ArtifactCount int                         `json:"artifact_count"`
+	TotalSize     int64                       `json:"total_size"`
+	Files         []TrafficReportDownloadFile `json:"files"`
+}
+
+type TrafficReportDownloadFile struct {
+	ID        uint64    `json:"id"`
+	RunID     string    `json:"run_id"`
+	FileName  string    `json:"file_name"`
+	MediaType string    `json:"media_type"`
+	FileSize  int64     `json:"file_size"`
+	RunAt     time.Time `json:"run_at"`
 }
 
 type TrafficReportMonthlyArchive struct {
@@ -114,7 +124,7 @@ type TrafficReportService interface {
 	GetTask(ownerID, id uint64) (*model.TrafficReportTask, error)
 	ListTasks(ownerID uint64, page, pageSize int) ([]model.TrafficReportTask, int64, error)
 	ListDownloadMonths(ownerID uint64) ([]TrafficReportDownloadMonth, error)
-	CreateMonthlyArchive(ownerID uint64, month string) (*TrafficReportMonthlyArchive, error)
+	CreateMonthlyArchive(ownerID uint64, month string, artifactIDs []uint64) (*TrafficReportMonthlyArchive, error)
 	UpdateTask(ownerID, id uint64, input TrafficReportTaskUpdate) (*model.TrafficReportTask, error)
 	MigrateTaskToGoV1(ownerID, id uint64) (*TrafficReportTaskMigrationResult, error)
 	StartRun(ownerID, taskID uint64) (string, error)
@@ -250,13 +260,18 @@ func (s *trafficReportService) ListDownloadMonths(ownerID uint64) ([]TrafficRepo
 		}
 		group := groups[month]
 		if group == nil {
-			group = &TrafficReportDownloadMonth{Month: month}
+			group = &TrafficReportDownloadMonth{Month: month, Files: make([]TrafficReportDownloadFile, 0)}
 			groups[month] = group
 		}
 		group.RunCount++
 		group.ArtifactCount += len(run.Artifacts)
+		runAt := run.CreatedAt
+		if run.FinishedAt != nil {
+			runAt = *run.FinishedAt
+		}
 		for _, artifact := range run.Artifacts {
 			group.TotalSize += artifact.FileSize
+			group.Files = append(group.Files, TrafficReportDownloadFile{ID: artifact.ID, RunID: artifact.RunID, FileName: artifact.FileName, MediaType: artifact.MediaType, FileSize: artifact.FileSize, RunAt: runAt})
 		}
 	}
 	months := make([]TrafficReportDownloadMonth, 0, len(groups))
@@ -267,7 +282,7 @@ func (s *trafficReportService) ListDownloadMonths(ownerID uint64) ([]TrafficRepo
 	return months, nil
 }
 
-func (s *trafficReportService) CreateMonthlyArchive(ownerID uint64, month string) (*TrafficReportMonthlyArchive, error) {
+func (s *trafficReportService) CreateMonthlyArchive(ownerID uint64, month string, artifactIDs []uint64) (*TrafficReportMonthlyArchive, error) {
 	accessOwnerID, err := s.accessOwnerID(ownerID)
 	if err != nil {
 		return nil, err
@@ -286,6 +301,30 @@ func (s *trafficReportService) CreateMonthlyArchive(ownerID uint64, month string
 		}
 	}
 	runs = filteredRuns
+	selectedIDs := make(map[uint64]struct{}, len(artifactIDs))
+	for _, artifactID := range artifactIDs {
+		if artifactID == 0 {
+			return nil, NewBadRequest("artifact_ids must contain positive ids")
+		}
+		selectedIDs[artifactID] = struct{}{}
+	}
+	if len(selectedIDs) > 0 {
+		matchedIDs := make(map[uint64]struct{}, len(selectedIDs))
+		for runIndex := range runs {
+			selectedArtifacts := make([]model.TrafficReportArtifact, 0, len(runs[runIndex].Artifacts))
+			for _, artifact := range runs[runIndex].Artifacts {
+				if _, ok := selectedIDs[artifact.ID]; !ok {
+					continue
+				}
+				selectedArtifacts = append(selectedArtifacts, artifact)
+				matchedIDs[artifact.ID] = struct{}{}
+			}
+			runs[runIndex].Artifacts = selectedArtifacts
+		}
+		if len(matchedIDs) != len(selectedIDs) {
+			return nil, NewBadRequest("所选文件不属于该月份或无权限")
+		}
+	}
 	artifactCount := 0
 	for _, run := range runs {
 		artifactCount += len(run.Artifacts)
@@ -350,7 +389,11 @@ func (s *trafficReportService) CreateMonthlyArchive(ownerID uint64, month string
 		return nil, err
 	}
 	cleanup = false
-	return &TrafficReportMonthlyArchive{Path: tempPath, FileName: "traffic-reports-" + month + ".zip", ArtifactCount: artifactCount}, nil
+	fileName := "traffic-reports-" + month + ".zip"
+	if len(selectedIDs) > 0 {
+		fileName = "traffic-reports-" + month + "-selected.zip"
+	}
+	return &TrafficReportMonthlyArchive{Path: tempPath, FileName: fileName, ArtifactCount: artifactCount}, nil
 }
 
 var trafficReportMonthPattern = regexp.MustCompile(`^\d{4}-(0[1-9]|1[0-2])$`)

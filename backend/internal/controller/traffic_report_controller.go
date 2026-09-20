@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"nfa-dashboard/config"
@@ -53,7 +54,12 @@ func (c *TrafficReportController) DownloadMonthlyArchive(ctx *gin.Context) {
 		ctx.JSON(http.StatusUnauthorized, gin.H{"message": "unauthorized"})
 		return
 	}
-	archive, err := c.svc.CreateMonthlyArchive(uid, ctx.Param("month"))
+	artifactIDs, err := parseTrafficReportArtifactIDs(ctx.Query("artifact_ids"))
+	if err != nil {
+		writeTrafficReportServiceError(ctx, err)
+		return
+	}
+	archive, err := c.svc.CreateMonthlyArchive(uid, ctx.Param("month"), artifactIDs)
 	if err != nil {
 		writeTrafficReportServiceError(ctx, err)
 		return
@@ -61,6 +67,27 @@ func (c *TrafficReportController) DownloadMonthlyArchive(ctx *gin.Context) {
 	defer os.Remove(archive.Path)
 	ctx.Header("Content-Type", "application/zip")
 	ctx.FileAttachment(archive.Path, archive.FileName)
+}
+
+func parseTrafficReportArtifactIDs(raw string) ([]uint64, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	seen := make(map[uint64]struct{})
+	ids := make([]uint64, 0)
+	for _, value := range strings.Split(raw, ",") {
+		id, err := strconv.ParseUint(strings.TrimSpace(value), 10, 64)
+		if err != nil || id == 0 {
+			return nil, service.NewBadRequest("artifact_ids must be comma-separated positive ids")
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 func (c *TrafficReportController) CreateTask(ctx *gin.Context) {

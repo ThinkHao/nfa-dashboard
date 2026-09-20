@@ -121,8 +121,9 @@ export default {
     listDownloadMonths() {
       return api.get('/api/v1/traffic-reports/downloads/months').then((d: any) => d as { items: TrafficReportDownloadMonth[] })
     },
-    downloadMonthlyArchive(month: string): Promise<Blob> {
-      return api.get(`/api/v1/traffic-reports/downloads/months/${encodeURIComponent(month)}`, { responseType: 'blob' as any }).then((d: any) => d as Blob)
+    downloadMonthlyArchive(month: string, artifactIds?: number[]): Promise<Blob> {
+      const params = artifactIds?.length ? { artifact_ids: artifactIds.join(',') } : undefined
+      return api.get(`/api/v1/traffic-reports/downloads/months/${encodeURIComponent(month)}`, { params, responseType: 'blob' as any }).then((d: any) => d as Blob)
     },
     getRun(id: string) {
       return api.get(`/api/v1/traffic-reports/runs/${id}`).then((d: any) => d as { run: TrafficReportRun })

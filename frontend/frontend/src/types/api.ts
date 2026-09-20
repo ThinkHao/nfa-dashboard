@@ -150,6 +150,16 @@ export interface TrafficReportDownloadMonth {
   run_count: number;
   artifact_count: number;
   total_size: number;
+  files?: TrafficReportDownloadFile[];
+}
+
+export interface TrafficReportDownloadFile {
+  id: number;
+  run_id: string;
+  file_name: string;
+  media_type: string;
+  file_size: number;
+  run_at?: string;
 }
 
 // 操作日志
