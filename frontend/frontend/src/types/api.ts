@@ -145,6 +145,13 @@ export interface TrafficReportRun {
   artifacts?: TrafficReportArtifact[];
 }
 
+export interface TrafficReportDownloadMonth {
+  month: string;
+  run_count: number;
+  artifact_count: number;
+  total_size: number;
+}
+
 // 操作日志
 export interface OperationLog {
   id: number;

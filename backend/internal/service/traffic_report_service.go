@@ -1,6 +1,7 @@
 package service
 
 import (
+	"archive/zip"
 	"context"
 	"crypto/rand"
 	"encoding/csv"
@@ -8,8 +9,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -50,6 +53,19 @@ type TrafficReportTaskUpdate struct {
 type TrafficReportTaskMigrationResult struct {
 	Task     *model.TrafficReportTask `json:"task"`
 	Warnings []string                 `json:"warnings,omitempty"`
+}
+
+type TrafficReportDownloadMonth struct {
+	Month         string `json:"month"`
+	RunCount      int    `json:"run_count"`
+	ArtifactCount int    `json:"artifact_count"`
+	TotalSize     int64  `json:"total_size"`
+}
+
+type TrafficReportMonthlyArchive struct {
+	Path          string
+	FileName      string
+	ArtifactCount int
 }
 
 type trafficReportParams struct {
@@ -97,6 +113,8 @@ type TrafficReportService interface {
 	CreateTask(ownerID uint64, input TrafficReportTaskInput) (*model.TrafficReportTask, error)
 	GetTask(ownerID, id uint64) (*model.TrafficReportTask, error)
 	ListTasks(ownerID uint64, page, pageSize int) ([]model.TrafficReportTask, int64, error)
+	ListDownloadMonths(ownerID uint64) ([]TrafficReportDownloadMonth, error)
+	CreateMonthlyArchive(ownerID uint64, month string) (*TrafficReportMonthlyArchive, error)
 	UpdateTask(ownerID, id uint64, input TrafficReportTaskUpdate) (*model.TrafficReportTask, error)
 	MigrateTaskToGoV1(ownerID, id uint64) (*TrafficReportTaskMigrationResult, error)
 	StartRun(ownerID, taskID uint64) (string, error)
@@ -213,6 +231,178 @@ func (s *trafficReportService) ListTasks(ownerID uint64, page, pageSize int) ([]
 		return nil, 0, err
 	}
 	return s.repo.ListTasks(accessOwnerID, page, pageSize)
+}
+
+func (s *trafficReportService) ListDownloadMonths(ownerID uint64) ([]TrafficReportDownloadMonth, error) {
+	accessOwnerID, err := s.accessOwnerID(ownerID)
+	if err != nil {
+		return nil, err
+	}
+	runs, err := s.repo.ListSuccessfulRuns(accessOwnerID, "")
+	if err != nil {
+		return nil, err
+	}
+	groups := make(map[string]*TrafficReportDownloadMonth)
+	for _, run := range runs {
+		month := trafficReportRunMonth(run)
+		if month == "" {
+			continue
+		}
+		group := groups[month]
+		if group == nil {
+			group = &TrafficReportDownloadMonth{Month: month}
+			groups[month] = group
+		}
+		group.RunCount++
+		group.ArtifactCount += len(run.Artifacts)
+		for _, artifact := range run.Artifacts {
+			group.TotalSize += artifact.FileSize
+		}
+	}
+	months := make([]TrafficReportDownloadMonth, 0, len(groups))
+	for _, group := range groups {
+		months = append(months, *group)
+	}
+	sort.Slice(months, func(i, j int) bool { return months[i].Month > months[j].Month })
+	return months, nil
+}
+
+func (s *trafficReportService) CreateMonthlyArchive(ownerID uint64, month string) (*TrafficReportMonthlyArchive, error) {
+	accessOwnerID, err := s.accessOwnerID(ownerID)
+	if err != nil {
+		return nil, err
+	}
+	if !trafficReportMonthPattern.MatchString(month) {
+		return nil, NewBadRequest("month must be formatted as YYYY-MM")
+	}
+	runs, err := s.repo.ListSuccessfulRuns(accessOwnerID, month)
+	if err != nil {
+		return nil, err
+	}
+	artifactCount := 0
+	for _, run := range runs {
+		artifactCount += len(run.Artifacts)
+	}
+	if artifactCount == 0 {
+		return nil, NewBadRequest("该月份没有可下载的成功报表")
+	}
+
+	root, err := filepath.Abs(config.GetTrafficReportStorageDir())
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(root, 0o750); err != nil {
+		return nil, err
+	}
+	temp, err := os.CreateTemp(root, ".traffic-reports-"+month+"-*.zip")
+	if err != nil {
+		return nil, err
+	}
+	tempPath := temp.Name()
+	cleanup := true
+	defer func() {
+		_ = temp.Close()
+		if cleanup {
+			_ = os.Remove(tempPath)
+		}
+	}()
+
+	archive := zip.NewWriter(temp)
+	usedNames := map[string]int{}
+	for _, run := range runs {
+		for _, artifact := range run.Artifacts {
+			path, err := safeTrafficReportArtifactPath(root, artifact.StoragePath)
+			if err != nil {
+				return nil, err
+			}
+			file, err := os.Open(path)
+			if err != nil {
+				return nil, err
+			}
+			name := fmt.Sprintf("%s/run-%s/%s", month, run.ID, safeTrafficReportArchiveName(artifact.FileName))
+			name = uniqueTrafficReportArchiveName(name, usedNames)
+			header := &zip.FileHeader{Name: name, Method: zip.Deflate}
+			header.SetMode(0o640)
+			writer, err := archive.CreateHeader(header)
+			if err == nil {
+				_, err = io.Copy(writer, file)
+			}
+			closeErr := file.Close()
+			if err != nil {
+				return nil, err
+			}
+			if closeErr != nil {
+				return nil, closeErr
+			}
+		}
+	}
+	if err := archive.Close(); err != nil {
+		return nil, err
+	}
+	if err := temp.Close(); err != nil {
+		return nil, err
+	}
+	cleanup = false
+	return &TrafficReportMonthlyArchive{Path: tempPath, FileName: "traffic-reports-" + month + ".zip", ArtifactCount: artifactCount}, nil
+}
+
+var trafficReportMonthPattern = regexp.MustCompile(`^\d{4}-(0[1-9]|1[0-2])$`)
+
+func trafficReportRunMonth(run model.TrafficReportRun) string {
+	t := run.CreatedAt
+	if run.FinishedAt != nil {
+		t = *run.FinishedAt
+	}
+	if t.IsZero() {
+		return ""
+	}
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		return t.Format("2006-01")
+	}
+	return t.In(loc).Format("2006-01")
+}
+
+func safeTrafficReportArtifactPath(root, candidate string) (string, error) {
+	path, err := filepath.Abs(candidate)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", errors.New("invalid traffic report artifact path")
+	}
+	return path, nil
+}
+
+func safeTrafficReportArchiveName(value string) string {
+	value = filepath.Base(strings.ReplaceAll(value, "\\", "/"))
+	if value == "" || value == "." || value == ".." {
+		return "artifact"
+	}
+	var b strings.Builder
+	for _, r := range value {
+		if r < 0x20 || r == '/' || r == '\\' {
+			b.WriteRune('_')
+			continue
+		}
+		b.WriteRune(r)
+	}
+	if b.Len() == 0 {
+		return "artifact"
+	}
+	return b.String()
+}
+
+func uniqueTrafficReportArchiveName(name string, used map[string]int) string {
+	count := used[name]
+	used[name] = count + 1
+	if count == 0 {
+		return name
+	}
+	ext := filepath.Ext(name)
+	base := strings.TrimSuffix(name, ext)
+	return fmt.Sprintf("%s-%d%s", base, count+1, ext)
 }
 
 func (s *trafficReportService) UpdateTask(ownerID, id uint64, input TrafficReportTaskUpdate) (*model.TrafficReportTask, error) {

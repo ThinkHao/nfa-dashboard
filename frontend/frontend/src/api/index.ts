@@ -51,6 +51,7 @@ import type {
   SettlementRuleScopeOptions,
   TrafficReportTask,
   TrafficReportRun,
+  TrafficReportDownloadMonth,
 } from '@/types/api'
 import type { AxiosRequestConfig } from 'axios'
 import { api, raw } from './httpClient'
@@ -116,6 +117,12 @@ export default {
     },
     listRuns(params?: any) {
       return api.get('/api/v1/traffic-reports/runs', { params }).then((d: any) => d as { items: TrafficReportRun[]; total: number })
+    },
+    listDownloadMonths() {
+      return api.get('/api/v1/traffic-reports/downloads/months').then((d: any) => d as { items: TrafficReportDownloadMonth[] })
+    },
+    downloadMonthlyArchive(month: string): Promise<Blob> {
+      return api.get(`/api/v1/traffic-reports/downloads/months/${encodeURIComponent(month)}`, { responseType: 'blob' as any }).then((d: any) => d as Blob)
     },
     getRun(id: string) {
       return api.get(`/api/v1/traffic-reports/runs/${id}`).then((d: any) => d as { run: TrafficReportRun })

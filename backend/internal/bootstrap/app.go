@@ -174,6 +174,8 @@ func BuildEngine() *gin.Engine {
 			reports.GET("/runs", authMW.PermissionRequired("traffic.report.read"), trafficReportController.ListRuns)
 			reports.GET("/runs/:id", authMW.PermissionRequired("traffic.report.read"), trafficReportController.GetRun)
 			reports.GET("/artifacts/:id/download", authMW.PermissionRequired("traffic.report.read"), trafficReportController.DownloadArtifact)
+			reports.GET("/downloads/months", authMW.PermissionRequired("traffic.report.read"), trafficReportController.ListDownloadMonths)
+			reports.GET("/downloads/months/:month", authMW.PermissionRequired("traffic.report.read"), trafficReportController.DownloadMonthlyArchive)
 		}
 
 		settlement := api.Group("/settlement", authMW.AuthRequired())

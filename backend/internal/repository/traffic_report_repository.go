@@ -10,6 +10,7 @@ type TrafficReportRepository interface {
 	CreateTask(task *model.TrafficReportTask) error
 	GetTask(id, ownerID uint64) (*model.TrafficReportTask, error)
 	ListTasks(ownerID uint64, page, pageSize int) ([]model.TrafficReportTask, int64, error)
+	ListSuccessfulRuns(ownerID uint64, month string) ([]model.TrafficReportRun, error)
 	UpdateTask(task *model.TrafficReportTask) error
 	ListDueTasks(now time.Time, limit int) ([]model.TrafficReportTask, error)
 	ClaimTaskRun(taskID uint64, now, nextRun time.Time) bool
@@ -61,6 +62,23 @@ func (r *trafficReportRepository) ListTasks(ownerID uint64, page, pageSize int) 
 		return nil, 0, err
 	}
 	return items, total, nil
+}
+
+func (r *trafficReportRepository) ListSuccessfulRuns(ownerID uint64, month string) ([]model.TrafficReportRun, error) {
+	var runs []model.TrafficReportRun
+	q := model.DB.Model(&model.TrafficReportRun{}).
+		Joins("JOIN traffic_report_tasks ON traffic_report_tasks.id = traffic_report_runs.task_id").
+		Where("traffic_report_runs.status = ?", model.TrafficReportStatusSuccess)
+	if ownerID > 0 {
+		q = q.Where("traffic_report_tasks.owner_user_id = ?", ownerID)
+	}
+	if month != "" {
+		q = q.Where("DATE_FORMAT(COALESCE(traffic_report_runs.finished_at, traffic_report_runs.created_at), '%Y-%m') = ?", month)
+	}
+	if err := q.Preload("Artifacts").Order("traffic_report_runs.created_at DESC").Find(&runs).Error; err != nil {
+		return nil, err
+	}
+	return runs, nil
 }
 
 func (r *trafficReportRepository) UpdateTask(task *model.TrafficReportTask) error {

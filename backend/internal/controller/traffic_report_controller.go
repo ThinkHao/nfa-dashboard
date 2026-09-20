@@ -33,6 +33,36 @@ func (c *TrafficReportController) ListTasks(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"items": items, "total": total, "page": page, "page_size": size})
 }
 
+func (c *TrafficReportController) ListDownloadMonths(ctx *gin.Context) {
+	uid, ok := currentUserID(ctx)
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"message": "unauthorized"})
+		return
+	}
+	items, err := c.svc.ListDownloadMonths(uid)
+	if err != nil {
+		writeTrafficReportServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"items": items})
+}
+
+func (c *TrafficReportController) DownloadMonthlyArchive(ctx *gin.Context) {
+	uid, ok := currentUserID(ctx)
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"message": "unauthorized"})
+		return
+	}
+	archive, err := c.svc.CreateMonthlyArchive(uid, ctx.Param("month"))
+	if err != nil {
+		writeTrafficReportServiceError(ctx, err)
+		return
+	}
+	defer os.Remove(archive.Path)
+	ctx.Header("Content-Type", "application/zip")
+	ctx.FileAttachment(archive.Path, archive.FileName)
+}
+
 func (c *TrafficReportController) CreateTask(ctx *gin.Context) {
 	uid, ok := currentUserID(ctx)
 	if !ok {

@@ -26,6 +26,27 @@
       <el-button text :loading="loading" @click="loadTasks">刷新</el-button>
     </section>
 
+    <section class="download-section" aria-label="统一报表下载">
+      <div class="download-heading">
+        <div>
+          <div class="eyebrow">统一下载</div>
+          <h2>按月下载全部报表</h2>
+          <p>将当月成功运行的 CSV、XLSX 和元数据一次打包下载。</p>
+        </div>
+        <el-button text :loading="downloadsLoading" @click="loadDownloadMonths">刷新月份</el-button>
+      </div>
+      <div v-loading="downloadsLoading" class="download-month-list">
+        <div v-for="month in downloadMonths" :key="month.month" class="download-month-row">
+          <div class="download-month-main">
+            <strong>{{ formatMonthLabel(month.month) }}</strong>
+            <span>{{ month.run_count }} 次成功运行 · {{ month.artifact_count }} 个文件 · {{ formatBytes(month.total_size) }}</span>
+          </div>
+          <el-button type="primary" plain :loading="monthlyDownload === month.month" :disabled="month.artifact_count === 0" @click="downloadMonth(month)">下载整月 ZIP</el-button>
+        </div>
+        <div v-if="!downloadsLoading && !downloadMonths.length" class="download-empty">完成一次成功运行后，这里会按月份汇总可下载报表。</div>
+      </div>
+    </section>
+
     <div class="report-workspace">
       <section class="task-pane" aria-label="报表任务列表">
         <div class="pane-header">
@@ -191,7 +212,7 @@ import PageHeader from '@/components/ui/PageHeader.vue'
 import api from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { useTasksStore } from '@/stores/tasks'
-import type { TrafficReportArtifact, TrafficReportRun, TrafficReportTask } from '@/types/api'
+import type { TrafficReportArtifact, TrafficReportDownloadMonth, TrafficReportRun, TrafficReportTask } from '@/types/api'
 import { triggerBlobDownload } from '@/utils/export'
 
 const route = useRoute()
@@ -202,11 +223,14 @@ const canWrite = computed(() => auth.hasPermission('traffic.report.write'))
 const loading = ref(false)
 const runsLoading = ref(false)
 const submitting = ref(false)
+const downloadsLoading = ref(false)
+const monthlyDownload = ref('')
 const dialogVisible = ref(false)
 const runsVisible = ref(false)
 const tasks = ref<TrafficReportTask[]>([])
 const selectedTask = ref<TrafficReportTask | null>(null)
 const runs = ref<TrafficReportRun[]>([])
+const downloadMonths = ref<TrafficReportDownloadMonth[]>([])
 const searchText = ref('')
 const sourceFilter = ref('')
 const kindFilter = ref('')
@@ -259,6 +283,8 @@ function runSort(a: TrafficReportRun, b: TrafficReportRun) { return Date.parse(b
 function formatTime(value?: string) { if (!value) return '—'; const date = new Date(value); return Number.isNaN(date.getTime()) ? value : date.toLocaleString() }
 function formatNumber(value: unknown) { const number = numberOrNull(value); return number == null ? '—' : number.toFixed(3) }
 function formatBudgetValue(value: unknown, base: number) { const number = numberOrNull(value); return number == null ? '—' : `${(number / base).toFixed(4)} Gbps` }
+function formatMonthLabel(month: string) { const [year, rawMonth] = month.split('-'); return year && rawMonth ? `${year}年${rawMonth}月` : month }
+function formatBytes(value: number) { if (!Number.isFinite(value) || value < 1024) return `${Math.max(0, Number(value) || 0)} B`; const units = ['KB', 'MB', 'GB', 'TB']; let size = value; let index = -1; do { size /= 1024; index += 1 } while (size >= 1024 && index < units.length - 1); return `${size.toFixed(size >= 10 ? 0 : 1)} ${units[index]}` }
 function sourceLabel(task: TrafficReportTask) { return task.data_source_type === 'edc' ? 'EDC' : 'NFA' }
 function kindLabel(task: TrafficReportTask) { return task.kind === 'periodic' ? '周期计划' : '一次性' }
 function windowLabel(task: TrafficReportTask) { const labels: Record<string, string> = { last_week: '上周', last_month: '上月', last_n_days: `最近${task.window_params?.n || 'N'}天`, custom: '自定义窗口' }; return labels[task.window_selector] || task.window_selector || '—' }
@@ -281,6 +307,10 @@ async function loadTasks() {
     if (!selectedTask.value && all.length) selectTask(all[0])
   } catch (error: any) { ElMessage.error(error?.response?.data?.message || error?.message || '加载报表计划失败') } finally { loading.value = false }
 }
+async function loadDownloadMonths() {
+  downloadsLoading.value = true
+  try { const res = await api.trafficReports.listDownloadMonths(); downloadMonths.value = res.items || [] } catch (error: any) { ElMessage.error(error?.response?.data?.message || error?.message || '加载统一下载列表失败') } finally { downloadsLoading.value = false }
+}
 async function loadRuns() {
   if (!selectedTask.value) return
   runsLoading.value = true
@@ -297,7 +327,7 @@ function trackRun(runId: string, title: string, taskId?: number) {
   const id = `traffic-report:${runId}`
   taskStore.start({ id, type: 'export', title, status: 'pending', progress: 0, info: '已提交报表任务' })
   const poll = async () => {
-    try { const res = await api.trafficReports.getRun(runId); const run = res.run; const status = run.status === 'success' ? 'success' : run.status === 'failed' ? 'failed' : 'running'; taskStore.update(id, { status, progress: Math.max(0, Math.min(1, Number(run.progress_pct || 0) / 100)), stage: run.progress_stage || undefined, info: run.error_message || run.progress_stage || '执行中' }); if (run.status === 'success' || run.status === 'failed') { pollingRuns.delete(runId); if (selectedTask.value?.id === taskId) void loadRuns(); window.setTimeout(() => taskStore.remove(id), 15000); return } } catch { /* 运行记录会显示最终错误 */ }
+    try { const res = await api.trafficReports.getRun(runId); const run = res.run; const status = run.status === 'success' ? 'success' : run.status === 'failed' ? 'failed' : 'running'; taskStore.update(id, { status, progress: Math.max(0, Math.min(1, Number(run.progress_pct || 0) / 100)), stage: run.progress_stage || undefined, info: run.error_message || run.progress_stage || '执行中' }); if (run.status === 'success' || run.status === 'failed') { pollingRuns.delete(runId); if (run.status === 'success') void loadDownloadMonths(); if (selectedTask.value?.id === taskId) void loadRuns(); window.setTimeout(() => taskStore.remove(id), 15000); return } } catch { /* 运行记录会显示最终错误 */ }
     window.setTimeout(poll, 1600)
   }
   void poll()
@@ -321,8 +351,9 @@ async function migrateTask(task: TrafficReportTask) {
   }
 }
 async function download(artifact: TrafficReportArtifact) { try { const blob = await api.trafficReports.downloadArtifact(artifact.id); triggerBlobDownload(blob, artifact.file_name) } catch (error: any) { ElMessage.error(error?.response?.data?.message || error?.message || '下载失败') } }
+async function downloadMonth(month: TrafficReportDownloadMonth) { if (!month.artifact_count || monthlyDownload.value) return; monthlyDownload.value = month.month; try { const blob = await api.trafficReports.downloadMonthlyArchive(month.month); triggerBlobDownload(blob, `traffic-reports-${month.month}.zip`); ElMessage.success(`${formatMonthLabel(month.month)}报表已打包`) } catch (error: any) { ElMessage.error(error?.response?.data?.message || error?.message || '整月报表下载失败') } finally { monthlyDownload.value = '' } }
 watch([searchText, sourceFilter, kindFilter, stateFilter, budgetOnly], () => { taskPage.value = 1 })
-onMounted(() => { void loadTasks(); if (route.query.create === '1') openCreate(); if (route.query.create) router.replace({ path: '/traffic-reports', query: {} }) })
+onMounted(() => { void loadTasks(); void loadDownloadMonths(); if (route.query.create === '1') openCreate(); if (route.query.create) router.replace({ path: '/traffic-reports', query: {} }) })
 </script>
 
 <style scoped>
@@ -332,6 +363,16 @@ onMounted(() => { void loadTasks(); if (route.query.create === '1') openCreate()
 .filter-field { width: 126px; }
 .toolbar-spacer { flex: 1 1 auto; }
 .toolbar-count, .pane-count { color: var(--text-muted); font-size: 12px; }
+.download-section { margin-bottom: var(--space-4); padding: 18px 20px 8px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; }
+.download-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-bottom: 12px; }
+.download-heading h2 { margin: 3px 0 0; color: var(--text-default); font-size: 18px; line-height: 1.35; }
+.download-heading p { margin: 6px 0 0; color: var(--text-muted); font-size: 12px; }
+.download-month-list { min-height: 46px; }
+.download-month-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-top: 1px solid var(--border-color); }
+.download-month-main { display: flex; min-width: 0; flex-direction: column; gap: 5px; }
+.download-month-main strong { color: var(--text-default); font-size: 15px; font-variant-numeric: tabular-nums; }
+.download-month-main span { color: var(--text-muted); font-size: 12px; }
+.download-empty { padding: 14px 0; color: var(--text-muted); font-size: 12px; }
 .report-workspace { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(360px, .85fr); gap: 16px; align-items: stretch; }
 .task-pane, .task-inspector { min-width: 0; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; }
 .task-pane { display: flex; flex-direction: column; min-height: 650px; overflow: hidden; }
@@ -391,5 +432,5 @@ onMounted(() => { void loadTasks(); if (route.query.create === '1') openCreate()
 .budget-input { margin-left: 10px; }
 .formula-text { margin: 0 8px; color: var(--text-muted); }
 @media (max-width: 1050px) { .report-workspace { grid-template-columns: 1fr; } .task-pane, .task-inspector { min-height: auto; } .task-pane { max-height: 660px; } }
-@media (max-width: 680px) { .report-heading { align-items: stretch; flex-direction: column; } .report-toolbar > * { flex: 1 1 140px; } .report-toolbar .toolbar-spacer { display: none; } .search-field, .filter-field { width: auto; } .task-row { align-items: flex-start; flex-direction: column; gap: 8px; } .task-row-side { align-items: flex-start; } .latest-metrics, .budget-grid { grid-template-columns: 1fr 1fr; } .inspector-head { flex-direction: column; } }
+@media (max-width: 680px) { .report-heading { align-items: stretch; flex-direction: column; } .report-toolbar > * { flex: 1 1 140px; } .report-toolbar .toolbar-spacer { display: none; } .search-field, .filter-field { width: auto; } .download-heading, .download-month-row { align-items: flex-start; flex-direction: column; } .download-month-row .el-button { width: 100%; } .task-row { align-items: flex-start; flex-direction: column; gap: 8px; } .task-row-side { align-items: flex-start; } .latest-metrics, .budget-grid { grid-template-columns: 1fr 1fr; } .inspector-head { flex-direction: column; } }
 </style>
