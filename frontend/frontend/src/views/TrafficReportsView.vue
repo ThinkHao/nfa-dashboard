@@ -36,14 +36,30 @@
         <el-button text :loading="downloadsLoading" @click="loadDownloadMonths">刷新月份</el-button>
       </div>
       <div v-loading="downloadsLoading" class="download-month-list">
-        <div v-for="month in downloadMonths" :key="month.month" class="download-month-row">
-          <div class="download-month-main">
-            <strong>{{ formatMonthLabel(month.month) }}</strong>
-            <span>{{ month.run_count }} 次成功运行 · {{ month.artifact_count }} 个文件 · {{ formatBytes(month.total_size) }}</span>
+        <template v-if="latestDownloadMonth">
+          <div class="download-month-row download-month-latest">
+            <div class="download-month-main">
+              <div class="download-month-label"><strong>{{ formatMonthLabel(latestDownloadMonth.month) }}</strong><el-tag size="small" type="primary" effect="plain">最新月份</el-tag></div>
+              <span>{{ latestDownloadMonth.run_count }} 次成功运行 · {{ latestDownloadMonth.artifact_count }} 个文件 · {{ formatBytes(latestDownloadMonth.total_size) }}</span>
+            </div>
+            <el-button type="primary" plain :loading="monthlyDownload === latestDownloadMonth.month" :disabled="latestDownloadMonth.artifact_count === 0" @click="downloadMonth(latestDownloadMonth)">下载整月 ZIP</el-button>
           </div>
-          <el-button type="primary" plain :loading="monthlyDownload === month.month" :disabled="month.artifact_count === 0" @click="downloadMonth(month)">下载整月 ZIP</el-button>
-        </div>
-        <div v-if="!downloadsLoading && !downloadMonths.length" class="download-empty">完成一次成功运行后，这里会按月份汇总可下载报表。</div>
+          <el-collapse v-if="historicalDownloadMonths.length" v-model="historicalDownloadsExpanded" class="historical-downloads">
+            <el-collapse-item name="history">
+              <template #title><span class="download-history-title">历史月份下载 <span class="download-history-count">{{ historicalDownloadMonths.length }} 个月</span></span></template>
+              <div class="download-month-history-list">
+                <div v-for="month in historicalDownloadMonths" :key="month.month" class="download-month-row">
+                  <div class="download-month-main">
+                    <strong>{{ formatMonthLabel(month.month) }}</strong>
+                    <span>{{ month.run_count }} 次成功运行 · {{ month.artifact_count }} 个文件 · {{ formatBytes(month.total_size) }}</span>
+                  </div>
+                  <el-button type="primary" plain :loading="monthlyDownload === month.month" :disabled="month.artifact_count === 0" @click="downloadMonth(month)">下载整月 ZIP</el-button>
+                </div>
+              </div>
+            </el-collapse-item>
+          </el-collapse>
+        </template>
+        <div v-else-if="!downloadsLoading" class="download-empty">完成一次成功运行后，这里会按月份汇总可下载报表。</div>
       </div>
     </section>
 
@@ -231,6 +247,7 @@ const tasks = ref<TrafficReportTask[]>([])
 const selectedTask = ref<TrafficReportTask | null>(null)
 const runs = ref<TrafficReportRun[]>([])
 const downloadMonths = ref<TrafficReportDownloadMonth[]>([])
+const historicalDownloadsExpanded = ref<string[]>([])
 const searchText = ref('')
 const sourceFilter = ref('')
 const kindFilter = ref('')
@@ -259,6 +276,9 @@ const filteredTasks = computed(() => {
   })
 })
 const visibleTasks = computed(() => filteredTasks.value.slice((taskPage.value - 1) * taskPageSize, taskPage.value * taskPageSize))
+const sortedDownloadMonths = computed(() => downloadMonths.value.slice().sort((a, b) => b.month.localeCompare(a.month)))
+const latestDownloadMonth = computed(() => sortedDownloadMonths.value[0] || null)
+const historicalDownloadMonths = computed(() => sortedDownloadMonths.value.slice(1))
 const latestRun = computed(() => runs.value.slice().sort(runSort)[0] || null)
 const latestSuccessfulRun = computed(() => runs.value.filter((run) => run.status === 'success').slice().sort(runSort)[0] || null)
 const budgetSummary = computed(() => {
@@ -371,7 +391,15 @@ onMounted(() => { void loadTasks(); void loadDownloadMonths(); if (route.query.c
 .download-month-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-top: 1px solid var(--border-color); }
 .download-month-main { display: flex; min-width: 0; flex-direction: column; gap: 5px; }
 .download-month-main strong { color: var(--text-default); font-size: 15px; font-variant-numeric: tabular-nums; }
+.download-month-label { display: flex; align-items: center; gap: 8px; }
 .download-month-main span { color: var(--text-muted); font-size: 12px; }
+.download-month-latest { padding-top: 14px; padding-bottom: 16px; }
+.historical-downloads { border-top: 1px solid var(--border-color); border-bottom: 0; }
+.historical-downloads :deep(.el-collapse-item__header) { height: 44px; color: var(--text-default); font-size: 13px; font-weight: 600; }
+.historical-downloads :deep(.el-collapse-item__wrap) { border-bottom: 0; }
+.historical-downloads :deep(.el-collapse-item__content) { padding-bottom: 4px; }
+.download-history-title { display: flex; align-items: center; gap: 8px; }
+.download-history-count { color: var(--text-muted); font-size: 12px; font-weight: 400; }
 .download-empty { padding: 14px 0; color: var(--text-muted); font-size: 12px; }
 .report-workspace { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(360px, .85fr); gap: 16px; align-items: stretch; }
 .task-pane, .task-inspector { min-width: 0; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; }
