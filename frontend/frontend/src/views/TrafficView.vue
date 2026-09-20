@@ -15,6 +15,7 @@ import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQue
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import { useSystemTrafficSettings } from '@/composables/useSystemTrafficSettings'
 import { useAuthStore } from '@/stores/auth'
+import { useThemeStore } from '@/stores/theme'
 import { normalizeByteUnitBase } from '@/utils/traffic-units'
 import { sanitizeScopeOptionValues } from '@/utils/scope-options'
 import { use } from 'echarts/core'
@@ -272,6 +273,7 @@ use([
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const theme = useThemeStore()
 const canTrafficReport = computed(() => auth.hasPermission('traffic.report.read'))
 
 // 数据状态
@@ -730,6 +732,10 @@ const chartOption = computed(() => {
     },
     legend: {
       data: legendData,
+      // 由 legendselectchanged 实现“全选 -> 单选 -> 全选”循环
+      selectedMode: 'multiple',
+      textStyle: { color: theme.isDark ? '#e2e8f0' : '#1e293b' },
+      inactiveColor: theme.isDark ? '#94a3b8' : '#475569',
       bottom: 0
     },
     grid: {
@@ -814,43 +820,38 @@ function applyRouteQueryFilters(q: RouteQueryLike, options: { autoQuery?: boolea
   }
 }
 
-// 95值是被服务流速联动隐藏（而非用户手动隐藏）时置位，服务流速恢复时据此回显
-let p95AutoHidden = false
 // 程序化 dispatchAction 触发的图例事件不算用户手动操作
-let syncingP95Legend = false
-
-function toggleP95Legend(show: boolean) {
-  syncingP95Legend = true
-  try {
-    chartRef.value?.dispatchAction({ type: show ? 'legendSelect' : 'legendUnSelect', name: '95值' })
-  } finally {
-    syncingP95Legend = false
-  }
-}
+let syncingLegendSelection = false
 
 function handleLegendSelectChanged(params: any) {
   const selected = params?.selected
-  if (!selected || !Object.prototype.hasOwnProperty.call(selected, '95值')) return
+  const clickedName = typeof params?.name === 'string' ? params.name : ''
+  if (!selected || !clickedName || syncingLegendSelection) return
 
-  const serviceOn = selected['服务流速'] !== false
-  let p95On = selected['95值'] !== false
+  const legendNames = Object.keys(selected)
+  if (!legendNames.includes(clickedName)) return
 
-  if (params?.name === '95值' && !syncingP95Legend) {
-    p95AutoHidden = false
-  } else if (params?.name === '服务流速') {
-    // 95值基于服务流速计算，隐藏服务流速时联动隐藏95值
-    if (!serviceOn && p95On) {
-      p95AutoHidden = true
-      p95On = false
-      toggleP95Legend(false)
-    } else if (serviceOn && !p95On && p95AutoHidden) {
-      p95AutoHidden = false
-      p95On = true
-      toggleP95Legend(true)
-    }
+  const selectedCount = legendNames.filter((name) => selected[name] !== false).length
+  const selectAll = selectedCount === 0
+  syncingLegendSelection = true
+  try {
+    legendNames.forEach((name) => {
+      const shouldSelect = selectAll || name === clickedName
+      const isSelected = selected[name] !== false
+      if (shouldSelect !== isSelected) {
+        chartRef.value?.dispatchAction({
+          type: shouldSelect ? 'legendSelect' : 'legendUnSelect',
+          name,
+        })
+      }
+    })
+  } finally {
+    syncingLegendSelection = false
   }
 
-  p95LegendVisible.value = p95On
+  if (legendNames.includes('95值')) {
+    p95LegendVisible.value = selectAll || clickedName === '95值'
+  }
 }
 
 function resizeTrafficChart() {
