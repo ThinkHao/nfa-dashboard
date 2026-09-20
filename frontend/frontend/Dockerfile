@@ -20,6 +20,7 @@ RUN apt-get update \
   && echo Asia/Shanghai > /etc/timezone
 ENV TZ=Asia/Shanghai
 COPY --from=build /app/dist/ ./
+RUN chmod -R a+rX /usr/share/nginx/html
 # 默认反代配置，可被 compose 挂载覆盖
 COPY docker/default.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
