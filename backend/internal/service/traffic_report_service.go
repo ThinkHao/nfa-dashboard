@@ -238,7 +238,7 @@ func (s *trafficReportService) ListDownloadMonths(ownerID uint64) ([]TrafficRepo
 	if err != nil {
 		return nil, err
 	}
-	runs, err := s.repo.ListSuccessfulRuns(accessOwnerID, "")
+	runs, err := s.repo.ListSuccessfulRuns(accessOwnerID)
 	if err != nil {
 		return nil, err
 	}
@@ -275,10 +275,17 @@ func (s *trafficReportService) CreateMonthlyArchive(ownerID uint64, month string
 	if !trafficReportMonthPattern.MatchString(month) {
 		return nil, NewBadRequest("month must be formatted as YYYY-MM")
 	}
-	runs, err := s.repo.ListSuccessfulRuns(accessOwnerID, month)
+	runs, err := s.repo.ListSuccessfulRuns(accessOwnerID)
 	if err != nil {
 		return nil, err
 	}
+	filteredRuns := make([]model.TrafficReportRun, 0, len(runs))
+	for _, run := range runs {
+		if trafficReportRunMonth(run) == month {
+			filteredRuns = append(filteredRuns, run)
+		}
+	}
+	runs = filteredRuns
 	artifactCount := 0
 	for _, run := range runs {
 		artifactCount += len(run.Artifacts)

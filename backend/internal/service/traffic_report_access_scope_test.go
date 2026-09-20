@@ -32,7 +32,7 @@ func (s *trafficReportAccessRepoStub) ListTasks(ownerID uint64, _, _ int) ([]mod
 	return []model.TrafficReportTask{}, 0, nil
 }
 
-func (s *trafficReportAccessRepoStub) ListSuccessfulRuns(uint64, string) ([]model.TrafficReportRun, error) {
+func (s *trafficReportAccessRepoStub) ListSuccessfulRuns(uint64) ([]model.TrafficReportRun, error) {
 	return s.successfulRuns, nil
 }
 
