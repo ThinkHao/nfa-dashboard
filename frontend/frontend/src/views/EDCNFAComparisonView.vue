@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, shallowRef } from 'vue'
+import { computed, onActivated, ref, shallowRef } from 'vue'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart } from 'echarts/charts'
@@ -151,9 +151,14 @@ function formatNumber(value: number): string {
   return Number(value || 0).toFixed(3)
 }
 
-onMounted(async () => {
+let initialComparisonLoaded = false
+
+onActivated(async () => {
   await loadGroups()
-  if (selectedGroupID.value) await loadComparison()
+  if (!initialComparisonLoaded && selectedGroupID.value) {
+    initialComparisonLoaded = true
+    await loadComparison()
+  }
 })
 </script>
 
