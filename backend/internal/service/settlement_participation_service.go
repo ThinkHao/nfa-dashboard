@@ -80,9 +80,10 @@ func (s *settlementParticipationService) ListParticipatingSchoolKeys(ctx context
 			continue
 		}
 		key := model.TrafficScopeSchoolKey{
-			SchoolID: school.SchoolID,
-			Region:   school.Region,
-			CP:       school.CP,
+			SchoolID:  school.SchoolID,
+			Region:    school.Region,
+			SrcRegion: school.SrcRegion,
+			CP:        school.CP,
 		}
 		keyStr := schoolKeyString(key)
 		if _, ok := seen[keyStr]; ok {

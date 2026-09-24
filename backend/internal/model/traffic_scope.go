@@ -39,9 +39,10 @@ type TrafficScopeCondition struct {
 func (TrafficScopeCondition) TableName() string { return "traffic_scope_rule_conditions" }
 
 type TrafficScopeSchoolKey struct {
-	SchoolID string `json:"school_id"`
-	Region   string `json:"region"`
-	CP       string `json:"cp"`
+	SchoolID  string  `json:"school_id"`
+	Region    string  `json:"region"`
+	SrcRegion *string `json:"src_region,omitempty"`
+	CP        string  `json:"cp"`
 }
 
 type EffectiveTrafficScope struct {

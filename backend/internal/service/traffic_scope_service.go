@@ -139,9 +139,10 @@ func (s *trafficScopeService) ResolveEffectiveScope(userID uint64) (model.Effect
 		keys := make([]model.TrafficScopeSchoolKey, 0, len(schools))
 		for _, school := range schools {
 			keys = append(keys, model.TrafficScopeSchoolKey{
-				SchoolID: school.SchoolID,
-				Region:   school.Region,
-				CP:       school.CP,
+				SchoolID:  school.SchoolID,
+				Region:    school.Region,
+				SrcRegion: school.SrcRegion,
+				CP:        school.CP,
 			})
 		}
 		scope.Source = model.TrafficScopeSourceDefaultAdminRole
@@ -241,9 +242,10 @@ func (s *trafficScopeService) resolveRuleGroupSchoolKeys(group model.TrafficScop
 		}
 		for _, school := range schools {
 			key := model.TrafficScopeSchoolKey{
-				SchoolID: strings.TrimSpace(school.SchoolID),
-				Region:   strings.TrimSpace(school.Region),
-				CP:       strings.TrimSpace(school.CP),
+				SchoolID:  strings.TrimSpace(school.SchoolID),
+				Region:    strings.TrimSpace(school.Region),
+				SrcRegion: school.SrcRegion,
+				CP:        strings.TrimSpace(school.CP),
 			}
 			if key.SchoolID == "" || key.Region == "" || key.CP == "" {
 				continue

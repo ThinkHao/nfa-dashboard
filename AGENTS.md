@@ -35,6 +35,8 @@
 
 ## Frontend Notes
 
+- For query/filter forms, reuse `QueryActionButton` with `useCancelableQuery` so long-running requests can be canceled consistently; do not add page-specific query/cancel buttons.
+- Reuse `UnifiedDateRange` for date and date-time ranges. For date-time selection it defaults the start boundary to `00:00:00` and the end boundary to `23:59:59`; avoid duplicating picker behavior in individual pages.
 - Settlement task modals should guard long-running submissions: prevent duplicate clicks while `submitting`, disable cancel/close/ESC/mask close during submission, and clean stale Element Plus overlays with `cleanupStaleElementOverlays` after dialogs close.
 - For long-running but asynchronous create actions, prefer improving backend preflight cost over only increasing Axios timeouts. Endpoint-specific timeouts are acceptable as a fallback, but should not hide expensive synchronous work.
 - Use focused Vue unit tests for settlement task UI behavior. For range task creation, assert request count and payload shape so future changes do not accidentally reintroduce per-day/per-month frontend loops.

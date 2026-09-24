@@ -3,8 +3,8 @@ package repository
 import (
 	"strings"
 
-	"nfa-dashboard/internal/model"
 	"gorm.io/gorm"
+	"nfa-dashboard/internal/model"
 )
 
 type TrafficScopeRuleRepository interface {
@@ -81,7 +81,9 @@ func (r *trafficScopeRuleRepository) ReplaceByUser(userID uint64, groups []model
 
 type trafficScopeSchoolRepository struct{}
 
-func NewTrafficScopeSchoolRepository() TrafficScopeSchoolRepository { return &trafficScopeSchoolRepository{} }
+func NewTrafficScopeSchoolRepository() TrafficScopeSchoolRepository {
+	return &trafficScopeSchoolRepository{}
+}
 
 func (r *trafficScopeSchoolRepository) MatchSchools(dimension, value string) ([]model.School, error) {
 	out := make([]model.School, 0)
@@ -134,9 +136,10 @@ func (r *trafficScopeSchoolRepository) ExpandSchoolIDsToKeys(ids []string) ([]mo
 	keys := make([]model.TrafficScopeSchoolKey, 0, len(schools))
 	for _, school := range schools {
 		keys = append(keys, model.TrafficScopeSchoolKey{
-			SchoolID: school.SchoolID,
-			Region:   school.Region,
-			CP:       school.CP,
+			SchoolID:  school.SchoolID,
+			Region:    school.Region,
+			SrcRegion: school.SrcRegion,
+			CP:        school.CP,
 		})
 	}
 	return keys, nil

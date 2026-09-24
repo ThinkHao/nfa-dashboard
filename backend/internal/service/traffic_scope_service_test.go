@@ -73,9 +73,10 @@ func (s *trafficScopeSchoolRepoStub) ExpandSchoolIDsToKeys(ids []string) ([]mode
 			}
 			seen[key] = struct{}{}
 			out = append(out, model.TrafficScopeSchoolKey{
-				SchoolID: school.SchoolID,
-				Region:   school.Region,
-				CP:       school.CP,
+				SchoolID:  school.SchoolID,
+				Region:    school.Region,
+				SrcRegion: school.SrcRegion,
+				CP:        school.CP,
 			})
 		}
 	}

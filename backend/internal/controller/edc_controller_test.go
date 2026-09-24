@@ -56,3 +56,27 @@ func TestParseEDCTrafficFilterRejectsInvalidEntityType(t *testing.T) {
 		t.Fatalf("status=%d, want %d", w.Code, http.StatusBadRequest)
 	}
 }
+
+func TestParseComparisonTimeRangeAcceptsLocalDateTime(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v2/edc-nfa/comparison?start_time=2026-09-21%2000:00:00&end_time=2026-09-21%2001:00:00", nil)
+
+	start, end, ok := parseComparisonTimeRange(ctx)
+	if !ok || !start.Before(end) {
+		t.Fatalf("parseComparisonTimeRange() = %v, %v, %v", start, end, ok)
+	}
+}
+
+func TestParseComparisonTimeRangeRejectsReversedWindow(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v2/edc-nfa/comparison?start_time=2026-09-21%2001:00:00&end_time=2026-09-21%2000:00:00", nil)
+
+	_, _, ok := parseComparisonTimeRange(ctx)
+	if ok || w.Code != http.StatusBadRequest {
+		t.Fatalf("ok=%v status=%d, want false/400", ok, w.Code)
+	}
+}

@@ -41,6 +41,7 @@ const menus = computed(() => {
   items.sort((a, b) => a.order - b.order)
 
   const groupDefinitions: Record<string, { title: string; order: number }> = {
+    'traffic-analysis': { title: '流量分析', order: 12 },
     'settlement-dashboard': { title: '结算系统', order: 28 },
     'settlement-config': { title: '结算系统配置', order: 29 },
     system: { title: '系统管理', order: 80 },
@@ -121,5 +122,4 @@ const menus = computed(() => {
 .menu { border-right: none; }
 .menu-icon { display: inline-flex; width: 18px; margin-right: 8px; align-items: center; justify-content: center; }
 </style>
-
 

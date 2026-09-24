@@ -319,31 +319,35 @@ func NewSchoolController(
 }
 
 func (c *SchoolController) resolveTrafficScope(ctx *gin.Context) (model.EffectiveTrafficScope, error) {
-	if c.trafficScopeService == nil {
+	return resolveTrafficScopeForRequest(ctx, c.trafficScopeService, c.systemSettingsSvc, c.participationSvc)
+}
+
+func resolveTrafficScopeForRequest(ctx *gin.Context, trafficScopeService service.TrafficScopeService, systemSettingsSvc service.SystemSettingsService, participationSvc service.SettlementParticipationService) (model.EffectiveTrafficScope, error) {
+	if trafficScopeService == nil {
 		return model.EffectiveTrafficScope{Source: model.TrafficScopeSourceNone, AllowedSchoolKeys: []model.TrafficScopeSchoolKey{}, AllowedSchoolIDs: []string{}}, nil
 	}
 	uid, ok := currentUserID(ctx)
 	if !ok || uid == 0 {
 		return model.EffectiveTrafficScope{Source: model.TrafficScopeSourceNone, AllowedSchoolKeys: []model.TrafficScopeSchoolKey{}, AllowedSchoolIDs: []string{}}, nil
 	}
-	scope, err := c.trafficScopeService.ResolveEffectiveScope(uid)
+	scope, err := trafficScopeService.ResolveEffectiveScope(uid)
 	if err != nil {
 		return model.EffectiveTrafficScope{}, err
 	}
 	if scope.Source == model.TrafficScopeSourceNone {
 		return scope, nil
 	}
-	if c.systemSettingsSvc == nil || c.participationSvc == nil {
+	if systemSettingsSvc == nil || participationSvc == nil {
 		return scope, nil
 	}
-	cfg, err := c.systemSettingsSvc.GetTrafficSettings()
+	cfg, err := systemSettingsSvc.GetTrafficSettings()
 	if err != nil {
 		return model.EffectiveTrafficScope{}, err
 	}
 	if cfg == nil || !cfg.HideNonSettlementSchoolsInTraffic {
 		return scope, nil
 	}
-	keys, err := c.participationSvc.ListParticipatingSchoolKeys(ctx.Request.Context())
+	keys, err := participationSvc.ListParticipatingSchoolKeys(ctx.Request.Context())
 	if err != nil {
 		return model.EffectiveTrafficScope{}, err
 	}

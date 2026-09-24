@@ -719,6 +719,35 @@ export default {
           .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
       },
     },
+    edcNfa: {
+      getComparisonGroups(params?: any, config?: AxiosRequestConfig) {
+        return api.get('/api/v2/edc-nfa/comparison-groups', { params, ...(config || {}) })
+          .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+      },
+      getComparison(params?: any, config?: AxiosRequestConfig) {
+        return api.get('/api/v2/edc-nfa/comparison', { params, ...(config || {}) })
+          .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+      },
+      listMappings(params?: any, config?: AxiosRequestConfig) {
+        return api.get('/api/v2/edc-nfa/mappings', { params, ...(config || {}) })
+          .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+      },
+      listMappingEntities(params?: any, config?: AxiosRequestConfig) {
+        return api.get('/api/v2/edc-nfa/mapping-entities', { params, ...(config || {}) })
+          .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+      },
+      createMapping(data: any) {
+        return api.post('/api/v2/edc-nfa/mappings', data)
+          .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+      },
+      updateMapping(id: number, data: any) {
+        return api.put(`/api/v2/edc-nfa/mappings/${id}`, data)
+          .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+      },
+      setMappingEnabled(id: number, enabled: boolean) {
+        return api.put(`/api/v2/edc-nfa/mappings/${id}/enabled`, { enabled })
+      },
+    },
     // 结算相关（v2）
     settlement: {
       // 获取结算数据列表（v2）

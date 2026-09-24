@@ -583,12 +583,14 @@ func typedRoutes() map[string]route {
 		"traffic daily-volume": {http.MethodGet, "/api/v2/traffic/daily-volume"},
 		"traffic summary":      {http.MethodGet, "/api/v2/traffic/summary"},
 
-		"edc entities":       {http.MethodGet, "/api/v2/edc/entities"},
-		"edc regions":        {http.MethodGet, "/api/v2/edc/regions"},
-		"edc cps":            {http.MethodGet, "/api/v2/edc/cps"},
-		"edc filter-options": {http.MethodGet, "/api/v2/edc/filter-options"},
-		"edc data":           {http.MethodGet, "/api/v2/edc/traffic"},
-		"edc summary":        {http.MethodGet, "/api/v2/edc/traffic/summary"},
+		"edc entities":              {http.MethodGet, "/api/v2/edc/entities"},
+		"edc regions":               {http.MethodGet, "/api/v2/edc/regions"},
+		"edc cps":                   {http.MethodGet, "/api/v2/edc/cps"},
+		"edc filter-options":        {http.MethodGet, "/api/v2/edc/filter-options"},
+		"edc data":                  {http.MethodGet, "/api/v2/edc/traffic"},
+		"edc summary":               {http.MethodGet, "/api/v2/edc/traffic/summary"},
+		"edc-nfa comparison-groups": {http.MethodGet, "/api/v2/edc-nfa/comparison-groups"},
+		"edc-nfa comparison":        {http.MethodGet, "/api/v2/edc-nfa/comparison"},
 
 		"settlement config get":                    {http.MethodGet, "/api/v1/settlement/config"},
 		"settlement config update":                 {http.MethodPut, "/api/v1/settlement/config"},
@@ -1885,6 +1887,11 @@ func printHelp(w io.Writer, args []string) {
 			"edc entities --query entity_type=node --query src_region=北京市 --query dst_region=北京市 --query limit=20",
 			"edc data --query display_name=节点A --query entity_type=transmission --query src_region=北京市 --query start_time=\"2026-05-08 00:00:00\" --query end_time=\"2026-05-14 23:59:59\" --svg",
 			"edc summary --query region=北京市 --query cp=本地传输",
+		})
+	case "edc-nfa":
+		printTypedHelp(w, "edc-nfa", []string{
+			"edc-nfa comparison-groups",
+			"edc-nfa comparison --query group_id=1 --query start_time=\"2026-05-08 00:00:00\" --query end_time=\"2026-05-08 23:59:59\"",
 		})
 	case "settlement":
 		if hasHelpToken(args, "user-panel") {

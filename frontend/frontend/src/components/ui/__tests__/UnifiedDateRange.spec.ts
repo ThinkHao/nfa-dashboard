@@ -36,7 +36,11 @@ describe('UnifiedDateRange', () => {
     expect(receivedProps.shortcuts[0].text).toBe('先选开始日期')
     expect(receivedProps.shortcuts[0].value()).toBeUndefined()
     expect(receivedProps.defaultTime[0].getHours()).toBe(0)
+    expect(receivedProps.defaultTime[0].getMinutes()).toBe(0)
+    expect(receivedProps.defaultTime[0].getSeconds()).toBe(0)
     expect(receivedProps.defaultTime[1].getHours()).toBe(23)
+    expect(receivedProps.defaultTime[1].getMinutes()).toBe(59)
+    expect(receivedProps.defaultTime[1].getSeconds()).toBe(59)
 
     await wrapper.find('.stub-picker').trigger('click')
     expect(receivedProps.shortcuts.map((shortcut: any) => shortcut.text)).toEqual([
