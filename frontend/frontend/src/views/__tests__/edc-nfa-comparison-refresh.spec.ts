@@ -6,6 +6,7 @@ import EDCNFAComparisonView from '../EDCNFAComparisonView.vue'
 const mocks = vi.hoisted(() => ({
   getComparisonGroups: vi.fn(),
   getComparison: vi.fn(),
+  dispatchAction: vi.fn(),
 }))
 
 vi.mock('../../api', () => ({
@@ -28,7 +29,19 @@ vi.mock('echarts/components', () => ({
   TitleComponent: {},
   TooltipComponent: {},
 }))
-vi.mock('vue-echarts', () => ({ default: { template: '<div />' } }))
+vi.mock('vue-echarts', async () => {
+  const { defineComponent, h } = await import('vue')
+  return {
+    default: defineComponent({
+      name: 'MockVChart',
+      emits: ['legendselectchanged'],
+      setup(_, { expose }) {
+        expose({ dispatchAction: mocks.dispatchAction })
+        return () => h('div')
+      },
+    }),
+  }
+})
 vi.mock('element-plus', () => {
   const container = { template: '<div><slot /></div>' }
   return {
@@ -82,6 +95,34 @@ describe('EDCNFAComparisonView mapping options', () => {
 
     expect(mocks.getComparisonGroups).toHaveBeenCalledTimes(2)
     expect(wrapper.text()).toContain('GD-Bilibili（广东省 / bilibili · 全部院校）')
+    wrapper.unmount()
+  })
+
+  it('isolates the clicked series and restores all series when clicked again', async () => {
+    const wrapper = mount(EDCNFAComparisonView, { global: { directives: { loading: {} } } })
+    const chart = wrapper.findComponent({ name: 'MockVChart' })
+    const names = ['EDC', 'NFA', '占比（NFA/EDC）']
+
+    chart.vm.$emit('legendselectchanged', {
+      name: 'EDC',
+      selected: { EDC: false, NFA: true, '占比（NFA/EDC）': true },
+    })
+
+    expect(mocks.dispatchAction.mock.calls).toEqual([
+      [{ type: 'legendSelect', name: 'EDC' }],
+      [{ type: 'legendUnSelect', name: 'NFA' }],
+      [{ type: 'legendUnSelect', name: '占比（NFA/EDC）' }],
+    ])
+
+    mocks.dispatchAction.mockClear()
+    chart.vm.$emit('legendselectchanged', {
+      name: 'EDC',
+      selected: Object.fromEntries(names.map((name) => [name, false])),
+    })
+
+    expect(mocks.dispatchAction.mock.calls).toEqual(
+      names.map((name) => [{ type: 'legendSelect', name }]),
+    )
     wrapper.unmount()
   })
 })

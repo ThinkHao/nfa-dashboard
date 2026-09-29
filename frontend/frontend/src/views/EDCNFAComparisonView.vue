@@ -37,6 +37,7 @@ interface ComparisonPoint {
 const groups = ref<ComparisonGroup[]>([])
 const selectedGroupID = ref<number>()
 const points = shallowRef<ComparisonPoint[]>([])
+const chartRef = ref<any>()
 const groupLoading = ref(false)
 const currentPage = ref(1)
 const pageSize = ref(100)
@@ -74,7 +75,7 @@ const chartOption = computed(() => ({
       return `${time}<br/>EDC：${edc.toFixed(2)} Mbps<br/>NFA：${nfa.toFixed(2)} Mbps<br/>NFA/EDC：${ratio}`
     },
   },
-  legend: { top: 32, data: ['EDC', 'NFA', '占比（NFA/EDC）'] },
+  legend: { top: 32, data: ['EDC', 'NFA', '占比（NFA/EDC）'], selectedMode: 'multiple' },
   grid: { left: 60, right: 72, top: 70, bottom: 42 },
   xAxis: { type: 'time' },
   yAxis: [
@@ -110,6 +111,36 @@ const chartOption = computed(() => ({
     },
   ],
 }))
+
+// Keep legend clicks consistent with the traffic monitor: isolate one series, then restore all.
+let syncingLegendSelection = false
+
+function handleLegendSelectChanged(params: any) {
+  const selected = params?.selected
+  const clickedName = typeof params?.name === 'string' ? params.name : ''
+  if (!selected || !clickedName || syncingLegendSelection) return
+
+  const legendNames = Object.keys(selected)
+  if (!legendNames.includes(clickedName)) return
+
+  const selectedCount = legendNames.filter((name) => selected[name] !== false).length
+  const selectAll = selectedCount === 0
+  syncingLegendSelection = true
+  try {
+    legendNames.forEach((name) => {
+      const shouldSelect = selectAll || name === clickedName
+      const isSelected = selected[name] !== false
+      if (shouldSelect !== isSelected) {
+        chartRef.value?.dispatchAction({
+          type: shouldSelect ? 'legendSelect' : 'legendUnSelect',
+          name,
+        })
+      }
+    })
+  } finally {
+    syncingLegendSelection = false
+  }
+}
 
 async function loadGroups() {
   groupLoading.value = true
@@ -197,7 +228,13 @@ onActivated(async () => {
     </ElCard>
 
     <ElCard shadow="never" class="chart-card">
-      <VChart class="chart" :option="chartOption" autoresize />
+      <VChart
+        ref="chartRef"
+        class="chart"
+        :option="chartOption"
+        autoresize
+        @legendselectchanged="handleLegendSelectChanged"
+      />
     </ElCard>
 
     <ElCard shadow="never">
