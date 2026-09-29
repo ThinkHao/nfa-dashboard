@@ -52,3 +52,16 @@ func TestEDCNFAComparisonServiceDefaultsEmptyWindow(t *testing.T) {
 		t.Fatalf("points=nil, want empty slice")
 	}
 }
+
+func TestNormalizeComparisonSchoolNames(t *testing.T) {
+	got := normalizeComparisonSchoolNames([]string{" 学校 A ", "", "学校 B", "学校 A"})
+	want := []string{"学校 A", "学校 B"}
+	if len(got) != len(want) {
+		t.Fatalf("got=%v, want=%v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got=%v, want=%v", got, want)
+		}
+	}
+}

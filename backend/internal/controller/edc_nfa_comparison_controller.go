@@ -40,6 +40,19 @@ func (c *EDCNFAComparisonController) ListMappingEntities(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取可映射 EDC 实体成功", "data": entities})
 }
 
+func (c *EDCNFAComparisonController) ListMappingSchoolNames(ctx *gin.Context) {
+	names, err := c.comparisonService.ListMappingSchoolNames(ctx.Request.Context(), ctx.Query("nfa_src_region"), ctx.Query("nfa_cp"))
+	if err != nil {
+		if service.IsBadRequest(err) {
+			ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+			return
+		}
+		ctx.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取可映射 NFA 院校失败", "error": err.Error()})
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "获取可映射 NFA 院校成功", "data": names})
+}
+
 func (c *EDCNFAComparisonController) CreateMapping(ctx *gin.Context) {
 	input, ok := parseMappingInput(ctx)
 	if !ok {
@@ -72,12 +85,13 @@ func (c *EDCNFAComparisonController) UpdateMapping(ctx *gin.Context) {
 }
 
 type mappingInputPayload struct {
-	GroupName    string `json:"group_name"`
-	NFASrcRegion string `json:"nfa_src_region"`
-	NFACP        string `json:"nfa_cp"`
-	Enabled      *bool  `json:"enabled"`
-	Remark       string `json:"remark"`
-	Members      []struct {
+	GroupName      string   `json:"group_name"`
+	NFASrcRegion   string   `json:"nfa_src_region"`
+	NFACP          string   `json:"nfa_cp"`
+	NFASchoolNames []string `json:"nfa_school_names"`
+	Enabled        *bool    `json:"enabled"`
+	Remark         string   `json:"remark"`
+	Members        []struct {
 		EntityID  uint64  `json:"entity_id"`
 		ValidFrom *string `json:"valid_from"`
 		ValidTo   *string `json:"valid_to"`
@@ -92,12 +106,13 @@ func parseMappingInput(ctx *gin.Context) (model.EDCNFAComparisonGroupInput, bool
 		return model.EDCNFAComparisonGroupInput{}, false
 	}
 	input := model.EDCNFAComparisonGroupInput{
-		GroupName:    payload.GroupName,
-		NFASrcRegion: payload.NFASrcRegion,
-		NFACP:        payload.NFACP,
-		Enabled:      payload.Enabled,
-		Remark:       payload.Remark,
-		Members:      make([]model.EDCNFAComparisonMemberInput, 0, len(payload.Members)),
+		GroupName:      payload.GroupName,
+		NFASrcRegion:   payload.NFASrcRegion,
+		NFACP:          payload.NFACP,
+		NFASchoolNames: payload.NFASchoolNames,
+		Enabled:        payload.Enabled,
+		Remark:         payload.Remark,
+		Members:        make([]model.EDCNFAComparisonMemberInput, 0, len(payload.Members)),
 	}
 	for _, item := range payload.Members {
 		from, err := parseOptionalMappingTime(item.ValidFrom)

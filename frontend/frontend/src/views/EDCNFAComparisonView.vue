@@ -19,6 +19,7 @@ interface ComparisonGroup {
   group_name: string
   nfa_src_region: string
   nfa_cp: string
+  nfa_school_names?: string[]
   members?: Array<{ entity_id: number; edc_name: string; display_name: string }>
 }
 
@@ -151,6 +152,10 @@ function formatNumber(value: number): string {
   return Number(value || 0).toFixed(3)
 }
 
+function schoolNameSummary(names?: string[]): string {
+  return names?.length ? names.join('、') : '全部院校'
+}
+
 let initialComparisonLoaded = false
 
 onActivated(async () => {
@@ -170,7 +175,7 @@ onActivated(async () => {
           <ElOption
             v-for="group in groups"
             :key="group.id"
-            :label="`${group.group_name}（${group.nfa_src_region} / ${group.nfa_cp}）`"
+            :label="`${group.group_name}（${group.nfa_src_region} / ${group.nfa_cp} · ${schoolNameSummary(group.nfa_school_names)}）`"
             :value="group.id"
           />
         </ElSelect>
@@ -187,7 +192,7 @@ onActivated(async () => {
       </div>
       <div v-if="selectedGroup" class="mapping-hint">
         EDC 成员：{{ selectedGroup.members?.map((member) => member.edc_name || member.display_name).join('、') || '—' }}；
-        NFA 节点源区域：{{ selectedGroup.nfa_src_region }} + {{ selectedGroup.nfa_cp }}（按权限过滤）
+        NFA 节点源区域：{{ selectedGroup.nfa_src_region }} + {{ selectedGroup.nfa_cp }}；院校：{{ schoolNameSummary(selectedGroup.nfa_school_names) }}（按权限过滤）
       </div>
     </ElCard>
 

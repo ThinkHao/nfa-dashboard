@@ -13,6 +13,7 @@ type EDCNFAComparisonService interface {
 	ListGroups(ctx context.Context, allowedEntityIDs []uint64) ([]model.EDCNFAComparisonGroup, error)
 	ListMappings(ctx context.Context) ([]model.EDCNFAComparisonGroup, error)
 	ListMappingEntities(ctx context.Context) ([]model.EDCEntity, error)
+	ListMappingSchoolNames(ctx context.Context, srcRegion, cp string) ([]string, error)
 	CreateMapping(ctx context.Context, input model.EDCNFAComparisonGroupInput) (model.EDCNFAComparisonGroup, error)
 	UpdateMapping(ctx context.Context, id uint64, input model.EDCNFAComparisonGroupInput) (model.EDCNFAComparisonGroup, error)
 	SetMappingEnabled(ctx context.Context, id uint64, enabled bool) error
@@ -55,6 +56,23 @@ func (s *edcNFAComparisonService) ListMappingEntities(ctx context.Context) ([]mo
 	return repo.ListMappingEntities(ctx)
 }
 
+func (s *edcNFAComparisonService) ListMappingSchoolNames(ctx context.Context, srcRegion, cp string) ([]string, error) {
+	srcRegion = strings.TrimSpace(srcRegion)
+	cp = strings.TrimSpace(cp)
+	if srcRegion == "" || cp == "" {
+		return nil, NewBadRequest("NFA 节点源区域和 CP 均为必填")
+	}
+	repo, err := s.mappingRepo()
+	if err != nil {
+		return nil, err
+	}
+	names, err := repo.ListMappingSchoolNames(ctx, srcRegion, cp)
+	if err != nil {
+		return nil, err
+	}
+	return normalizeComparisonSchoolNames(names), nil
+}
+
 func (s *edcNFAComparisonService) CreateMapping(ctx context.Context, input model.EDCNFAComparisonGroupInput) (model.EDCNFAComparisonGroup, error) {
 	return s.saveMapping(ctx, 0, input)
 }
@@ -70,6 +88,7 @@ func (s *edcNFAComparisonService) saveMapping(ctx context.Context, id uint64, in
 	input.GroupName = strings.TrimSpace(input.GroupName)
 	input.NFASrcRegion = strings.TrimSpace(input.NFASrcRegion)
 	input.NFACP = strings.TrimSpace(input.NFACP)
+	input.NFASchoolNames = normalizeComparisonSchoolNames(input.NFASchoolNames)
 	input.Remark = strings.TrimSpace(input.Remark)
 	if input.GroupName == "" || input.NFASrcRegion == "" || input.NFACP == "" {
 		return model.EDCNFAComparisonGroup{}, NewBadRequest("比较组名称、NFA 节点源区域和 CP 均为必填")
@@ -80,6 +99,21 @@ func (s *edcNFAComparisonService) saveMapping(ctx context.Context, id uint64, in
 	repo, err := s.mappingRepo()
 	if err != nil {
 		return model.EDCNFAComparisonGroup{}, err
+	}
+	if len(input.NFASchoolNames) > 0 {
+		availableSchoolNames, err := s.ListMappingSchoolNames(ctx, input.NFASrcRegion, input.NFACP)
+		if err != nil {
+			return model.EDCNFAComparisonGroup{}, err
+		}
+		available := make(map[string]struct{}, len(availableSchoolNames))
+		for _, name := range availableSchoolNames {
+			available[name] = struct{}{}
+		}
+		for _, name := range input.NFASchoolNames {
+			if _, ok := available[name]; !ok {
+				return model.EDCNFAComparisonGroup{}, NewBadRequestf("NFA 院校“%s”不属于节点源区域 %s / %s", name, input.NFASrcRegion, input.NFACP)
+			}
+		}
 	}
 	entities, err := repo.ListMappingEntities(ctx)
 	if err != nil {
@@ -124,6 +158,23 @@ func (s *edcNFAComparisonService) saveMapping(ctx context.Context, id uint64, in
 		}
 	}
 	return repo.SaveMapping(ctx, id, input)
+}
+
+func normalizeComparisonSchoolNames(names []string) []string {
+	result := make([]string, 0, len(names))
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		result = append(result, name)
+	}
+	return result
 }
 
 func (s *edcNFAComparisonService) SetMappingEnabled(ctx context.Context, id uint64, enabled bool) error {

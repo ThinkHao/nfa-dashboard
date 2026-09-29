@@ -40,7 +40,7 @@ func TestFilterComparisonSchoolsForGroupUsesSourceRegionAndExactSchoolScope(t *t
 		{SchoolID: "bj-2", Region: "河北省", SrcRegion: &bj, CP: "bilibili"},
 		{SchoolID: "sh-1", Region: "上海市", SrcRegion: &sh, CP: "jinshan"},
 		{SchoolID: "bj-1", Region: "北京市", SrcRegion: &bj, CP: "bilibili"},
-	}, "北京市", "bilibili")
+	}, "北京市", "bilibili", nil)
 	if len(filtered) != 1 || filtered[0].SchoolID != "bj-2" || filtered[0].Region != "河北省" {
 		t.Fatalf("filtered=%+v, want the Beijing-source school owned by Hebei within exact scope", filtered)
 	}
@@ -49,9 +49,35 @@ func TestFilterComparisonSchoolsForGroupUsesSourceRegionAndExactSchoolScope(t *t
 func TestFilterComparisonSchoolsForGroupEmptyScopeIsUnrestricted(t *testing.T) {
 	bj := "北京市"
 	schools := []model.School{{SchoolID: "bj-1", Region: "吉林省", SrcRegion: &bj, CP: "bilibili", SchoolName: "学校 A"}}
-	filtered := filterComparisonSchoolsForGroup(schools, nil, "北京市", "bilibili")
+	filtered := filterComparisonSchoolsForGroup(schools, nil, "北京市", "bilibili", nil)
 	if len(filtered) != 1 || filtered[0].SchoolID != "bj-1" {
 		t.Fatalf("filtered=%+v, want unfiltered source-area schools", filtered)
+	}
+}
+
+func TestFilterComparisonSchoolsForGroupLimitsConfiguredSchoolNamesWithinPermissions(t *testing.T) {
+	bj := "北京市"
+	schools := []model.School{
+		{SchoolID: "1", Region: "河北省", SrcRegion: &bj, CP: "bilibili", SchoolName: "学校 A"},
+		{SchoolID: "2", Region: "山东省", SrcRegion: &bj, CP: "bilibili", SchoolName: "学校 B"},
+	}
+	filtered := filterComparisonSchoolsForGroup(schools, []model.TrafficScopeSchoolKey{
+		{SchoolID: "1", Region: "河北省", SrcRegion: &bj, CP: "bilibili"},
+	}, "北京市", "bilibili", []string{"学校 B", " 学校 A "})
+	if len(filtered) != 1 || filtered[0].SchoolName != "学校 A" {
+		t.Fatalf("filtered=%+v, want selected school intersected with traffic permission", filtered)
+	}
+}
+
+func TestFilterComparisonSchoolsForGroupConfiguredNamesAreOptional(t *testing.T) {
+	bj := "北京市"
+	schools := []model.School{
+		{SchoolID: "1", Region: "河北省", SrcRegion: &bj, CP: "bilibili", SchoolName: "学校 A"},
+		{SchoolID: "2", Region: "山东省", SrcRegion: &bj, CP: "bilibili", SchoolName: "学校 B"},
+	}
+	filtered := filterComparisonSchoolsForGroup(schools, nil, "北京市", "bilibili", nil)
+	if len(filtered) != 2 {
+		t.Fatalf("filtered=%+v, want all schools when no names are configured", filtered)
 	}
 }
 

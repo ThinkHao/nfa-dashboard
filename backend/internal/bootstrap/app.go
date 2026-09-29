@@ -158,6 +158,7 @@ func BuildEngine() *gin.Engine {
 			v2.GET("/edc-nfa/comparison", authMW.AuthRequired(), authMW.PermissionRequired("traffic.read"), edcNFAComparisonController.GetComparison)
 			v2.GET("/edc-nfa/mappings", authMW.AuthRequired(), authMW.PermissionRequired("traffic.scope.manage"), edcNFAComparisonController.ListMappings)
 			v2.GET("/edc-nfa/mapping-entities", authMW.AuthRequired(), authMW.PermissionRequired("traffic.scope.manage"), edcNFAComparisonController.ListMappingEntities)
+			v2.GET("/edc-nfa/mapping-school-names", authMW.AuthRequired(), authMW.PermissionRequired("traffic.scope.manage"), edcNFAComparisonController.ListMappingSchoolNames)
 			v2.POST("/edc-nfa/mappings", authMW.AuthRequired(), authMW.PermissionRequired("traffic.scope.manage"), edcNFAComparisonController.CreateMapping)
 			v2.PUT("/edc-nfa/mappings/:id", authMW.AuthRequired(), authMW.PermissionRequired("traffic.scope.manage"), edcNFAComparisonController.UpdateMapping)
 			v2.PUT("/edc-nfa/mappings/:id/enabled", authMW.AuthRequired(), authMW.PermissionRequired("traffic.scope.manage"), edcNFAComparisonController.SetMappingEnabled)

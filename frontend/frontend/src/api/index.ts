@@ -736,6 +736,10 @@ export default {
         return api.get('/api/v2/edc-nfa/mapping-entities', { params, ...(config || {}) })
           .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
       },
+      listMappingSchoolNames(params?: any, config?: AxiosRequestConfig) {
+        return api.get('/api/v2/edc-nfa/mapping-school-names', { params, ...(config || {}) })
+          .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))
+      },
       createMapping(data: any) {
         return api.post('/api/v2/edc-nfa/mappings', data)
           .then((d: any) => (d && typeof d === 'object' && 'data' in d ? (d as any).data : d))

@@ -20,6 +20,7 @@ type EDCNFAComparisonMappingRepository interface {
 	EDCNFAComparisonRepository
 	ListMappings(ctx context.Context) ([]model.EDCNFAComparisonGroup, error)
 	ListMappingEntities(ctx context.Context) ([]model.EDCEntity, error)
+	ListMappingSchoolNames(ctx context.Context, srcRegion, cp string) ([]string, error)
 	FindActiveMappingMembers(ctx context.Context, entityIDs []uint64, excludeGroupID uint64) ([]model.EDCNFAComparisonGroupMember, error)
 	SaveMapping(ctx context.Context, id uint64, input model.EDCNFAComparisonGroupInput) (model.EDCNFAComparisonGroup, error)
 	SetMappingEnabled(ctx context.Context, id uint64, enabled bool) error
@@ -77,6 +78,21 @@ func (r *edcNFAComparisonRepository) ListMappingEntities(ctx context.Context) ([
 	return entities, nil
 }
 
+func (r *edcNFAComparisonRepository) ListMappingSchoolNames(ctx context.Context, srcRegion, cp string) ([]string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	names := make([]string, 0)
+	if err := model.DB.WithContext(ctx).Model(&model.School{}).
+		Distinct("school_name").
+		Where("src_region = ? AND cp = ?", srcRegion, cp).
+		Order("school_name ASC").
+		Pluck("school_name", &names).Error; err != nil {
+		return nil, err
+	}
+	return names, nil
+}
+
 func (r *edcNFAComparisonRepository) FindActiveMappingMembers(ctx context.Context, entityIDs []uint64, excludeGroupID uint64) ([]model.EDCNFAComparisonGroupMember, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -101,7 +117,7 @@ func (r *edcNFAComparisonRepository) SaveMapping(ctx context.Context, id uint64,
 	}
 	var saved model.EDCNFAComparisonGroup
 	err := model.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		group := model.EDCNFAComparisonGroup{GroupName: input.GroupName, NFASrcRegion: input.NFASrcRegion, NFACP: input.NFACP, Remark: input.Remark}
+		group := model.EDCNFAComparisonGroup{GroupName: input.GroupName, NFASrcRegion: input.NFASrcRegion, NFACP: input.NFACP, NFASchoolNames: input.NFASchoolNames, Remark: input.Remark}
 		if input.Enabled == nil {
 			group.Enabled = true
 		} else {
@@ -114,6 +130,7 @@ func (r *edcNFAComparisonRepository) SaveMapping(ctx context.Context, id uint64,
 			group.GroupName = input.GroupName
 			group.NFASrcRegion = input.NFASrcRegion
 			group.NFACP = input.NFACP
+			group.NFASchoolNames = input.NFASchoolNames
 			group.Remark = input.Remark
 			if input.Enabled != nil {
 				group.Enabled = *input.Enabled
@@ -426,12 +443,18 @@ func (r *edcNFAComparisonRepository) comparisonSchoolsForGroup(ctx context.Conte
 		Find(&schools).Error; err != nil {
 		return nil, err
 	}
-	return filterComparisonSchoolsForGroup(schools, allowedSchoolKeys, group.NFASrcRegion, group.NFACP), nil
+	return filterComparisonSchoolsForGroup(schools, allowedSchoolKeys, group.NFASrcRegion, group.NFACP, group.NFASchoolNames), nil
 }
 
-func filterComparisonSchoolsForGroup(schools []model.School, allowedSchoolKeys []model.TrafficScopeSchoolKey, srcRegion, cp string) []model.School {
+func filterComparisonSchoolsForGroup(schools []model.School, allowedSchoolKeys []model.TrafficScopeSchoolKey, srcRegion, cp string, schoolNames []string) []model.School {
+	nameSet := make(map[string]struct{}, len(schoolNames))
+	for _, name := range schoolNames {
+		if name = strings.TrimSpace(name); name != "" {
+			nameSet[name] = struct{}{}
+		}
+	}
 	if len(allowedSchoolKeys) == 0 {
-		return schools
+		return filterComparisonSchoolsByName(schools, nameSet)
 	}
 	allowed := make(map[string]struct{}, len(allowedSchoolKeys))
 	for _, key := range allowedSchoolKeys {
@@ -446,6 +469,19 @@ func filterComparisonSchoolsForGroup(schools []model.School, allowedSchoolKeys [
 			continue
 		}
 		if _, ok := allowed[comparisonSchoolScopeKey(school.SchoolID, school.Region, school.CP)]; ok {
+			filtered = append(filtered, school)
+		}
+	}
+	return filterComparisonSchoolsByName(filtered, nameSet)
+}
+
+func filterComparisonSchoolsByName(schools []model.School, names map[string]struct{}) []model.School {
+	if len(names) == 0 {
+		return schools
+	}
+	filtered := make([]model.School, 0, len(schools))
+	for _, school := range schools {
+		if _, ok := names[strings.TrimSpace(school.SchoolName)]; ok {
 			filtered = append(filtered, school)
 		}
 	}

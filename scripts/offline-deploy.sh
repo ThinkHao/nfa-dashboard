@@ -223,6 +223,7 @@ assert_db_schema() {
     "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='edc_entity_switch_events';|edc_entity_switch_events 表缺失"
     "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='edc_nfa_comparison_groups';|edc_nfa_comparison_groups 表缺失"
     "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='edc_nfa_comparison_groups' AND COLUMN_NAME='nfa_src_region';|edc_nfa_comparison_groups.nfa_src_region 列缺失"
+    "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='edc_nfa_comparison_groups' AND COLUMN_NAME='nfa_school_names';|edc_nfa_comparison_groups.nfa_school_names 列缺失"
     "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='edc_nfa_comparison_group_members';|edc_nfa_comparison_group_members 表缺失"
     "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='rate_final_node';|rate_final_node 表缺失"
     "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='rate_final_node' AND COLUMN_NAME='cp_fee';|rate_final_node.cp_fee 列缺失"

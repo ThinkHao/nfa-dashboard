@@ -30,6 +30,7 @@ interface Mapping {
   group_name: string
   nfa_src_region: string
   nfa_cp: string
+  nfa_school_names?: string[]
   enabled: boolean
   remark?: string
   members: Member[]
@@ -46,8 +47,11 @@ const loading = ref(false)
 const saving = ref(false)
 const dialogVisible = ref(false)
 const editingID = ref(0)
-const form = ref({ group_name: '', nfa_src_region: '', nfa_cp: '', enabled: true, remark: '' })
+const form = ref({ group_name: '', nfa_src_region: '', nfa_cp: '', nfa_school_names: [] as string[], enabled: true, remark: '' })
 const memberRows = ref<MemberRow[]>([])
+const schoolNameOptions = ref<string[]>([])
+const loadingSchoolNames = ref(false)
+let schoolNameRequest = 0
 
 const entityMap = computed(() => new Map(entities.value.map((entity) => [entity.id, entity])))
 const selectedEntityIDs = computed(() => memberRows.value.map((row) => row.entity_id))
@@ -60,8 +64,11 @@ function entityLabel(id: number): string {
 
 function resetForm() {
   editingID.value = 0
-  form.value = { group_name: '', nfa_src_region: '', nfa_cp: '', enabled: true, remark: '' }
+  form.value = { group_name: '', nfa_src_region: '', nfa_cp: '', nfa_school_names: [], enabled: true, remark: '' }
   memberRows.value = []
+  schoolNameOptions.value = []
+  schoolNameRequest++
+  loadingSchoolNames.value = false
 }
 
 function openCreate() {
@@ -75,6 +82,7 @@ function openEdit(row: Mapping) {
     group_name: row.group_name,
     nfa_src_region: row.nfa_src_region,
     nfa_cp: row.nfa_cp,
+    nfa_school_names: [...(row.nfa_school_names || [])],
     enabled: row.enabled,
     remark: row.remark || '',
   }
@@ -82,7 +90,38 @@ function openEdit(row: Mapping) {
     entity_id: member.entity_id,
     range: member.valid_from && member.valid_to ? [member.valid_from, member.valid_to] : null,
   }))
+  schoolNameOptions.value = [...(row.nfa_school_names || [])]
+  void loadSchoolNameOptions()
   dialogVisible.value = true
+}
+
+async function loadSchoolNameOptions() {
+  const request = ++schoolNameRequest
+  const srcRegion = form.value.nfa_src_region.trim()
+  const cp = form.value.nfa_cp.trim()
+  if (!srcRegion || !cp) {
+    schoolNameOptions.value = []
+    return
+  }
+  loadingSchoolNames.value = true
+  try {
+    const data = await (api as any).v2.edcNfa.listMappingSchoolNames({ nfa_src_region: srcRegion, nfa_cp: cp })
+    if (request === schoolNameRequest) schoolNameOptions.value = Array.isArray(data) ? data : (data?.items || [])
+  } catch (error: any) {
+    if (request === schoolNameRequest) ElMessage.error(error?.message || '获取 NFA 院校列表失败')
+  } finally {
+    if (request === schoolNameRequest) loadingSchoolNames.value = false
+  }
+}
+
+function onNfaDimensionChange() {
+  form.value.nfa_school_names = []
+  schoolNameOptions.value = []
+  void loadSchoolNameOptions()
+}
+
+function schoolNameSummary(names?: string[]): string {
+  return names?.length ? names.join('、') : '全部院校'
 }
 
 function onMembersChange(ids: number[]) {
@@ -93,6 +132,7 @@ function onMembersChange(ids: number[]) {
 function buildPayload() {
   return {
     ...form.value,
+    nfa_school_names: [...form.value.nfa_school_names],
     members: memberRows.value.map((row) => ({
       entity_id: row.entity_id,
       valid_from: row.range?.[0] || null,
@@ -129,7 +169,7 @@ async function save() {
   const payload = buildPayload()
   try {
     await ElMessageBox.confirm(
-      `将${editingID.value ? '更新' : '创建'}“${form.value.group_name}”，绑定 ${memberRows.value.length} 个 EDC 实体到节点源区域 ${form.value.nfa_src_region} / ${form.value.nfa_cp}。是否继续？`,
+      `将${editingID.value ? '更新' : '创建'}“${form.value.group_name}”，绑定 ${memberRows.value.length} 个 EDC 实体到节点源区域 ${form.value.nfa_src_region} / ${form.value.nfa_cp}，NFA 院校：${schoolNameSummary(form.value.nfa_school_names)}。是否继续？`,
       '保存前预览',
       { type: 'warning', confirmButtonText: '确认保存', cancelButtonText: '取消' },
     )
@@ -179,8 +219,10 @@ onMounted(loadData)
     <ElCard shadow="never">
       <ElTable v-loading="loading" :data="mappings" stripe empty-text="暂无映射配置">
         <ElTableColumn prop="group_name" label="比较组" min-width="180" />
-        <ElTableColumn label="NFA 维度" min-width="200">
-          <template #default="scope">{{ scope.row.nfa_src_region }} / {{ scope.row.nfa_cp }}</template>
+        <ElTableColumn label="NFA 维度" min-width="320">
+          <template #default="scope">
+            {{ scope.row.nfa_src_region }} / {{ scope.row.nfa_cp }} · {{ schoolNameSummary(scope.row.nfa_school_names) }}
+          </template>
         </ElTableColumn>
         <ElTableColumn label="EDC 成员" min-width="300">
           <template #default="scope">
@@ -203,8 +245,24 @@ onMounted(loadData)
     <ElDialog v-model="dialogVisible" :title="editingID ? '编辑比较组' : '新建比较组'" width="760px" destroy-on-close>
       <ElForm label-width="100px">
         <ElFormItem label="比较组名称"><ElInput v-model="form.group_name" placeholder="如 SH-jinshan" /></ElFormItem>
-        <ElFormItem label="NFA 节点源区域"><ElInput v-model="form.nfa_src_region" placeholder="如 上海市" /></ElFormItem>
-        <ElFormItem label="NFA CP"><ElInput v-model="form.nfa_cp" placeholder="如 jinshan" /></ElFormItem>
+        <ElFormItem label="NFA 节点源区域"><ElInput v-model="form.nfa_src_region" placeholder="如 上海市" @change="onNfaDimensionChange" /></ElFormItem>
+        <ElFormItem label="NFA CP"><ElInput v-model="form.nfa_cp" placeholder="如 jinshan" @change="onNfaDimensionChange" /></ElFormItem>
+        <ElFormItem label="NFA 院校（可选）">
+          <ElSelect
+            v-model="form.nfa_school_names"
+            multiple
+            filterable
+            clearable
+            collapse-tags
+            collapse-tags-tooltip
+            class="full-width"
+            :loading="loadingSchoolNames"
+            :disabled="!form.nfa_src_region.trim() || !form.nfa_cp.trim()"
+            placeholder="不选择时匹配该区域和 CP 下的全部院校"
+          >
+            <ElOption v-for="name in schoolNameOptions" :key="name" :label="name" :value="name" />
+          </ElSelect>
+        </ElFormItem>
         <ElFormItem label="EDC 成员">
           <ElSelect
             :model-value="selectedEntityIDs"

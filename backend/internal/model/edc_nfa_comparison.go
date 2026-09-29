@@ -12,26 +12,28 @@ type EDCNFAComparisonMemberInput struct {
 }
 
 type EDCNFAComparisonGroupInput struct {
-	GroupName    string                        `json:"group_name"`
-	NFASrcRegion string                        `json:"nfa_src_region"`
-	NFACP        string                        `json:"nfa_cp"`
-	Enabled      *bool                         `json:"enabled"`
-	Remark       string                        `json:"remark"`
-	Members      []EDCNFAComparisonMemberInput `json:"members"`
+	GroupName      string                        `json:"group_name"`
+	NFASrcRegion   string                        `json:"nfa_src_region"`
+	NFACP          string                        `json:"nfa_cp"`
+	NFASchoolNames []string                      `json:"nfa_school_names"`
+	Enabled        *bool                         `json:"enabled"`
+	Remark         string                        `json:"remark"`
+	Members        []EDCNFAComparisonMemberInput `json:"members"`
 }
 
 // EDCNFAComparisonGroup is the business mapping used by the comparison view.
 // NFASrcRegion/NFACP identify schools through nfa_school metadata.
 type EDCNFAComparisonGroup struct {
-	ID           uint64                        `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
-	GroupName    string                        `gorm:"column:group_name;not null" json:"group_name"`
-	NFASrcRegion string                        `gorm:"column:nfa_src_region;not null" json:"nfa_src_region"`
-	NFACP        string                        `gorm:"column:nfa_cp;not null" json:"nfa_cp"`
-	Enabled      bool                          `gorm:"column:enabled;not null;default:true" json:"enabled"`
-	Remark       string                        `gorm:"column:remark" json:"remark"`
-	Members      []EDCNFAComparisonGroupMember `gorm:"foreignKey:GroupID" json:"members"`
-	CreatedAt    time.Time                     `gorm:"column:created_at;autoCreateTime" json:"created_at"`
-	UpdatedAt    time.Time                     `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
+	ID             uint64                        `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+	GroupName      string                        `gorm:"column:group_name;not null" json:"group_name"`
+	NFASrcRegion   string                        `gorm:"column:nfa_src_region;not null" json:"nfa_src_region"`
+	NFACP          string                        `gorm:"column:nfa_cp;not null" json:"nfa_cp"`
+	NFASchoolNames []string                      `gorm:"column:nfa_school_names;type:text;serializer:json" json:"nfa_school_names"`
+	Enabled        bool                          `gorm:"column:enabled;not null;default:true" json:"enabled"`
+	Remark         string                        `gorm:"column:remark" json:"remark"`
+	Members        []EDCNFAComparisonGroupMember `gorm:"foreignKey:GroupID" json:"members"`
+	CreatedAt      time.Time                     `gorm:"column:created_at;autoCreateTime" json:"created_at"`
+	UpdatedAt      time.Time                     `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
 }
 
 func (EDCNFAComparisonGroup) TableName() string { return "edc_nfa_comparison_groups" }

@@ -81,7 +81,7 @@ describe('EDCNFAComparisonView mapping options', () => {
     await flushPromises()
 
     expect(mocks.getComparisonGroups).toHaveBeenCalledTimes(2)
-    expect(wrapper.text()).toContain('GD-Bilibili（广东省 / bilibili）')
+    expect(wrapper.text()).toContain('GD-Bilibili（广东省 / bilibili · 全部院校）')
     wrapper.unmount()
   })
 })
