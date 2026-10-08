@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/xuri/excelize/v2"
 	"nfa-dashboard/config"
@@ -25,6 +26,7 @@ import (
 	"nfa-dashboard/internal/settlement95"
 
 	"gorm.io/datatypes"
+	"gorm.io/gorm"
 )
 
 const trafficReportEngineVersion = "go-v1"
@@ -79,20 +81,35 @@ type TrafficReportMonthlyArchive struct {
 }
 
 type trafficReportParams struct {
-	SchoolName     string   `json:"school_name"`
-	SchoolNames    []string `json:"school_names"`
-	Region         string   `json:"region"`
-	CP             string   `json:"cp"`
-	EntityIDs      []uint64 `json:"entity_ids"`
-	EntityType     string   `json:"entity_type"`
-	SrcRegion      string   `json:"src_region"`
-	DstRegion      string   `json:"dst_region"`
-	Direction      string   `json:"direction"`
-	UnitBase       int      `json:"unit_base"`
-	SettlementMode string   `json:"settlement_mode"`
-	BudgetEnabled  bool     `json:"data_budget_enabled"`
-	BudgetMul      float64  `json:"data_budget_mul"`
-	BudgetDiv      float64  `json:"data_budget_div"`
+	SchoolName         string   `json:"school_name"`
+	SchoolNames        []string `json:"school_names"`
+	School             string   `json:"school"`
+	ExcludeSchool      string   `json:"exclude_school"`
+	DataSourceInstance string   `json:"data_source_instance"`
+	Province           string   `json:"province"`
+	ExportRaw          bool     `json:"export_raw"`
+	ExportDaily        bool     `json:"export_daily"`
+	MonthlyAggregate   bool     `json:"monthly_aggregate"`
+	SettlementMode     string   `json:"settlement_mode"`
+	AggregateAll       bool     `json:"aggregate_all"`
+	CombineV4V6        bool     `json:"combine_v4_v6"`
+	MergeKey           string   `json:"merge_key"`
+	BatchSize          int      `json:"batch_size"`
+	SortBy             string   `json:"sortby"`
+	SortOrder          string   `json:"sort_order"`
+	EDCName            string   `json:"edc_name"`
+	EDCMatchMode       string   `json:"edc_match_mode"`
+	Region             string   `json:"region"`
+	CP                 string   `json:"cp"`
+	EntityIDs          []uint64 `json:"entity_ids"`
+	EntityType         string   `json:"entity_type"`
+	SrcRegion          string   `json:"src_region"`
+	DstRegion          string   `json:"dst_region"`
+	Direction          string   `json:"direction"`
+	UnitBase           int      `json:"unit_base"`
+	BudgetEnabled      bool     `json:"data_budget_enabled"`
+	BudgetMul          float64  `json:"data_budget_mul"`
+	BudgetDiv          float64  `json:"data_budget_div"`
 }
 
 type trafficReportNFARow struct {
@@ -103,6 +120,19 @@ type trafficReportNFARow struct {
 	CP         string    `gorm:"column:cp"`
 	Recv       int64     `gorm:"column:recv_bytes"`
 	Send       int64     `gorm:"column:send_bytes"`
+}
+
+type trafficReportNFASample struct {
+	Recv int64
+	Send int64
+}
+
+type trafficReportNFASeries struct {
+	SchoolID   string
+	SchoolName string
+	Region     string
+	CP         string
+	Samples    map[time.Time]trafficReportNFASample
 }
 
 type trafficReportEDCRow struct {
@@ -185,14 +215,7 @@ func (s *trafficReportService) CreateTask(ownerID uint64, input TrafficReportTas
 			return nil, NewBadRequest(err.Error())
 		}
 	}
-	if len(input.ExportFormats) == 0 {
-		input.ExportFormats = []string{"csv"}
-	}
-	for _, f := range input.ExportFormats {
-		if f != "csv" && f != "xlsx" {
-			return nil, NewBadRequest("export_formats only supports csv and xlsx")
-		}
-	}
+	input.ExportFormats = []string{"xlsx"}
 	if input.Params == nil {
 		input.Params = map[string]interface{}{}
 	}
@@ -258,18 +281,22 @@ func (s *trafficReportService) ListDownloadMonths(ownerID uint64) ([]TrafficRepo
 		if month == "" {
 			continue
 		}
+		artifacts := filterTrafficReportXLSXArtifacts(run.Artifacts)
+		if len(artifacts) == 0 {
+			continue
+		}
 		group := groups[month]
 		if group == nil {
 			group = &TrafficReportDownloadMonth{Month: month, Files: make([]TrafficReportDownloadFile, 0)}
 			groups[month] = group
 		}
-		group.RunCount++
-		group.ArtifactCount += len(run.Artifacts)
 		runAt := run.CreatedAt
 		if run.FinishedAt != nil {
 			runAt = *run.FinishedAt
 		}
-		for _, artifact := range run.Artifacts {
+		group.RunCount++
+		group.ArtifactCount += len(artifacts)
+		for _, artifact := range artifacts {
 			group.TotalSize += artifact.FileSize
 			group.Files = append(group.Files, TrafficReportDownloadFile{ID: artifact.ID, RunID: artifact.RunID, FileName: artifact.FileName, MediaType: artifact.MediaType, FileSize: artifact.FileSize, RunAt: runAt})
 		}
@@ -301,6 +328,9 @@ func (s *trafficReportService) CreateMonthlyArchive(ownerID uint64, month string
 		}
 	}
 	runs = filteredRuns
+	for runIndex := range runs {
+		runs[runIndex].Artifacts = filterTrafficReportXLSXArtifacts(runs[runIndex].Artifacts)
+	}
 	selectedIDs := make(map[uint64]struct{}, len(artifactIDs))
 	for _, artifactID := range artifactIDs {
 		if artifactID == 0 {
@@ -397,6 +427,16 @@ func (s *trafficReportService) CreateMonthlyArchive(ownerID uint64, month string
 }
 
 var trafficReportMonthPattern = regexp.MustCompile(`^\d{4}-(0[1-9]|1[0-2])$`)
+
+func filterTrafficReportXLSXArtifacts(artifacts []model.TrafficReportArtifact) []model.TrafficReportArtifact {
+	filtered := make([]model.TrafficReportArtifact, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		if strings.EqualFold(filepath.Ext(artifact.FileName), ".xlsx") {
+			filtered = append(filtered, artifact)
+		}
+	}
+	return filtered
+}
 
 func trafficReportRunMonth(run model.TrafficReportRun) string {
 	t := run.CreatedAt
@@ -750,8 +790,7 @@ func (s *trafficReportService) executeRun(ctx context.Context, task *model.Traff
 			s.failRun(run, err)
 			return
 		}
-		formats := []string{}
-		_ = json.Unmarshal(task.ExportFormats, &formats)
+		formats := []string{"xlsx"}
 		for _, format := range formats {
 			artifact, err := writeTrafficReportArtifact(run.ID, task, rows, params, window, summary, format)
 			if err != nil {
@@ -843,7 +882,17 @@ func resolveTrafficReportWindow(task *model.TrafficReportTask) (trafficReportWin
 	if !start.Before(end) {
 		return trafficReportWindow{}, errors.New("window start must be earlier than end")
 	}
-	return trafficReportWindow{Start: start, End: end, Label: start.Format("20060102") + "-" + end.Format("20060102")}, nil
+	return trafficReportWindow{Start: start, End: end, Label: trafficReportWindowLabel(start, end)}, nil
+}
+
+func trafficReportWindowLabel(start, end time.Time) string {
+	if start.Day() == 1 && start.Hour() == 0 && start.Minute() == 0 && start.Second() == 0 &&
+		end.Year() == start.Year() && end.Month() == start.Month() &&
+		end.Day() == start.AddDate(0, 1, 0).Add(-time.Second).Day() &&
+		end.Hour() == 23 && end.Minute() == 59 && end.Second() == 59 {
+		return start.Format("200601")
+	}
+	return start.Format("20060102") + "-" + end.Format("20060102")
 }
 
 func parseReportTime(value interface{}, loc *time.Location) (time.Time, bool) {
@@ -872,30 +921,488 @@ func (s *trafficReportService) queryReportRows(ctx context.Context, task *model.
 		if err != nil {
 			return nil, nil, err
 		}
-		out := make([]map[string]interface{}, 0, len(rows))
 		points := map[time.Time]float64{}
 		for _, row := range rows {
 			value := reportDirectionValue(row.Recv, row.Send, params.Direction)
 			points[row.CreateTime] += value
-			out = append(out, map[string]interface{}{"create_time": row.CreateTime, "school_id": row.SchoolID, "school_name": row.SchoolName, "region": row.Region, "cp": row.CP, "recv_bytes": row.Recv, "send_bytes": row.Send, "total_bytes": row.Recv + row.Send, "selected_bytes": value})
 		}
+		out := buildNFAReportRows(rows, window, params)
 		return out, buildReportSummary(task.DataSourceType, params, points, window, len(out)), nil
 	}
 	rows, err := queryEDCReportRows(ctx, params, window, s.edcScope, task.OwnerUserID)
 	if err != nil {
 		return nil, nil, err
 	}
-	out := make([]map[string]interface{}, 0, len(rows))
+	params.Direction = "both"
 	points := map[time.Time]float64{}
 	for _, row := range rows {
 		value := reportDirectionValue(row.ServiceSize, row.CacheSize, params.Direction)
 		points[row.CreateTime] += value
-		out = append(out, map[string]interface{}{"create_time": row.CreateTime, "entity_id": row.EntityID, "entity_name": row.EntityName, "alias": row.Alias, "region": row.Region, "cp": row.CP, "entity_type": row.EntityType, "src_region": row.SrcRegion, "dst_region": row.DstRegion, "service_bytes": row.ServiceSize, "cache_bytes": row.CacheSize, "total_bytes": row.ServiceSize + row.CacheSize, "selected_bytes": value})
 	}
-	return out, buildReportSummary(task.DataSourceType, params, points, window, len(out)), nil
+	rankIndex := config.AppConfig.TrafficReport.EDC.DailyRankIndex
+	if rankIndex <= 0 {
+		rankIndex = 14
+	}
+	out := buildEDCReportRows(rows, window, params, rankIndex)
+	return out, buildReportSummary(task.DataSourceType, params, points, window, len(rows)), nil
+}
+
+func buildEDCReportRows(rows []trafficReportEDCRow, window trafficReportWindow, params trafficReportParams, rankIndex int) []map[string]interface{} {
+	if params.ExportRaw {
+		out := make([]map[string]interface{}, 0, len(rows))
+		instance := strings.TrimSpace(params.DataSourceInstance)
+		if instance == "" {
+			instance = "ali"
+		}
+		for _, row := range rows {
+			selected := reportDirectionValue(row.ServiceSize, row.CacheSize, "both")
+			out = append(out, map[string]interface{}{
+				"create_time": row.CreateTime, "entity_id": row.EntityID, "edc_name": row.EntityName,
+				"alias": row.Alias, "region": row.Region, "cp": row.CP, "entity_type": row.EntityType,
+				"src_region": row.SrcRegion, "dst_region": row.DstRegion, "service_size": row.ServiceSize,
+				"cache_size": row.CacheSize, "total_bytes": row.ServiceSize + row.CacheSize, "selected_bytes": selected,
+				"data_source_type": "edc", "data_source_instance": instance, "requested_edc_name": params.EDCName,
+				"unit_base": params.UnitBase, "saler_group": "", "saler": "",
+				"service_size_mbps_1000": float64(row.ServiceSize) * 8 / 300 / 1000 / 1000,
+				"service_size_mbps_1024": float64(row.ServiceSize) * 8 / 300 / 1024 / 1024,
+			})
+		}
+		return sortTrafficReportRows(out, params.SortBy, params.SortOrder)
+	}
+	daily := buildEDCDailyReportRows(rows, window, params, rankIndex)
+	var out []map[string]interface{}
+	switch {
+	case params.MonthlyAggregate:
+		out = buildEDCMonthlyReportRows(rows, daily, window, params, rankIndex)
+	case params.ExportDaily:
+		out = daily
+	default:
+		out = buildEDCSummaryReportRows(rows, daily, params, rankIndex, window)
+	}
+	return sortTrafficReportRows(out, params.SortBy, params.SortOrder)
+}
+
+func buildEDCDailyReportRows(rows []trafficReportEDCRow, window trafficReportWindow, params trafficReportParams, rankIndex int) []map[string]interface{} {
+	loc := window.Start.Location()
+	pointsByNameAndDay := make(map[string]map[string]map[time.Time]float64)
+	for _, row := range rows {
+		name := strings.TrimSpace(row.EntityName)
+		if name == "" {
+			name = fmt.Sprint(row.EntityID)
+		}
+		at := row.CreateTime.In(loc)
+		day := at.Format("2006-01-02")
+		days := pointsByNameAndDay[name]
+		if days == nil {
+			days = make(map[string]map[time.Time]float64)
+			pointsByNameAndDay[name] = days
+		}
+		points := days[day]
+		if points == nil {
+			points = make(map[time.Time]float64)
+			days[day] = points
+		}
+		points[at] += reportDirectionValue(row.ServiceSize, row.CacheSize, params.Direction)
+	}
+	names := make([]string, 0, len(pointsByNameAndDay))
+	for name := range pointsByNameAndDay {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	instance := strings.TrimSpace(params.DataSourceInstance)
+	if instance == "" {
+		instance = "ali"
+	}
+	rowsOut := make([]map[string]interface{}, 0, len(names)*legacyTotalDays(window))
+	for day := time.Date(window.Start.In(loc).Year(), window.Start.In(loc).Month(), window.Start.In(loc).Day(), 0, 0, 0, 0, loc); !day.After(window.End.In(loc)); day = day.AddDate(0, 0, 1) {
+		date := day.Format("2006-01-02")
+		for _, name := range names {
+			dailyPoints := pointsByNameAndDay[name][date]
+			values := make([]float64, 0, len(dailyPoints))
+			for _, raw := range dailyPoints {
+				values = append(values, raw)
+			}
+			raw95 := legacyNth95(values, rankIndex)
+			rowsOut = append(rowsOut, map[string]interface{}{
+				"date":                       date,
+				"edc_name":                   name,
+				"data_source_instance":       instance,
+				"daily_95th_percentile_raw":  raw95,
+				"daily_95th_percentile_mbps": raw95 * 8 / 300 / float64(params.UnitBase) / float64(params.UnitBase),
+				"data_points_daily":          len(values),
+				"saler_group":                "",
+				"saler":                      "",
+			})
+		}
+	}
+	return rowsOut
+}
+
+func buildNFAReportRows(rows []trafficReportNFARow, window trafficReportWindow, params trafficReportParams) []map[string]interface{} {
+	series := buildNFAReportSeries(rows, params)
+	var out []map[string]interface{}
+	switch {
+	case params.ExportRaw:
+		out = buildNFARawReportRows(series, params)
+	case params.MonthlyAggregate:
+		out = buildNFAMonthlyReportRows(series, window, params)
+	case params.ExportDaily:
+		out = buildNFADailyReportRows(series, window, params)
+	default:
+		out = buildNFASummaryReportRows(series, window, params)
+	}
+	return sortTrafficReportRows(out, params.SortBy, params.SortOrder)
+}
+
+func buildNFAReportSeries(rows []trafficReportNFARow, params trafficReportParams) []trafficReportNFASeries {
+	seriesByKey := make(map[string]*trafficReportNFASeries)
+	for _, row := range rows {
+		key := ""
+		schoolName := strings.TrimSpace(row.SchoolName)
+		if params.AggregateAll {
+			key = "all"
+		} else if params.CombineV4V6 {
+			switch params.MergeKey {
+			case "school_id":
+				key = row.SchoolID
+			case "school_name", "ipgroup_name":
+				key = schoolName
+			case "school_name_plus_cp":
+				key = schoolName + "\x00" + row.CP
+			default:
+				schoolName = trimNFAFamilySuffix(schoolName)
+				key = schoolName
+			}
+		} else {
+			key = strings.Join([]string{row.SchoolID, schoolName, row.Region, row.CP}, "\x00")
+		}
+		group := seriesByKey[key]
+		if group == nil {
+			name := schoolName
+			id, region, cp := row.SchoolID, row.Region, row.CP
+			if params.AggregateAll {
+				name, id, region, cp = "全部院校汇总", "", "", ""
+			} else if params.CombineV4V6 {
+				switch params.MergeKey {
+				case "school_id":
+					name = schoolName
+				case "school_name_plus_cp":
+					name = strings.Trim(schoolName+"_"+row.CP, "_")
+				default:
+					name = schoolName
+				}
+				if params.MergeKey == "ipgroup_name_base" || params.MergeKey == "" {
+					name = trimNFAFamilySuffix(name)
+				}
+			}
+			group = &trafficReportNFASeries{SchoolID: id, SchoolName: name, Region: region, CP: cp, Samples: make(map[time.Time]trafficReportNFASample)}
+			seriesByKey[key] = group
+		}
+		sample := group.Samples[row.CreateTime]
+		sample.Recv += row.Recv
+		sample.Send += row.Send
+		group.Samples[row.CreateTime] = sample
+	}
+	out := make([]trafficReportNFASeries, 0, len(seriesByKey))
+	for _, group := range seriesByKey {
+		out = append(out, *group)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].SchoolName != out[j].SchoolName {
+			return out[i].SchoolName < out[j].SchoolName
+		}
+		if out[i].Region != out[j].Region {
+			return out[i].Region < out[j].Region
+		}
+		return out[i].CP < out[j].CP
+	})
+	return out
+}
+
+func trimNFAFamilySuffix(name string) string {
+	lower := strings.ToLower(name)
+	if strings.HasSuffix(lower, "_v4") || strings.HasSuffix(lower, "_v6") {
+		return name[:len(name)-3]
+	}
+	return name
+}
+
+func buildNFARawReportRows(series []trafficReportNFASeries, params trafficReportParams) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0)
+	instance := strings.TrimSpace(params.DataSourceInstance)
+	if instance == "" {
+		instance = "default"
+	}
+	for _, group := range series {
+		times := make([]time.Time, 0, len(group.Samples))
+		for at := range group.Samples {
+			times = append(times, at)
+		}
+		sort.Slice(times, func(i, j int) bool { return times[i].Before(times[j]) })
+		for _, at := range times {
+			sample := group.Samples[at]
+			selected := reportDirectionValue(sample.Recv, sample.Send, params.Direction)
+			out = append(out, map[string]interface{}{
+				"create_time": at, "school_id": group.SchoolID, "school_name": group.SchoolName,
+				"region": group.Region, "cp": group.CP, "recv_bytes": sample.Recv, "send_bytes": sample.Send,
+				"total_bytes": sample.Recv + sample.Send, "selected_bytes": selected,
+				"data_source_type": "nfa", "data_source_instance": instance, "unit_base": params.UnitBase, "direction": params.Direction,
+				"recv_mbps_1000": float64(sample.Recv) * 8 / 60 / 1000 / 1000,
+				"recv_mbps_1024": float64(sample.Recv) * 8 / 60 / 1024 / 1024,
+				"send_mbps_1000": float64(sample.Send) * 8 / 60 / 1000 / 1000,
+				"send_mbps_1024": float64(sample.Send) * 8 / 60 / 1024 / 1024,
+			})
+		}
+	}
+	return out
+}
+
+func buildNFADailyReportRows(series []trafficReportNFASeries, window trafficReportWindow, params trafficReportParams) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0)
+	for _, group := range series {
+		byDay := make(map[string][]float64)
+		for at, sample := range group.Samples {
+			value := reportDirectionValue(sample.Recv, sample.Send, params.Direction)
+			byDay[at.In(window.Start.Location()).Format("2006-01-02")] = append(byDay[at.In(window.Start.Location()).Format("2006-01-02")], value*8/60/float64(params.UnitBase)/float64(params.UnitBase))
+		}
+		days := make([]string, 0, len(byDay))
+		for day := range byDay {
+			days = append(days, day)
+		}
+		sort.Strings(days)
+		for _, day := range days {
+			mbps := legacyNFA95(byDay[day])
+			out = append(out, map[string]interface{}{
+				"school_id": group.SchoolID, "school_name": group.SchoolName, "region": group.Region, "cp": group.CP,
+				"date": day, "daily_95th_percentile_raw": mbps * 60 * float64(params.UnitBase) * float64(params.UnitBase) / 8,
+				"daily_95th_percentile_mbps": mbps, "direction": params.Direction, "data_points_daily": len(byDay[day]),
+			})
+		}
+	}
+	return out
+}
+
+func buildNFAMonthlyReportRows(series []trafficReportNFASeries, window trafficReportWindow, params trafficReportParams) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0)
+	for _, group := range series {
+		byMonth := make(map[string][]float64)
+		for at, sample := range group.Samples {
+			value := reportDirectionValue(sample.Recv, sample.Send, params.Direction)
+			byMonth[at.In(window.Start.Location()).Format("2006-01")] = append(byMonth[at.In(window.Start.Location()).Format("2006-01")], value*8/60/float64(params.UnitBase)/float64(params.UnitBase))
+		}
+		months := make([]string, 0, len(byMonth))
+		for month := range byMonth {
+			months = append(months, month)
+		}
+		sort.Strings(months)
+		for _, month := range months {
+			mbps := legacyNFA95(byMonth[month])
+			out = append(out, map[string]interface{}{
+				"school_id": group.SchoolID, "school_name": group.SchoolName, "region": group.Region, "cp": group.CP,
+				"month": month, "95th_percentile_raw": mbps * 60 * float64(params.UnitBase) * float64(params.UnitBase) / 8,
+				"95th_percentile_mbps": mbps, "settlement_mode": "range_95", "data_points": len(byMonth[month]), "direction": params.Direction,
+			})
+		}
+	}
+	return out
+}
+
+func buildNFASummaryReportRows(series []trafficReportNFASeries, window trafficReportWindow, params trafficReportParams) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(series))
+	for _, group := range series {
+		values := make([]float64, 0, len(group.Samples))
+		byDay := make(map[string][]float64)
+		for at, sample := range group.Samples {
+			value := reportDirectionValue(sample.Recv, sample.Send, params.Direction) * 8 / 60 / float64(params.UnitBase) / float64(params.UnitBase)
+			values = append(values, value)
+			day := at.In(window.Start.Location()).Format("2006-01-02")
+			byDay[day] = append(byDay[day], value)
+		}
+		mbps, points := legacyNFA95(values), len(values)
+		if params.SettlementMode == "daily_95_avg" {
+			mbps, points = 0, len(byDay)
+			for _, daily := range byDay {
+				mbps += legacyNFA95(daily)
+			}
+			if totalDays := legacyTotalDays(window); totalDays > 0 {
+				mbps /= float64(totalDays)
+			}
+		}
+		out = append(out, map[string]interface{}{
+			"school_id": group.SchoolID, "school_name": group.SchoolName, "region": group.Region, "cp": group.CP,
+			"95th_percentile_raw":  mbps * 60 * float64(params.UnitBase) * float64(params.UnitBase) / 8,
+			"95th_percentile_mbps": mbps, "settlement_mode": params.SettlementMode, "data_points": points, "direction": params.Direction,
+		})
+	}
+	return out
+}
+
+func buildEDCMonthlyReportRows(rows []trafficReportEDCRow, daily []map[string]interface{}, window trafficReportWindow, params trafficReportParams, rankIndex int) []map[string]interface{} {
+	byNameMonth := make(map[string]map[string]map[time.Time]float64)
+	monthsSet := make(map[string]struct{})
+	for _, row := range rows {
+		name := strings.TrimSpace(row.EntityName)
+		if name == "" {
+			name = fmt.Sprint(row.EntityID)
+		}
+		month := row.CreateTime.In(window.Start.Location()).Format("2006-01")
+		monthsSet[month] = struct{}{}
+		months := byNameMonth[name]
+		if months == nil {
+			months = make(map[string]map[time.Time]float64)
+			byNameMonth[name] = months
+		}
+		points := months[month]
+		if points == nil {
+			points = make(map[time.Time]float64)
+			months[month] = points
+		}
+		points[row.CreateTime] += reportDirectionValue(row.ServiceSize, row.CacheSize, "both")
+	}
+	months := make([]string, 0, len(monthsSet))
+	for month := range monthsSet {
+		months = append(months, month)
+	}
+	sort.Strings(months)
+	instance := strings.TrimSpace(params.DataSourceInstance)
+	if instance == "" {
+		instance = "ali"
+	}
+	byDaily := make(map[string]map[string]float64)
+	for _, row := range daily {
+		name := fmt.Sprint(row["edc_name"])
+		if byDaily[name] == nil {
+			byDaily[name] = make(map[string]float64)
+		}
+		value, _ := strconv.ParseFloat(fmt.Sprint(row["daily_95th_percentile_raw"]), 64)
+		byDaily[name][fmt.Sprint(row["date"])] = value
+	}
+	names := make([]string, 0, len(byNameMonth))
+	for name := range byNameMonth {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]map[string]interface{}, 0, len(names)*len(months))
+	for _, month := range months {
+		for _, name := range names {
+			points := byNameMonth[name][month]
+			if points == nil {
+				continue
+			}
+			raw, dataPoints := 0.0, 0
+			if params.SettlementMode == "daily_95_avg" {
+				for date, value := range byDaily[name] {
+					if strings.HasPrefix(date, month) {
+						raw += value
+						dataPoints++
+					}
+				}
+				if dataPoints > 0 {
+					raw /= float64(dataPoints)
+				}
+			} else {
+				values := make([]float64, 0, len(points))
+				for _, value := range points {
+					values = append(values, value)
+				}
+				raw = legacyNth95(values, rankIndex)
+				dataPoints = len(values)
+			}
+			out = append(out, map[string]interface{}{
+				"month": month, "edc_name": name, "data_source_instance": instance,
+				"95th_percentile_raw": raw, "95th_percentile_mbps": raw * 8 / 300 / float64(params.UnitBase) / float64(params.UnitBase),
+				"settlement_mode": params.SettlementMode, "data_points": dataPoints,
+			})
+		}
+	}
+	return out
+}
+
+func buildEDCSummaryReportRows(rows []trafficReportEDCRow, daily []map[string]interface{}, params trafficReportParams, rankIndex int, window trafficReportWindow) []map[string]interface{} {
+	pointsByName := make(map[string]map[time.Time]float64)
+	for _, row := range rows {
+		name := strings.TrimSpace(row.EntityName)
+		if name == "" {
+			name = fmt.Sprint(row.EntityID)
+		}
+		points := pointsByName[name]
+		if points == nil {
+			points = make(map[time.Time]float64)
+			pointsByName[name] = points
+		}
+		points[row.CreateTime] += reportDirectionValue(row.ServiceSize, row.CacheSize, "both")
+	}
+	dailyByName := make(map[string][]float64)
+	for _, row := range daily {
+		name := fmt.Sprint(row["edc_name"])
+		value, _ := strconv.ParseFloat(fmt.Sprint(row["daily_95th_percentile_raw"]), 64)
+		dailyByName[name] = append(dailyByName[name], value)
+	}
+	names := make([]string, 0, len(pointsByName))
+	for name := range pointsByName {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	instance := strings.TrimSpace(params.DataSourceInstance)
+	if instance == "" {
+		instance = "ali"
+	}
+	out := make([]map[string]interface{}, 0, len(names))
+	for _, name := range names {
+		values := make([]float64, 0, len(pointsByName[name]))
+		for _, raw := range pointsByName[name] {
+			values = append(values, raw)
+		}
+		raw, dataPoints := legacyNth95(values, rankIndex), len(values)
+		if params.SettlementMode == "daily_95_avg" {
+			raw, dataPoints = 0, len(dailyByName[name])
+			for _, value := range dailyByName[name] {
+				raw += value
+			}
+			if totalDays := legacyTotalDays(window); totalDays > 0 {
+				raw /= float64(totalDays)
+			}
+		}
+		out = append(out, map[string]interface{}{
+			"edc_name": name, "data_source_instance": instance, "95th_percentile_raw": raw,
+			"95th_percentile_mbps": raw * 8 / 300 / float64(params.UnitBase) / float64(params.UnitBase),
+			"settlement_mode":      params.SettlementMode, "data_points": dataPoints,
+		})
+	}
+	return out
+}
+
+func sortTrafficReportRows(rows []map[string]interface{}, sortBy, sortOrder string) []map[string]interface{} {
+	if strings.TrimSpace(sortBy) == "" || len(rows) < 2 {
+		return rows
+	}
+	ascending := sortOrder == "asc"
+	sort.SliceStable(rows, func(i, j int) bool {
+		left, leftOK := rows[i][sortBy]
+		right, rightOK := rows[j][sortBy]
+		if !leftOK || !rightOK {
+			return false
+		}
+		leftNumber, leftErr := strconv.ParseFloat(fmt.Sprint(left), 64)
+		rightNumber, rightErr := strconv.ParseFloat(fmt.Sprint(right), 64)
+		if leftErr == nil && rightErr == nil {
+			if ascending {
+				return leftNumber < rightNumber
+			}
+			return leftNumber > rightNumber
+		}
+		if ascending {
+			return fmt.Sprint(left) < fmt.Sprint(right)
+		}
+		return fmt.Sprint(left) > fmt.Sprint(right)
+	})
+	return rows
 }
 
 func normalizeTrafficReportParams(params trafficReportParams) trafficReportParams {
+	if params.Region == "" {
+		params.Region = params.Province
+	}
 	if params.Direction == "" {
 		params.Direction = "both"
 	}
@@ -907,6 +1414,25 @@ func normalizeTrafficReportParams(params trafficReportParams) trafficReportParam
 	}
 	if params.BudgetDiv == 0 {
 		params.BudgetDiv = 300
+	}
+	if params.SettlementMode != "daily_95_avg" {
+		params.SettlementMode = "range_95"
+	}
+	if params.BatchSize < 10 {
+		params.BatchSize = 200
+	}
+	if params.SortOrder != "asc" {
+		params.SortOrder = "desc"
+	}
+	if params.EDCMatchMode != "exact" {
+		params.EDCMatchMode = "prefix"
+	}
+	if !params.CombineV4V6 {
+		params.MergeKey = ""
+	}
+	if params.ExportRaw {
+		params.ExportDaily = false
+		params.MonthlyAggregate = false
 	}
 	return params
 }
@@ -1005,8 +1531,12 @@ func queryNFAReportRows(ctx context.Context, params trafficReportParams, window 
 	if params.SchoolName != "" {
 		q = q.Where("school_name = ?", params.SchoolName)
 	}
+	schools := splitReportCSV(params.School)
 	if len(params.SchoolNames) > 0 {
 		q = q.Where("school_name IN ?", params.SchoolNames)
+	}
+	if excluded := splitReportCSV(params.ExcludeSchool); len(excluded) > 0 {
+		q = q.Where("school_name NOT IN ?", excluded)
 	}
 	if params.Region != "" {
 		q = q.Where("region = ?", params.Region)
@@ -1032,15 +1562,61 @@ func queryNFAReportRows(ctx context.Context, params trafficReportParams, window 
 				parts = append(parts, "(school_id = ? AND region = ? AND cp = ?)")
 				args = append(args, k.SchoolID, k.Region, k.CP)
 			}
-			q = q.Where(strings.Join(parts, " OR "), args...)
+			q = q.Where("("+strings.Join(parts, " OR ")+")", args...)
 		}
 	}
-	return rows, q.Order("create_time ASC, school_name ASC, region ASC, cp ASC").Scan(&rows).Error
+	if len(schools) == 0 {
+		return rows, q.Order("create_time ASC, school_name ASC, region ASC, cp ASC").Scan(&rows).Error
+	}
+	batchSize := params.BatchSize
+	if batchSize < 10 {
+		batchSize = 200
+	}
+	rows = make([]trafficReportNFARow, 0)
+	for start := 0; start < len(schools); start += batchSize {
+		end := start + batchSize
+		if end > len(schools) {
+			end = len(schools)
+		}
+		var batch []trafficReportNFARow
+		query := q.Session(&gorm.Session{}).Where("school_name IN ?", schools[start:end])
+		if err := query.Order("create_time ASC, school_name ASC, region ASC, cp ASC").Scan(&batch).Error; err != nil {
+			return nil, err
+		}
+		rows = append(rows, batch...)
+	}
+	return rows, nil
 }
 
 func queryEDCReportRows(ctx context.Context, params trafficReportParams, window trafficReportWindow, scopeService EDCTrafficScopeService, ownerID uint64) ([]trafficReportEDCRow, error) {
 	var rows []trafficReportEDCRow
 	q := model.DB.WithContext(ctx).Table("edc_traffic_5m AS t").Select("t.bucket_5m AS create_time, t.entity_id, e.edc_name AS entity_name, COALESCE(t.alias, e.alias, '') AS alias, t.region, t.cp, t.entity_type, t.src_region, t.dst_region, GREATEST(t.service_size, 0) AS service_bytes, GREATEST(t.cache_size, 0) AS cache_bytes").Joins("JOIN edc_entities e ON e.id = t.entity_id AND e.enabled = ? AND e.is_backup = ?", true, false).Where("t.bucket_5m >= ? AND t.bucket_5m < ?", window.Start, window.End.Add(time.Second))
+	if names := splitReportCSV(params.EDCName); len(names) > 0 {
+		parts := make([]string, 0, len(names)+1)
+		args := make([]interface{}, 0, len(names)+1)
+		exactNames := make([]string, 0, len(names))
+		for _, name := range names {
+			if params.EDCMatchMode == "exact" && !strings.ContainsAny(name, "*?") {
+				exactNames = append(exactNames, name)
+				continue
+			}
+			pattern := strings.NewReplacer("*", "%", "?", "_").Replace(name)
+			if params.EDCMatchMode == "prefix" && !strings.ContainsAny(name, "*?") {
+				pattern += "%"
+			}
+			parts = append(parts, "e.edc_name LIKE ?")
+			args = append(args, pattern)
+		}
+		if len(exactNames) > 0 {
+			parts = append(parts, "e.edc_name IN ?")
+			args = append(args, exactNames)
+		}
+		if len(parts) == 1 {
+			q = q.Where(parts[0], args...)
+		} else if len(parts) > 1 {
+			q = q.Where("("+strings.Join(parts, " OR ")+")", args...)
+		}
+	}
 	if params.EntityType != "" {
 		q = q.Where("t.entity_type = ?", params.EntityType)
 	}
@@ -1106,7 +1682,7 @@ func writeTrafficReportArtifact(runID string, task *model.TrafficReportTask, row
 	root := filepath.Join(config.GetTrafficReportStorageDir(), runID)
 	if format == "xlsx" {
 		path := filepath.Join(root, base+".xlsx")
-		if err := writeReportXLSX(path, task.DataSourceType, rows, summary); err != nil {
+		if err := writeReportXLSX(path, task.DataSourceType, rows, summary, params); err != nil {
 			return nil, err
 		}
 		st, err := os.Stat(path)
@@ -1122,7 +1698,7 @@ func writeTrafficReportArtifact(runID string, task *model.TrafficReportTask, row
 	}
 	defer f.Close()
 	w := csv.NewWriter(f)
-	keys := reportKeysForRows(task.DataSourceType, rows)
+	keys := reportKeysForRows(task.DataSourceType, rows, params)
 	if len(keys) > 0 {
 		if err := w.Write(keys); err != nil {
 			return nil, err
@@ -1148,24 +1724,61 @@ func writeTrafficReportArtifact(runID string, task *model.TrafficReportTask, row
 	return &model.TrafficReportArtifact{RunID: runID, FileName: filepath.Base(path), MediaType: "text/csv; charset=utf-8", StoragePath: path, FileSize: st.Size()}, nil
 }
 
-func orderedReportKeys(row map[string]interface{}) []string {
-	keys := make([]string, 0, len(row))
-	for _, k := range []string{"create_time", "school_id", "school_name", "region", "cp", "entity_id", "entity_name", "alias", "entity_type", "src_region", "dst_region", "recv_bytes", "send_bytes", "service_bytes", "cache_bytes", "total_bytes", "selected_bytes"} {
-		if _, ok := row[k]; ok {
-			keys = append(keys, k)
+func orderedReportKeys(source string, row map[string]interface{}) []string {
+	if _, ok := row["date"]; ok {
+		if source == "edc" {
+			return []string{"date", "edc_name", "data_source_instance", "daily_95th_percentile_raw", "daily_95th_percentile_mbps", "data_points_daily", "saler_group", "saler"}
 		}
+		return []string{"school_id", "school_name", "region", "cp", "date", "daily_95th_percentile_raw", "daily_95th_percentile_mbps", "direction", "data_points_daily"}
 	}
-	return keys
-}
-
-func reportKeysForRows(source string, rows []map[string]interface{}) []string {
-	if len(rows) > 0 {
-		return orderedReportKeys(rows[0])
+	if _, ok := row["month"]; ok {
+		if source == "edc" {
+			return []string{"month", "edc_name", "data_source_instance", "95th_percentile_raw", "95th_percentile_mbps", "settlement_mode", "data_points"}
+		}
+		return []string{"school_id", "school_name", "region", "cp", "month", "95th_percentile_raw", "95th_percentile_mbps", "settlement_mode", "data_points", "direction"}
 	}
 	if source == "edc" {
-		return []string{"create_time", "entity_id", "entity_name", "alias", "region", "cp", "entity_type", "src_region", "dst_region", "service_bytes", "cache_bytes", "total_bytes", "selected_bytes"}
+		if _, ok := row["95th_percentile_mbps"]; ok {
+			return []string{"edc_name", "data_source_instance", "95th_percentile_raw", "95th_percentile_mbps", "settlement_mode", "data_points"}
+		}
+		return []string{"create_time", "edc_name", "service_size", "data_source_type", "data_source_instance", "requested_edc_name", "unit_base", "saler_group", "saler", "service_size_mbps_1000", "service_size_mbps_1024", "entity_id", "alias", "region", "cp", "entity_type", "src_region", "dst_region", "cache_size", "total_bytes", "selected_bytes"}
 	}
-	return []string{"create_time", "school_id", "school_name", "region", "cp", "recv_bytes", "send_bytes", "total_bytes", "selected_bytes"}
+	if _, ok := row["95th_percentile_mbps"]; ok {
+		return []string{"school_id", "school_name", "region", "cp", "95th_percentile_raw", "95th_percentile_mbps", "settlement_mode", "data_points", "direction"}
+	}
+	return []string{"create_time", "school_id", "school_name", "region", "cp", "recv_bytes", "send_bytes", "total_bytes", "selected_bytes", "recv_mbps_1000", "recv_mbps_1024", "send_mbps_1000", "send_mbps_1024", "data_source_type", "data_source_instance", "unit_base", "direction"}
+}
+
+func reportKeysForRows(source string, rows []map[string]interface{}, params ...trafficReportParams) []string {
+	if len(rows) > 0 {
+		return orderedReportKeys(source, rows[0])
+	}
+	var mode trafficReportParams
+	if len(params) > 0 {
+		mode = params[0]
+	}
+	if source == "edc" {
+		if mode.ExportRaw {
+			return []string{"create_time", "edc_name", "service_size", "data_source_type", "data_source_instance", "requested_edc_name", "unit_base", "saler_group", "saler", "service_size_mbps_1000", "service_size_mbps_1024", "entity_id", "alias", "region", "cp", "entity_type", "src_region", "dst_region", "cache_size", "total_bytes", "selected_bytes"}
+		}
+		if mode.MonthlyAggregate {
+			return []string{"month", "edc_name", "data_source_instance", "95th_percentile_raw", "95th_percentile_mbps", "settlement_mode", "data_points"}
+		}
+		if mode.ExportDaily {
+			return []string{"date", "edc_name", "data_source_instance", "daily_95th_percentile_raw", "daily_95th_percentile_mbps", "data_points_daily", "saler_group", "saler"}
+		}
+		return []string{"edc_name", "data_source_instance", "95th_percentile_raw", "95th_percentile_mbps", "settlement_mode", "data_points"}
+	}
+	if mode.ExportRaw {
+		return []string{"create_time", "school_id", "school_name", "region", "cp", "recv_bytes", "send_bytes", "total_bytes", "selected_bytes", "recv_mbps_1000", "recv_mbps_1024", "send_mbps_1000", "send_mbps_1024", "data_source_type", "data_source_instance", "unit_base", "direction"}
+	}
+	if mode.MonthlyAggregate {
+		return []string{"school_id", "school_name", "region", "cp", "month", "95th_percentile_raw", "95th_percentile_mbps", "settlement_mode", "data_points", "direction"}
+	}
+	if mode.ExportDaily {
+		return []string{"school_id", "school_name", "region", "cp", "date", "daily_95th_percentile_raw", "daily_95th_percentile_mbps", "direction", "data_points_daily"}
+	}
+	return []string{"school_id", "school_name", "region", "cp", "95th_percentile_raw", "95th_percentile_mbps", "settlement_mode", "data_points", "direction"}
 }
 func formatReportValue(v interface{}) string {
 	if v == nil {
@@ -1176,12 +1789,12 @@ func formatReportValue(v interface{}) string {
 	}
 	return fmt.Sprint(v)
 }
-func writeReportXLSX(path, source string, rows []map[string]interface{}, summary map[string]interface{}) error {
+func writeReportXLSX(path, source string, rows []map[string]interface{}, summary map[string]interface{}, params trafficReportParams) error {
 	f := excelize.NewFile()
 	defer f.Close()
 	sheet := "流量数据"
 	f.SetSheetName("Sheet1", sheet)
-	keys := reportKeysForRows(source, rows)
+	keys := reportKeysForRows(source, rows, params)
 	for i, k := range keys {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
 		_ = f.SetCellValue(sheet, cell, k)
@@ -1213,7 +1826,7 @@ func sanitizeReportName(value string) string {
 	}
 	var b strings.Builder
 	for _, r := range value {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == ' ' {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' || r == ' ' {
 			b.WriteRune(r)
 		} else {
 			b.WriteRune('_')

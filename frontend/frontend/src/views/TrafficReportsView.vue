@@ -31,7 +31,7 @@
         <div>
           <div class="eyebrow">统一下载</div>
           <h2>按月下载全部报表</h2>
-          <p>将当月成功运行的 CSV、XLSX 和元数据一次打包下载。</p>
+          <p>将当月成功运行的 XLSX 报表一次打包下载。</p>
         </div>
         <el-button text :loading="downloadsLoading" @click="loadDownloadMonths">刷新月份</el-button>
       </div>
@@ -40,7 +40,7 @@
           <div class="download-month-row download-month-latest">
             <div class="download-month-main">
               <div class="download-month-label"><strong>{{ formatMonthLabel(latestDownloadMonth.month) }}</strong><el-tag size="small" type="primary" effect="plain">最新月份</el-tag></div>
-              <span>{{ latestDownloadMonth.run_count }} 次成功运行 · {{ latestDownloadMonth.artifact_count }} 个文件 · {{ formatBytes(latestDownloadMonth.total_size) }}</span>
+              <span>{{ latestDownloadMonth.run_count }} 次成功运行 · {{ latestDownloadMonth.artifact_count }} 个 XLSX 文件 · {{ formatBytes(latestDownloadMonth.total_size) }}</span>
             </div>
             <div class="download-month-actions"><el-button text type="primary" @click="openMonthPicker(latestDownloadMonth)">选择文件</el-button><el-button type="primary" plain :loading="monthlyDownload === latestDownloadMonth.month" :disabled="latestDownloadMonth.artifact_count === 0" @click="downloadMonth(latestDownloadMonth)">下载全部 ZIP</el-button></div>
           </div>
@@ -51,7 +51,7 @@
                 <div v-for="month in historicalDownloadMonths" :key="month.month" class="download-month-row">
                   <div class="download-month-main">
                     <strong>{{ formatMonthLabel(month.month) }}</strong>
-                    <span>{{ month.run_count }} 次成功运行 · {{ month.artifact_count }} 个文件 · {{ formatBytes(month.total_size) }}</span>
+                    <span>{{ month.run_count }} 次成功运行 · {{ month.artifact_count }} 个 XLSX 文件 · {{ formatBytes(month.total_size) }}</span>
                   </div>
                   <div class="download-month-actions"><el-button text type="primary" @click="openMonthPicker(month)">选择文件</el-button><el-button type="primary" plain :loading="monthlyDownload === month.month" :disabled="month.artifact_count === 0" @click="downloadMonth(month)">下载全部 ZIP</el-button></div>
                 </div>
@@ -184,7 +184,9 @@
           <div class="eyebrow">任务配置</div>
           <div class="detail-list compact">
             <div><span>统计窗口</span><strong>{{ windowLabel(selectedTask) }}</strong></div>
-            <div><span>输出格式</span><strong>{{ (selectedTask.export_formats || []).join('、') || '—' }}</strong></div>
+            <div><span>导出内容</span><strong>{{ reportExportLabel(selectedTask) }}</strong></div>
+            <div><span>结算方式</span><strong>{{ selectedTask.params?.export_raw ? '—' : selectedTask.params?.settlement_mode === 'daily_95_avg' ? '日95平均' : '月95' }}</strong></div>
+            <div><span>输出格式</span><strong>XLSX</strong></div>
             <div><span>时区</span><strong>{{ selectedTask.timezone || 'Asia/Shanghai' }}</strong></div>
             <div><span>更新时间</span><strong>{{ formatTime(selectedTask.updated_at) }}</strong></div>
           </div>
@@ -198,19 +200,19 @@
     </div>
 
     <el-drawer v-model="runsVisible" :title="`运行记录${selectedTask ? ` · ${selectedTask.name}` : ''}`" direction="rtl" size="min(820px, 100%)" destroy-on-close>
-      <div class="drawer-intro">保留最近 50 次运行，可从这里下载对应的 CSV 或 XLSX 文件。</div>
+      <div class="drawer-intro">保留最近 50 次运行，可从这里下载 XLSX 报表。</div>
       <el-table :data="runs" border stripe v-loading="runsLoading" class="runs-table">
         <el-table-column prop="created_at" label="创建时间" width="154"><template #default="{ row }">{{ formatTime(row.created_at) }}</template></el-table-column>
         <el-table-column prop="status" label="状态" width="78"><template #default="{ row }"><el-tag :type="runTag(row.status)" size="small">{{ runText(row.status) }}</el-tag></template></el-table-column>
         <el-table-column prop="progress_stage" label="阶段" min-width="96" />
         <el-table-column prop="row_count" label="行数" width="62" />
         <el-table-column label="摘要" min-width="170"><template #default="{ row }">{{ summaryText(row) }}</template></el-table-column>
-        <el-table-column label="文件" min-width="210"><template #default="{ row }"><div v-for="artifact in (row.artifacts || [])" :key="artifact.id" class="artifact-link"><el-tooltip :content="artifact.file_name" placement="top" :show-after="250"><el-button link type="primary" class="artifact-download" :title="artifact.file_name" :aria-label="`下载 ${artifact.file_name}`" @click="download(artifact)"><span class="artifact-name">{{ artifact.file_name }}</span></el-button></el-tooltip></div><span v-if="!(row.artifacts || []).length">—</span></template></el-table-column>
+        <el-table-column label="文件" min-width="210"><template #default="{ row }"><div v-for="artifact in xlsxArtifacts(row.artifacts || [])" :key="artifact.id" class="artifact-link"><el-tooltip :content="artifact.file_name" placement="top" :show-after="250"><el-button link type="primary" class="artifact-download" :title="artifact.file_name" :aria-label="`下载 ${artifact.file_name}`" @click="download(artifact)"><span class="artifact-name">{{ artifact.file_name }}</span></el-button></el-tooltip></div><span v-if="!xlsxArtifacts(row.artifacts || []).length">—</span></template></el-table-column>
       </el-table>
       <div v-if="!runsLoading && !runs.length" class="empty-state drawer-empty"><div class="empty-title">暂无运行记录</div><div class="empty-desc">点击“立即执行”生成第一份报表。</div></div>
     </el-drawer>
 
-    <el-dialog v-model="dialogVisible" title="新建流量报表" width="720px" :close-on-click-modal="false">
+    <el-dialog v-model="dialogVisible" title="新建流量报表" width="min(900px, 96vw)" :close-on-click-modal="false">
       <el-form :model="form" label-width="105px">
         <el-form-item label="报表名称"><el-input v-model="form.name" placeholder="如：上月重点院校流量" /></el-form-item>
         <el-form-item label="数据源"><el-radio-group v-model="form.data_source_type"><el-radio-button label="nfa">NFA</el-radio-button><el-radio-button label="edc">EDC</el-radio-button></el-radio-group></el-form-item>
@@ -219,11 +221,18 @@
         <el-form-item label="统计窗口"><el-select v-model="form.window_selector" class="field-w-180"><el-option label="自定义" value="custom" /><el-option label="上周" value="last_week" /><el-option label="上月" value="last_month" /><el-option label="最近N天" value="last_n_days" /></el-select></el-form-item>
         <el-form-item v-if="form.window_selector === 'custom'" label="时间范围"><el-date-picker v-model="customRange" type="datetimerange" value-format="YYYY-MM-DD HH:mm:ss" format="YYYY-MM-DD HH:mm:ss" /></el-form-item>
         <el-form-item v-if="form.window_selector === 'last_n_days'" label="天数"><el-input-number v-model="lastDays" :min="1" :max="365" /></el-form-item>
-        <el-form-item label="对象筛选"><el-input v-model="form.params.school_name" :placeholder="form.data_source_type === 'nfa' ? '学校名称（可选）' : 'EDC对象ID，逗号分隔（可选）'" /></el-form-item>
-        <el-form-item v-if="form.data_source_type === 'nfa'" label="地区/CP"><el-input v-model="form.params.region" placeholder="地区（可选）" class="field-w-180" /><el-input v-model="form.params.cp" placeholder="CP，逗号分隔（可选）" class="field-w-220" /></el-form-item>
-        <el-form-item label="方向"><el-select v-model="form.params.direction" class="field-w-140"><el-option label="收发合计" value="both" /><el-option label="接收" value="recv" /><el-option label="发送" value="send" /></el-select><el-select v-model="form.params.unit_base" class="field-w-140 unit-select"><el-option label="1000 进制" :value="1000" /><el-option label="1024 进制" :value="1024" /></el-select></el-form-item>
-        <el-form-item label="流量预算"><el-checkbox v-model="form.params.data_budget_enabled">启用预算换算</el-checkbox><el-input-number v-if="form.params.data_budget_enabled" v-model="form.params.data_budget_mul" :min="0.0001" :step="1" class="budget-input" /><span v-if="form.params.data_budget_enabled" class="formula-text">÷</span><el-input-number v-if="form.params.data_budget_enabled" v-model="form.params.data_budget_div" :min="0.0001" :step="1" /></el-form-item>
-        <el-form-item label="导出格式"><el-checkbox-group v-model="form.export_formats"><el-checkbox label="csv">CSV</el-checkbox><el-checkbox label="xlsx">XLSX</el-checkbox></el-checkbox-group></el-form-item>
+        <el-form-item v-if="form.data_source_type === 'nfa'" label="省份/CP"><el-input v-model="form.params.province" placeholder="省份，如四川省" class="field-w-180" /><el-input v-model="form.params.cp" placeholder="CP，如 bilibili" class="field-w-220" /></el-form-item>
+        <el-form-item v-else label="EDC 名称"><el-input v-model="form.params.edc_name" placeholder="EDC名称，支持前缀或逗号分隔多个对象" class="field-w-280" /><el-select v-model="form.params.edc_match_mode" class="field-w-150"><el-option label="前缀匹配" value="prefix" /><el-option label="精确匹配" value="exact" /></el-select></el-form-item>
+        <el-form-item v-if="form.data_source_type === 'nfa'" label="院校筛选"><el-input v-model="form.params.school" placeholder="指定院校，逗号分隔" class="field-w-220" /><el-input v-model="form.params.exclude_school" placeholder="排除院校，逗号分隔" class="field-w-220" /></el-form-item>
+        <el-form-item v-if="form.data_source_type === 'nfa'" label="院校汇总"><el-checkbox v-model="form.params.aggregate_all">全部院校汇总</el-checkbox><el-checkbox v-model="form.params.combine_v4_v6" @change="onCombineV4V6Change">V4/V6 累加</el-checkbox></el-form-item>
+        <el-form-item v-if="form.data_source_type === 'nfa'" label="V4/V6 合并键"><el-select v-model="form.params.merge_key" :disabled="!form.params.combine_v4_v6" class="field-w-220"><el-option label="按名称去后缀（_V4/_V6）" value="ipgroup_name_base" /><el-option label="按 IP 组名称" value="ipgroup_name" /><el-option label="按学校名称+CP" value="school_name_plus_cp" /><el-option label="按学校 ID" value="school_id" /><el-option label="按学校名称" value="school_name" /></el-select></el-form-item>
+        <el-form-item v-if="form.data_source_type === 'nfa'" label="批量大小"><el-input-number v-model="form.params.batch_size" :min="10" :step="10" /></el-form-item>
+        <el-form-item v-if="form.data_source_type === 'nfa'" label="方向"><el-select v-model="form.params.direction" class="field-w-140"><el-option label="收发合计" value="both" /><el-option label="接收" value="recv" /><el-option label="发送" value="send" /></el-select></el-form-item>
+        <el-form-item label="换算与结算"><el-select v-model="form.params.unit_base" class="field-w-140 unit-select"><el-option label="1000 进制" :value="1000" /><el-option label="1024 进制" :value="1024" /></el-select><el-select v-model="form.params.settlement_mode" :disabled="form.params.export_raw" class="field-w-180"><el-option label="结算方式：月95" value="range_95" /><el-option label="结算方式：日95平均" value="daily_95_avg" /></el-select></el-form-item>
+        <el-form-item label="导出内容"><el-checkbox v-model="form.params.export_raw" @change="onRawExportChange">导出原始数据</el-checkbox><el-checkbox v-model="form.params.export_daily" :disabled="form.params.export_raw">导出每日</el-checkbox><el-checkbox v-model="form.params.monthly_aggregate" :disabled="form.params.export_raw">按月聚合导出</el-checkbox></el-form-item>
+        <el-form-item label="排序"><el-input v-model="form.params.sortby" placeholder="排序字段（可选）" class="field-w-220" /><el-select v-model="form.params.sort_order" class="field-w-120"><el-option label="降序" value="desc" /><el-option label="升序" value="asc" /></el-select></el-form-item>
+        <el-form-item v-if="form.data_source_type === 'edc'" label="流量预算"><el-checkbox v-model="form.params.data_budget_enabled">启用预算换算</el-checkbox><el-input-number v-if="form.params.data_budget_enabled" v-model="form.params.data_budget_mul" :min="0.0001" :step="1" class="budget-input" /><span v-if="form.params.data_budget_enabled" class="formula-text">÷</span><el-input-number v-if="form.params.data_budget_enabled" v-model="form.params.data_budget_div" :min="0.0001" :step="1" /></el-form-item>
+        <el-form-item label="导出格式"><span>XLSX</span></el-form-item>
         <el-alert title="每次运行会保存实际时间窗口、对象范围、原始单位和计算公式；预算结果不会写入正式结算表。" type="info" :closable="false" />
       </el-form>
       <template #footer><el-button @click="dialogVisible = false">取消</el-button><el-button type="primary" :loading="submitting" @click="submit">创建</el-button></template>
@@ -272,7 +281,7 @@ const taskPage = ref(1)
 const taskPageSize = 12
 const customRange = ref<[string, string] | null>(null)
 const lastDays = ref(7)
-const form = reactive<any>({ name: '', data_source_type: 'nfa', kind: 'one_off', schedule_type: 'daily', schedule_expr: '02:00', window_selector: 'last_month', params: { school_name: '', region: '', cp: '', direction: 'both', unit_base: 1024, data_budget_enabled: false, data_budget_mul: 8, data_budget_div: 300 }, export_formats: ['csv'] })
+const form = reactive<any>({ name: '', data_source_type: 'nfa', kind: 'one_off', schedule_type: 'daily', schedule_expr: '02:00', window_selector: 'last_month', params: { school_name: '', school: '', exclude_school: '', province: '', region: '', cp: '', direction: 'both', unit_base: 1024, settlement_mode: 'range_95', export_raw: false, export_daily: true, monthly_aggregate: false, combine_v4_v6: false, merge_key: '', aggregate_all: false, batch_size: 200, sortby: '', sort_order: 'desc', edc_name: '', edc_match_mode: 'prefix', data_source_instance: 'ali', data_budget_enabled: false, data_budget_mul: 8, data_budget_div: 300 } })
 const pollingRuns = new Set<string>()
 
 const hasFilters = computed(() => Boolean(searchText.value || sourceFilter.value || kindFilter.value || stateFilter.value || budgetOnly.value))
@@ -326,9 +335,13 @@ function formatBudgetValue(value: unknown, base: number) { const number = number
 function formatMonthLabel(month: string) { const [year, rawMonth] = month.split('-'); return year && rawMonth ? `${year}年${rawMonth}月` : month }
 function formatBytes(value: number) { if (!Number.isFinite(value) || value < 1024) return `${Math.max(0, Number(value) || 0)} B`; const units = ['KB', 'MB', 'GB', 'TB']; let size = value; let index = -1; do { size /= 1024; index += 1 } while (size >= 1024 && index < units.length - 1); return `${size.toFixed(size >= 10 ? 0 : 1)} ${units[index]}` }
 function sourceLabel(task: TrafficReportTask) { return task.data_source_type === 'edc' ? 'EDC' : 'NFA' }
+function xlsxArtifacts(artifacts: TrafficReportArtifact[]) { return artifacts.filter((artifact) => artifact.file_name.toLowerCase().endsWith('.xlsx')) }
+function onRawExportChange(checked: boolean) { if (checked) { form.params.export_daily = false; form.params.monthly_aggregate = false } }
+function onCombineV4V6Change(checked: boolean) { if (!checked) form.params.merge_key = '' }
 function kindLabel(task: TrafficReportTask) { return task.kind === 'periodic' ? '周期计划' : '一次性' }
 function windowLabel(task: TrafficReportTask) { const labels: Record<string, string> = { last_week: '上周', last_month: '上月', last_n_days: `最近${task.window_params?.n || 'N'}天`, custom: '自定义窗口' }; return labels[task.window_selector] || task.window_selector || '—' }
-function taskObjectLabel(task: TrafficReportTask) { const params = task.params || {}; const objectText = params.school_name || params.edc_name || (Array.isArray(params.entity_ids) ? `${params.entity_ids.length} 个对象` : '全部对象'); return String(objectText) }
+function taskObjectLabel(task: TrafficReportTask) { const params = task.params || {}; const objectText = params.school || params.school_name || params.edc_name || (Array.isArray(params.entity_ids) ? `${params.entity_ids.length} 个对象` : '全部对象'); return String(objectText) }
+function reportExportLabel(task: TrafficReportTask) { const params = task.params || {}; if (params.export_raw) return '原始数据'; if (params.monthly_aggregate) return '按月聚合'; if (params.export_daily) return '每日95'; return '结算摘要' }
 function isLegacyTask(task: TrafficReportTask | null) { const marker = task?.params?.legacy_nfatool; return Boolean(marker && (marker.source_task_id != null || marker.original_params)) }
 function isMigratedGoV1Task(task: TrafficReportTask | null) { return Boolean(task?.params?._traffic_report_migration) }
 function runTag(status: string) { return status === 'success' ? 'success' : status === 'failed' ? 'danger' : status === 'running' ? 'warning' : 'info' }
@@ -359,8 +372,8 @@ async function loadRuns() {
 function selectTask(task: TrafficReportTask) { selectedTask.value = task; void loadRuns() }
 function showRuns(task: TrafficReportTask) { selectTask(task); runsVisible.value = true }
 function resetFilters() { searchText.value = ''; sourceFilter.value = ''; kindFilter.value = ''; stateFilter.value = ''; budgetOnly.value = false }
-function openCreate() { const query = route.query; if (query.data_source_type === 'edc' || query.data_source_type === 'nfa') form.data_source_type = String(query.data_source_type); if (query.entity_ids) form.params.school_name = String(query.entity_ids); else if (query.school_name) form.params.school_name = String(query.school_name); if (query.region) form.params.region = String(query.region); if (query.cp) form.params.cp = String(query.cp); if (query.start_time && query.end_time) { form.window_selector = 'custom'; customRange.value = [String(query.start_time), String(query.end_time)] }; dialogVisible.value = true }
-function reportPayload() { const windowParams: any = {}; if (form.window_selector === 'custom' && customRange.value) { windowParams.start_time = customRange.value[0]; windowParams.end_time = customRange.value[1] }; if (form.window_selector === 'last_n_days') windowParams.n = lastDays.value; const params = { ...form.params }; if (form.data_source_type === 'edc' && params.school_name) { params.entity_ids = String(params.school_name).split(',').map(Number).filter((number: number) => number > 0); delete params.school_name }; return { name: form.name, kind: form.kind, data_source_type: form.data_source_type, schedule_type: form.kind === 'periodic' ? form.schedule_type : undefined, schedule_expr: form.kind === 'periodic' ? form.schedule_expr : undefined, window_selector: form.window_selector, window_params: windowParams, params, export_formats: form.export_formats, timezone: 'Asia/Shanghai' } }
+function openCreate() { const query = route.query; if (query.data_source_type === 'edc' || query.data_source_type === 'nfa') form.data_source_type = String(query.data_source_type); if (query.entity_ids) form.params.school_name = String(query.entity_ids); else if (query.school_name) form.params.school = String(query.school_name); if (query.region) form.params.province = String(query.region); if (query.cp) form.params.cp = String(query.cp); if (query.start_time && query.end_time) { form.window_selector = 'custom'; customRange.value = [String(query.start_time), String(query.end_time)] }; dialogVisible.value = true }
+function reportPayload() { const windowParams: any = {}; if (form.window_selector === 'custom' && customRange.value) { windowParams.start_time = customRange.value[0]; windowParams.end_time = customRange.value[1] }; if (form.window_selector === 'last_n_days') windowParams.n = lastDays.value; const params = { ...form.params }; if (form.data_source_type === 'edc') { params.direction = 'both'; if (params.school_name) { params.entity_ids = String(params.school_name).split(',').map(Number).filter((number: number) => number > 0); delete params.school_name }; params.data_source_instance = 'ali'; delete params.province; delete params.region; delete params.cp; delete params.school; delete params.exclude_school; delete params.combine_v4_v6; delete params.merge_key; delete params.aggregate_all; delete params.batch_size } else { params.data_source_instance = 'default'; delete params.edc_name; delete params.edc_match_mode; delete params.data_budget_enabled; delete params.data_budget_mul; delete params.data_budget_div }; return { name: form.name, kind: form.kind, data_source_type: form.data_source_type, schedule_type: form.kind === 'periodic' ? form.schedule_type : undefined, schedule_expr: form.kind === 'periodic' ? form.schedule_expr : undefined, window_selector: form.window_selector, window_params: windowParams, params, export_formats: ['xlsx'], timezone: 'Asia/Shanghai' } }
 function trackRun(runId: string, title: string, taskId?: number) {
   if (!runId || pollingRuns.has(runId)) return
   pollingRuns.add(runId)
@@ -372,7 +385,7 @@ function trackRun(runId: string, title: string, taskId?: number) {
   }
   void poll()
 }
-async function submit() { if (!form.name.trim()) { ElMessage.warning('请填写报表名称'); return }; if (form.window_selector === 'custom' && (!customRange.value || customRange.value.length !== 2)) { ElMessage.warning('请选择自定义时间范围'); return }; if (!form.export_formats.length) { ElMessage.warning('至少选择一种导出格式'); return }; submitting.value = true; try { const res = await api.trafficReports.createTask(reportPayload()); ElMessage.success(form.kind === 'one_off' ? '报表任务已创建' : '周期计划已创建'); dialogVisible.value = false; await loadTasks(); if (res.run_id) { trackRun(res.run_id, form.name, res.task?.id); if (res.task) selectTask(res.task) } } catch (error: any) { ElMessage.error(error?.response?.data?.message || error?.message || '创建报表失败') } finally { submitting.value = false } }
+async function submit() { if (!form.name.trim()) { ElMessage.warning('请填写报表名称'); return }; if (form.window_selector === 'custom' && (!customRange.value || customRange.value.length !== 2)) { ElMessage.warning('请选择自定义时间范围'); return }; submitting.value = true; try { const res = await api.trafficReports.createTask(reportPayload()); ElMessage.success(form.kind === 'one_off' ? '报表任务已创建' : '周期计划已创建'); dialogVisible.value = false; await loadTasks(); if (res.run_id) { trackRun(res.run_id, form.name, res.task?.id); if (res.task) selectTask(res.task) } } catch (error: any) { ElMessage.error(error?.response?.data?.message || error?.message || '创建报表失败') } finally { submitting.value = false } }
 async function runTask(task: TrafficReportTask) { try { const res = await api.trafficReports.runTask(task.id); trackRun(res.run_id, task.name, task.id); selectedTask.value = task; await loadRuns(); ElMessage.success('已提交运行') } catch (error: any) { ElMessage.error(error?.response?.data?.message || error?.message || '提交运行失败') } }
 async function toggleTask(task: TrafficReportTask) { try { await api.trafficReports.updateTask(task.id, { active: !task.active }); await loadTasks(); ElMessage.success(task.active ? '已暂停计划' : '已启用计划') } catch (error: any) { ElMessage.error(error?.response?.data?.message || error?.message || '更新计划失败') } }
 async function migrateTask(task: TrafficReportTask) {

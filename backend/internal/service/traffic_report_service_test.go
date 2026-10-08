@@ -3,6 +3,8 @@ package service
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -31,6 +33,150 @@ func TestResolveTrafficReportWindowCustomPreservesTimezoneAndLabel(t *testing.T)
 	}
 	if window.Start.Hour() != 0 || window.Start.Location().String() != loc.String() || window.Label != "20260901-20260902" {
 		t.Fatalf("unexpected window: %+v", window)
+	}
+}
+
+func TestResolveTrafficReportWindowUsesMonthLabelForFullMonth(t *testing.T) {
+	task := &model.TrafficReportTask{Timezone: "Asia/Shanghai", WindowSelector: "custom", WindowParams: []byte(`{"start_time":"2026-09-01 00:00:00","end_time":"2026-09-30 23:59:59"}`)}
+	window, err := resolveTrafficReportWindow(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if window.Label != "202609" {
+		t.Fatalf("window label = %q, want 202609", window.Label)
+	}
+}
+
+func TestBuildEDCDailyReportRowsMatchesLegacyExportColumns(t *testing.T) {
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	start := time.Date(2026, 9, 1, 0, 0, 0, 0, loc)
+	window := trafficReportWindow{Start: start, End: time.Date(2026, 9, 2, 23, 59, 59, 0, loc)}
+	rows := make([]trafficReportEDCRow, 0, 21)
+	for i := 0; i < 20; i++ {
+		rows = append(rows, trafficReportEDCRow{CreateTime: start.Add(time.Duration(i) * 5 * time.Minute), EntityID: 1, EntityName: "BJ-Bilibili", ServiceSize: int64(i + 1)})
+	}
+	// Multiple mapped entities with the same EDC name and bucket are combined into one sample.
+	rows = append(rows, trafficReportEDCRow{CreateTime: start, EntityID: 2, EntityName: "BJ-Bilibili", ServiceSize: 1})
+	params := trafficReportParams{Direction: "both", UnitBase: 1024, DataSourceInstance: "ali"}
+	got := buildEDCDailyReportRows(rows, window, params, 14)
+	wantColumns := []string{"date", "edc_name", "data_source_instance", "daily_95th_percentile_raw", "daily_95th_percentile_mbps", "data_points_daily", "saler_group", "saler"}
+	if columns := reportKeysForRows("edc", got); !reflect.DeepEqual(columns, wantColumns) {
+		t.Fatalf("columns = %#v, want %#v", columns, wantColumns)
+	}
+	if len(got) != 2 {
+		t.Fatalf("row count = %d, want 2 daily rows", len(got))
+	}
+	first := got[0]
+	if first["date"] != "2026-09-01" || first["edc_name"] != "BJ-Bilibili" || first["data_source_instance"] != "ali" {
+		t.Fatalf("unexpected first row metadata: %#v", first)
+	}
+	if first["daily_95th_percentile_raw"] != float64(6) || first["data_points_daily"] != 20 {
+		t.Fatalf("unexpected daily 95 row: %#v", first)
+	}
+	wantMbps := float64(6*8) / 300 / 1024 / 1024
+	if first["daily_95th_percentile_mbps"] != wantMbps {
+		t.Fatalf("daily Mbps = %v, want %v", first["daily_95th_percentile_mbps"], wantMbps)
+	}
+	second := got[1]
+	if second["date"] != "2026-09-02" || second["daily_95th_percentile_raw"] != float64(0) || second["data_points_daily"] != 0 {
+		t.Fatalf("expected zero-data day, got %#v", second)
+	}
+}
+
+func TestBuildEDCReportRowsUsesSelectedExportMode(t *testing.T) {
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	start := time.Date(2026, 9, 1, 0, 0, 0, 0, loc)
+	window := trafficReportWindow{Start: start, End: start.Add(23*time.Hour + 59*time.Minute + 59*time.Second)}
+	input := []trafficReportEDCRow{{CreateTime: start, EntityID: 1, EntityName: "BJ-Bilibili", ServiceSize: 120}}
+
+	daily := buildEDCReportRows(input, window, trafficReportParams{Direction: "both", UnitBase: 1024, ExportDaily: true}, 14)
+	if len(daily) != 1 || daily[0]["date"] != "2026-09-01" {
+		t.Fatalf("daily mode rows = %#v", daily)
+	}
+
+	raw := buildEDCReportRows(input, window, trafficReportParams{Direction: "both", UnitBase: 1024, ExportRaw: true}, 14)
+	if len(raw) != 1 || raw[0]["create_time"] != start || raw[0]["selected_bytes"] != float64(120) {
+		t.Fatalf("raw mode rows = %#v", raw)
+	}
+
+	preferRaw := buildEDCReportRows(input, window, trafficReportParams{Direction: "both", UnitBase: 1024, ExportRaw: true, ExportDaily: true}, 14)
+	if _, ok := preferRaw[0]["create_time"]; !ok {
+		t.Fatalf("raw mode should take precedence when both flags are set: %#v", preferRaw)
+	}
+
+	monthly := buildEDCReportRows(input, window, trafficReportParams{Direction: "both", UnitBase: 1024, MonthlyAggregate: true, ExportDaily: true}, 14)
+	if len(monthly) != 1 || monthly[0]["month"] != "2026-09" {
+		t.Fatalf("monthly mode should take precedence over daily mode: %#v", monthly)
+	}
+}
+
+func TestBuildNFAReportRowsDailyCanMergeV4V6(t *testing.T) {
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	at := time.Date(2026, 9, 1, 0, 0, 0, 0, loc)
+	input := []trafficReportNFARow{
+		{CreateTime: at, SchoolID: "school-1", SchoolName: "Example_V4", Region: "四川省", CP: "bilibili", Recv: 120},
+		{CreateTime: at, SchoolID: "school-1", SchoolName: "Example_V6", Region: "四川省", CP: "bilibili", Recv: 80},
+	}
+	got := buildNFAReportRows(input, trafficReportWindow{Start: at, End: at.Add(23*time.Hour + 59*time.Minute + 59*time.Second)}, trafficReportParams{
+		Direction: "both", UnitBase: 1000, ExportDaily: true, CombineV4V6: true, MergeKey: "ipgroup_name_base",
+	})
+	if len(got) != 1 {
+		t.Fatalf("merged daily rows = %#v, want one row", got)
+	}
+	row := got[0]
+	if row["school_name"] != "Example" || row["data_points_daily"] != 1 {
+		t.Fatalf("unexpected merged daily row: %#v", row)
+	}
+	if raw := row["daily_95th_percentile_raw"].(float64); raw < 199.999 || raw > 200.001 {
+		t.Fatalf("daily raw 95 = %v, want 200", raw)
+	}
+}
+
+func TestNormalizeTrafficReportParamsMatchesExportOptionDependencies(t *testing.T) {
+	got := normalizeTrafficReportParams(trafficReportParams{ExportRaw: true, ExportDaily: true, MonthlyAggregate: true, CombineV4V6: false, MergeKey: "school_id"})
+	if got.ExportDaily || got.MonthlyAggregate || got.MergeKey != "" || got.SettlementMode != "range_95" || got.SortOrder != "desc" || got.BatchSize != 200 {
+		t.Fatalf("normalized options = %#v", got)
+	}
+}
+
+func TestLegacyNFARawTableIncludesNFAIntervalConversions(t *testing.T) {
+	at := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	table := legacyNFARawTable([]legacyNFAGroup{{
+		SchoolID: "school-1", Label: "Example", IPGroupID: "group-1", NFAUUID: "uuid-1",
+		Points: map[time.Time]legacyNFAPoint{at: {At: at, Recv: 60, Send: 40}},
+	}}, "both", 1000, "default")
+	if len(table.Rows) != 1 || len(table.Rows[0]) != len(table.Columns) {
+		t.Fatalf("unexpected NFA raw table: %#v", table)
+	}
+	columns := make(map[string]int, len(table.Columns))
+	for i, column := range table.Columns {
+		columns[column] = i
+	}
+	if table.Rows[0][columns["selected_bytes"]] != "100" || table.Rows[0][columns["data_source_instance"]] != "default" {
+		t.Fatalf("unexpected NFA raw row: %#v", table.Rows[0])
+	}
+	recvMbps, err := strconv.ParseFloat(table.Rows[0][columns["recv_mbps_1000"]], 64)
+	if err != nil || recvMbps != 0.000008 {
+		t.Fatalf("NFA recv Mbps = %q (%v), want 0.000008", table.Rows[0][columns["recv_mbps_1000"]], err)
+	}
+}
+
+func TestFilterTrafficReportXLSXArtifacts(t *testing.T) {
+	artifacts := []model.TrafficReportArtifact{
+		{ID: 1, FileName: "report.xlsx"},
+		{ID: 2, FileName: "report.csv"},
+		{ID: 3, FileName: "report-metadata.json"},
+		{ID: 4, FileName: "another.XLSX"},
+	}
+	got := filterTrafficReportXLSXArtifacts(artifacts)
+	if len(got) != 2 || got[0].ID != 1 || got[1].ID != 4 {
+		t.Fatalf("filtered artifacts = %#v, want only XLSX", got)
+	}
+}
+
+func TestSanitizeReportNamePreservesChineseAndReplacesPathSeparators(t *testing.T) {
+	if got := sanitizeReportName("重点报表/北京"); got != "重点报表_北京" {
+		t.Fatalf("sanitizeReportName() = %q", got)
 	}
 }
 

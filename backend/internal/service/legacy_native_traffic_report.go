@@ -206,18 +206,8 @@ func legacySelectedRaw(recv, send float64, direction string) float64 {
 	}
 }
 
-func legacyWindowLabel(task *model.TrafficReportTask, window trafficReportWindow) string {
-	if task.WindowSelector != "custom" {
-		return window.Label
-	}
-	var params map[string]interface{}
-	_ = json.Unmarshal(task.WindowParams, &params)
-	start := legacyParamString(params, "start_time")
-	end := legacyParamString(params, "end_time")
-	if len(start) >= 10 && len(end) >= 10 {
-		return start[:10] + "-" + end[:10]
-	}
-	return window.Start.Format("2006-01-02") + "-" + window.End.Format("2006-01-02")
+func legacyWindowLabel(_ *model.TrafficReportTask, window trafficReportWindow) string {
+	return window.Label
 }
 
 func legacyTotalDays(window trafficReportWindow) int {
@@ -250,6 +240,19 @@ func (s *trafficReportService) executeLegacyNativeNFA(ctx context.Context, task 
 	if err != nil {
 		return 0, nil, err
 	}
+	if excluded := splitLegacyNames(legacyParamString(params, "exclude_school")); len(excluded) > 0 {
+		excludedSet := make(map[string]struct{}, len(excluded))
+		for _, name := range excluded {
+			excludedSet[name] = struct{}{}
+		}
+		filtered := metas[:0]
+		for _, meta := range metas {
+			if _, skip := excludedSet[meta.SchoolName]; !skip {
+				filtered = append(filtered, meta)
+			}
+		}
+		metas = filtered
+	}
 	if len(metas) == 0 {
 		return 0, nil, fmt.Errorf("native NFA has no matching ipgroups")
 	}
@@ -281,8 +284,21 @@ func (s *trafficReportService) executeLegacyNativeNFA(ctx context.Context, task 
 	}
 	windowLabel := legacyWindowLabel(task, window)
 	baseName := legacyNFABaseName(params, windowLabel)
-	formats := legacyExportFormats(task.ExportFormats)
+	formats := []string{"xlsx"}
 	params["_legacy_total_days"] = legacyTotalDays(window)
+	if legacyParamBool(params, "export_raw") {
+		instance := legacyParamString(params, "data_source_instance")
+		if instance == "" {
+			instance = "default"
+		}
+		table := legacyNFARawTable(groups, direction, unitBase, instance)
+		table = legacySortNativeTable(table, legacyParamString(params, "sortby"), legacyParamString(params, "sort_order"))
+		count, err := s.writeLegacyNativeTables(run, baseName+"-raw", []legacyNativeTable{table}, formats)
+		if err != nil {
+			return 0, nil, err
+		}
+		return count, map[string]interface{}{"engine_version": trafficReportLegacyNativeEngineVersion, "source": "nfa", "direction": direction, "unit_base": unitBase, "raw_export": true, "raw_points": len(points), "combine_v4_v6": combine}, nil
+	}
 	var table legacyNativeTable
 	if legacyParamBool(params, "monthly_aggregate") {
 		table = legacyNFAMonthlyTable(groups, window, direction, unitBase, settlementMode, params, combine)
@@ -292,6 +308,7 @@ func (s *trafficReportService) executeLegacyNativeNFA(ctx context.Context, task 
 	} else {
 		table = legacyNFASummaryTable(groups, window, direction, unitBase, settlementMode, combine, legacyParamBool(params, "aggregate_all"))
 	}
+	table = legacySortNativeTable(table, legacyParamString(params, "sortby"), legacyParamString(params, "sort_order"))
 	count, err := s.writeLegacyNativeTables(run, baseName, []legacyNativeTable{table}, formats)
 	if err != nil {
 		return 0, nil, err
@@ -599,6 +616,63 @@ func legacyNFADailyTable(groups []legacyNFAGroup, window trafficReportWindow, di
 	return legacyNativeTable{Columns: []string{"school_id", "ipgroup_name", "ipgroup_id", "nfa_uuid", "saler_group", "saler", "date", "daily_95th_percentile_raw", "daily_95th_percentile_mbps", "direction", "data_points_daily"}, Rows: rows}
 }
 
+func legacyNFARawTable(groups []legacyNFAGroup, direction string, unitBase int, instance string) legacyNativeTable {
+	columns := []string{"create_time", "school_id", "ipgroup_name", "ipgroup_id", "nfa_uuid", "recv", "send", "selected_bytes", "recv_mbps_1000", "recv_mbps_1024", "send_mbps_1000", "send_mbps_1024", "data_source_type", "data_source_instance", "unit_base", "direction", "saler_group", "saler"}
+	rows := make([][]string, 0)
+	for _, group := range groups {
+		times := make([]time.Time, 0, len(group.Points))
+		for at := range group.Points {
+			times = append(times, at)
+		}
+		sort.Slice(times, func(i, j int) bool { return times[i].Before(times[j]) })
+		for _, at := range times {
+			point := group.Points[at]
+			selected := legacySelectedRaw(point.Recv, point.Send, direction)
+			rows = append(rows, []string{
+				at.Format("2006-01-02 15:04:05"), group.SchoolID, group.Label, group.IPGroupID, group.NFAUUID,
+				legacyFloatText(point.Recv), legacyFloatText(point.Send), legacyFloatText(selected),
+				legacyFloatText(point.Recv * 8 / 60 / 1000 / 1000), legacyFloatText(point.Recv * 8 / 60 / 1024 / 1024),
+				legacyFloatText(point.Send * 8 / 60 / 1000 / 1000), legacyFloatText(point.Send * 8 / 60 / 1024 / 1024),
+				"nfa", instance, strconv.Itoa(unitBase), direction, group.SalerGroup, group.Saler,
+			})
+		}
+	}
+	return legacyNativeTable{Columns: columns, Rows: rows}
+}
+
+func legacySortNativeTable(table legacyNativeTable, sortBy, sortOrder string) legacyNativeTable {
+	if sortBy == "" || len(table.Rows) < 2 {
+		return table
+	}
+	columnIndex := -1
+	for i, column := range table.Columns {
+		if column == sortBy {
+			columnIndex = i
+			break
+		}
+	}
+	if columnIndex < 0 {
+		return table
+	}
+	ascending := sortOrder == "asc"
+	sort.SliceStable(table.Rows, func(i, j int) bool {
+		left, right := table.Rows[i][columnIndex], table.Rows[j][columnIndex]
+		leftNumber, leftErr := strconv.ParseFloat(left, 64)
+		rightNumber, rightErr := strconv.ParseFloat(right, 64)
+		if leftErr == nil && rightErr == nil {
+			if ascending {
+				return leftNumber < rightNumber
+			}
+			return leftNumber > rightNumber
+		}
+		if ascending {
+			return left < right
+		}
+		return left > right
+	})
+	return table
+}
+
 func legacyNFASummaryTable(groups []legacyNFAGroup, window trafficReportWindow, direction string, unitBase int, settlementMode string, combine bool, aggregateAll bool) legacyNativeTable {
 	rows := make([][]string, 0, len(groups))
 	for _, group := range groups {
@@ -859,13 +933,14 @@ func (s *trafficReportService) executeLegacyNativeEDC(ctx context.Context, task 
 		direction = "both"
 	}
 	baseName := legacyEDCBaseName(params, instance, legacyWindowLabel(task, window))
-	formats := legacyExportFormats(task.ExportFormats)
+	formats := []string{"xlsx"}
 	if legacyParamBool(params, "export_raw") {
 		_, rawRows, err := queryLegacyEDCRaw(ctx, db, params, window, false)
 		if err != nil {
 			return 0, nil, err
 		}
 		table := legacyEDCRawTable(rawRows, params, instance, unitBase)
+		table = legacySortNativeTable(table, legacyParamString(params, "sortby"), legacyParamString(params, "sort_order"))
 		count, err := s.writeLegacyNativeTables(run, baseName+"-raw", []legacyNativeTable{table}, formats)
 		if err != nil {
 			return 0, nil, err
@@ -877,7 +952,7 @@ func (s *trafficReportService) executeLegacyNativeEDC(ctx context.Context, task 
 		return 0, nil, err
 	}
 	rankIndex := config.AppConfig.TrafficReport.EDC.DailyRankIndex
-	if rankIndex < 0 {
+	if rankIndex <= 0 {
 		rankIndex = 14
 	}
 	daily := legacyEDCDaily(points, window, rankIndex, unitBase, params, instance)
@@ -893,6 +968,9 @@ func (s *trafficReportService) executeLegacyNativeEDC(ctx context.Context, task 
 		tables = []legacyNativeTable{legacyEDCDailyTable(daily)}
 	} else {
 		tables = []legacyNativeTable{legacyEDCSummaryTable(daily, points, rankIndex, unitBase, settlementMode, params, instance)}
+	}
+	for i := range tables {
+		tables[i] = legacySortNativeTable(tables[i], legacyParamString(params, "sortby"), legacyParamString(params, "sort_order"))
 	}
 	count, err := s.writeLegacyNativeTables(run, baseName, tables, formats)
 	if err != nil {
@@ -960,15 +1038,6 @@ func legacyEDCBaseName(params map[string]interface{}, instance, windowLabel stri
 		name = "edc"
 	}
 	return name + "-" + instance + "-" + windowLabel
-}
-
-func legacyExportFormats(raw []byte) []string {
-	var formats []string
-	_ = json.Unmarshal(raw, &formats)
-	if len(formats) == 0 {
-		return []string{"csv"}
-	}
-	return formats
 }
 
 func legacyEDCRawTable(rows []legacyEDCRawRow, params map[string]interface{}, instance string, unitBase int) legacyNativeTable {

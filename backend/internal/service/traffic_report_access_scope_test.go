@@ -1,9 +1,14 @@
 package service
 
 import (
+	"archive/zip"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"nfa-dashboard/config"
 	"nfa-dashboard/internal/model"
 )
 
@@ -108,9 +113,9 @@ func TestTrafficReportServiceGroupsDownloadMonthsByFinishedTime(t *testing.T) {
 	sepTwo := time.Date(2026, 9, 8, 1, 0, 0, 0, time.UTC)
 	aug := time.Date(2026, 8, 31, 15, 59, 0, 0, time.UTC)
 	repo := &trafficReportAccessRepoStub{successfulRuns: []model.TrafficReportRun{
-		{ID: "sep-1", FinishedAt: &sepOne, Artifacts: []model.TrafficReportArtifact{{FileSize: 10}, {FileSize: 5}}},
-		{ID: "sep-2", FinishedAt: &sepTwo, Artifacts: []model.TrafficReportArtifact{{FileSize: 7}}},
-		{ID: "aug-1", FinishedAt: &aug, Artifacts: []model.TrafficReportArtifact{{FileSize: 3}}},
+		{ID: "sep-1", FinishedAt: &sepOne, Artifacts: []model.TrafficReportArtifact{{FileName: "report-1.xlsx", FileSize: 10}, {FileName: "report-1.csv", FileSize: 5}}},
+		{ID: "sep-2", FinishedAt: &sepTwo, Artifacts: []model.TrafficReportArtifact{{FileName: "report-2.XLSX", FileSize: 7}}},
+		{ID: "aug-1", FinishedAt: &aug, Artifacts: []model.TrafficReportArtifact{{FileName: "report-3.xlsx", FileSize: 3}}},
 	}}
 	service := NewTrafficReportService(repo, nil, nil, trafficReportRoleRepoStub{roles: []model.Role{{Name: "admin"}}})
 
@@ -121,8 +126,51 @@ func TestTrafficReportServiceGroupsDownloadMonthsByFinishedTime(t *testing.T) {
 	if len(months) != 2 || months[0].Month != "2026-09" || months[1].Month != "2026-08" {
 		t.Fatalf("months = %#v, want 2026-09 then 2026-08", months)
 	}
-	if months[0].RunCount != 2 || months[0].ArtifactCount != 3 || months[0].TotalSize != 22 {
+	if months[0].RunCount != 2 || months[0].ArtifactCount != 2 || months[0].TotalSize != 17 {
 		t.Fatalf("September summary = %#v", months[0])
+	}
+}
+
+func TestCreateMonthlyArchiveIncludesOnlyXLSXArtifacts(t *testing.T) {
+	root := t.TempDir()
+	previousStorageDir := config.AppConfig.TrafficReport.StorageDir
+	config.AppConfig.TrafficReport.StorageDir = root
+	t.Cleanup(func() { config.AppConfig.TrafficReport.StorageDir = previousStorageDir })
+
+	runID := "run-1"
+	runDir := filepath.Join(root, runID)
+	if err := os.MkdirAll(runDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	artifacts := []model.TrafficReportArtifact{
+		{ID: 1, FileName: "report.xlsx"},
+		{ID: 2, FileName: "report.csv"},
+		{ID: 3, FileName: "report-metadata.json"},
+	}
+	for i := range artifacts {
+		path := filepath.Join(runDir, artifacts[i].FileName)
+		if err := os.WriteFile(path, []byte(artifacts[i].FileName), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		artifacts[i].StoragePath = path
+	}
+	finishedAt := time.Date(2026, 9, 8, 10, 0, 0, 0, time.FixedZone("Asia/Shanghai", 8*60*60))
+	repo := &trafficReportAccessRepoStub{successfulRuns: []model.TrafficReportRun{{ID: runID, FinishedAt: &finishedAt, Artifacts: artifacts}}}
+	service := NewTrafficReportService(repo, nil, nil, nil)
+	archive, err := service.CreateMonthlyArchive(3, "2026-09", nil)
+	if err != nil {
+		t.Fatalf("CreateMonthlyArchive() error = %v", err)
+	}
+	if archive.ArtifactCount != 1 {
+		t.Fatalf("archive artifact count = %d, want 1", archive.ArtifactCount)
+	}
+	reader, err := zip.OpenReader(archive.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	if len(reader.File) != 1 || !strings.HasSuffix(reader.File[0].Name, ".xlsx") {
+		t.Fatalf("archive files = %#v, want one XLSX", reader.File)
 	}
 }
 
