@@ -53,11 +53,11 @@ func TestBuildEDCDailyReportRowsMatchesLegacyExportColumns(t *testing.T) {
 	window := trafficReportWindow{Start: start, End: time.Date(2026, 9, 2, 23, 59, 59, 0, loc)}
 	rows := make([]trafficReportEDCRow, 0, 40)
 	for i := 0; i < 20; i++ {
-		rows = append(rows, trafficReportEDCRow{CreateTime: start.Add(time.Duration(i) * 5 * time.Minute), EntityID: 1, EntityName: "BJ-Bilibili", ServiceSize: int64(i + 1)})
-		rows = append(rows, trafficReportEDCRow{CreateTime: start.Add(time.Duration(i) * 5 * time.Minute), EntityID: 2, EntityName: "BJ-Bilibili-Backup", ServiceSize: 10})
+		rows = append(rows, trafficReportEDCRow{CreateTime: start.Add(time.Duration(i) * 5 * time.Minute), EntityID: 1, EntityName: "BJ-Bilibili", ServiceSize: int64(i + 1), CacheSize: 1000})
+		rows = append(rows, trafficReportEDCRow{CreateTime: start.Add(time.Duration(i) * 5 * time.Minute), EntityID: 2, EntityName: "BJ-Bilibili-Backup", ServiceSize: 10, CacheSize: 2000})
 	}
 	// Matched EDC names are combined by timestamp before calculating the daily percentile.
-	params := trafficReportParams{Direction: "both", UnitBase: 1024, DataSourceInstance: "ali", EDCName: "BJ-Bilibili,BJ-Bilibili-Backup"}
+	params := trafficReportParams{Direction: "both", UnitBase: 1024, DataSourceInstance: "ali", EDCName: "BJ-Bilibili,BJ-Bilibili-Backup", SettlementMode: "daily_95_avg"}
 	got := buildEDCDailyReportRows(rows, window, params, 14)
 	wantColumns := []string{"date", "edc_name", "data_source_instance", "daily_95th_percentile_raw", "daily_95th_percentile_mbps", "data_points_daily", "saler_group", "saler"}
 	if columns := reportKeysForRows("edc", got); !reflect.DeepEqual(columns, wantColumns) {
@@ -76,6 +76,13 @@ func TestBuildEDCDailyReportRowsMatchesLegacyExportColumns(t *testing.T) {
 	wantMbps := float64(16*8) / 300 / 1024 / 1024
 	if first["daily_95th_percentile_mbps"] != wantMbps {
 		t.Fatalf("daily Mbps = %v, want %v", first["daily_95th_percentile_mbps"], wantMbps)
+	}
+	if summary := buildEDCSummaryReportRows(rows, got, params, 14, window); len(summary) != 1 || summary[0]["edc_name"] != params.EDCName || summary[0]["95th_percentile_raw"] != float64(8) {
+		t.Fatalf("summary should aggregate matched names using service_size only: %#v", summary)
+	}
+	monthly := buildEDCMonthlyReportRows(rows, got, window, params, 14)
+	if len(monthly) != 1 || monthly[0]["edc_name"] != params.EDCName || monthly[0]["95th_percentile_raw"] != float64(8) || monthly[0]["data_points"] != 2 {
+		t.Fatalf("monthly row should aggregate matched names using service_size only: %#v", monthly)
 	}
 	second := got[1]
 	if second["date"] != "2026-09-02" || second["daily_95th_percentile_raw"] != float64(0) || second["data_points_daily"] != 0 {

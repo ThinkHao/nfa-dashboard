@@ -803,18 +803,6 @@ func (s *trafficReportService) executeRun(ctx context.Context, task *model.Traff
 			}
 		}
 	}
-	metaPath := filepath.Join(config.GetTrafficReportStorageDir(), run.ID, "report-metadata.json")
-	meta := map[string]interface{}{"engine_version": run.EngineVersion, "window": window, "params": params, "summary": summary}
-	metaBytes, _ := json.MarshalIndent(meta, "", "  ")
-	if err := os.WriteFile(metaPath, metaBytes, 0o640); err != nil {
-		s.failRun(run, err)
-		return
-	}
-	if err := s.repo.CreateArtifact(&model.TrafficReportArtifact{RunID: run.ID, FileName: "report-metadata.json", MediaType: "application/json", StoragePath: metaPath, FileSize: int64(len(metaBytes))}); err != nil {
-		s.failRun(run, err)
-		return
-	}
-
 	finished := time.Now()
 	run.Status = model.TrafficReportStatusSuccess
 	run.ProgressPct = 100
@@ -936,8 +924,7 @@ func (s *trafficReportService) queryReportRows(ctx context.Context, task *model.
 	params.Direction = "both"
 	points := map[time.Time]float64{}
 	for _, row := range rows {
-		value := reportDirectionValue(row.ServiceSize, row.CacheSize, params.Direction)
-		points[row.CreateTime] += value
+		points[row.CreateTime.In(window.Start.Location())] += float64(row.ServiceSize)
 	}
 	rankIndex := config.AppConfig.TrafficReport.EDC.DailyRankIndex
 	if rankIndex <= 0 {
@@ -993,7 +980,7 @@ func buildEDCDailyReportRows(rows []trafficReportEDCRow, window trafficReportWin
 			points = make(map[time.Time]float64)
 			pointsByDay[day] = points
 		}
-		points[at] += reportDirectionValue(row.ServiceSize, row.CacheSize, params.Direction)
+		points[at] += float64(row.ServiceSize)
 	}
 	instance := strings.TrimSpace(params.DataSourceInstance)
 	if instance == "" {
@@ -1223,26 +1210,19 @@ func buildNFASummaryReportRows(series []trafficReportNFASeries, window trafficRe
 }
 
 func buildEDCMonthlyReportRows(rows []trafficReportEDCRow, daily []map[string]interface{}, window trafficReportWindow, params trafficReportParams, rankIndex int) []map[string]interface{} {
-	byNameMonth := make(map[string]map[string]map[time.Time]float64)
+	pointsByMonth := make(map[string]map[time.Time]float64)
 	monthsSet := make(map[string]struct{})
+	loc := window.Start.Location()
 	for _, row := range rows {
-		name := strings.TrimSpace(row.EntityName)
-		if name == "" {
-			name = fmt.Sprint(row.EntityID)
-		}
-		month := row.CreateTime.In(window.Start.Location()).Format("2006-01")
+		at := row.CreateTime.In(loc)
+		month := at.Format("2006-01")
 		monthsSet[month] = struct{}{}
-		months := byNameMonth[name]
-		if months == nil {
-			months = make(map[string]map[time.Time]float64)
-			byNameMonth[name] = months
-		}
-		points := months[month]
+		points := pointsByMonth[month]
 		if points == nil {
 			points = make(map[time.Time]float64)
-			months[month] = points
+			pointsByMonth[month] = points
 		}
-		points[row.CreateTime] += reportDirectionValue(row.ServiceSize, row.CacheSize, "both")
+		points[at] += float64(row.ServiceSize)
 	}
 	months := make([]string, 0, len(monthsSet))
 	for month := range monthsSet {
@@ -1253,108 +1233,86 @@ func buildEDCMonthlyReportRows(rows []trafficReportEDCRow, daily []map[string]in
 	if instance == "" {
 		instance = "ali"
 	}
-	byDaily := make(map[string]map[string]float64)
+	byDailyMonth := make(map[string][]float64)
 	for _, row := range daily {
-		name := fmt.Sprint(row["edc_name"])
-		if byDaily[name] == nil {
-			byDaily[name] = make(map[string]float64)
-		}
 		value, _ := strconv.ParseFloat(fmt.Sprint(row["daily_95th_percentile_raw"]), 64)
-		byDaily[name][fmt.Sprint(row["date"])] = value
-	}
-	names := make([]string, 0, len(byNameMonth))
-	for name := range byNameMonth {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	out := make([]map[string]interface{}, 0, len(names)*len(months))
-	for _, month := range months {
-		for _, name := range names {
-			points := byNameMonth[name][month]
-			if points == nil {
-				continue
-			}
-			raw, dataPoints := 0.0, 0
-			if params.SettlementMode == "daily_95_avg" {
-				for date, value := range byDaily[name] {
-					if strings.HasPrefix(date, month) {
-						raw += value
-						dataPoints++
-					}
-				}
-				if dataPoints > 0 {
-					raw /= float64(dataPoints)
-				}
-			} else {
-				values := make([]float64, 0, len(points))
-				for _, value := range points {
-					values = append(values, value)
-				}
-				raw = legacyNth95(values, rankIndex)
-				dataPoints = len(values)
-			}
-			out = append(out, map[string]interface{}{
-				"month": month, "edc_name": name, "data_source_instance": instance,
-				"95th_percentile_raw": raw, "95th_percentile_mbps": raw * 8 / 300 / float64(params.UnitBase) / float64(params.UnitBase),
-				"settlement_mode": params.SettlementMode, "data_points": dataPoints,
-			})
+		month := fmt.Sprint(row["date"])
+		if len(month) >= 7 {
+			byDailyMonth[month[:7]] = append(byDailyMonth[month[:7]], value)
 		}
+	}
+	name := strings.TrimSpace(params.EDCName)
+	out := make([]map[string]interface{}, 0, len(months))
+	for _, month := range months {
+		points := pointsByMonth[month]
+		if points == nil {
+			continue
+		}
+		raw, dataPoints := 0.0, 0
+		if params.SettlementMode == "daily_95_avg" {
+			values := byDailyMonth[month]
+			for _, value := range values {
+				raw += value
+			}
+			dataPoints = len(values)
+			if dataPoints > 0 {
+				raw /= float64(dataPoints)
+			}
+		} else {
+			values := make([]float64, 0, len(points))
+			for _, value := range points {
+				values = append(values, value)
+			}
+			raw = legacyNth95(values, rankIndex)
+			dataPoints = len(values)
+		}
+		out = append(out, map[string]interface{}{
+			"month": month, "edc_name": name, "data_source_instance": instance,
+			"95th_percentile_raw": raw, "95th_percentile_mbps": raw * 8 / 300 / float64(params.UnitBase) / float64(params.UnitBase),
+			"settlement_mode": params.SettlementMode, "data_points": dataPoints,
+		})
 	}
 	return out
 }
 
 func buildEDCSummaryReportRows(rows []trafficReportEDCRow, daily []map[string]interface{}, params trafficReportParams, rankIndex int, window trafficReportWindow) []map[string]interface{} {
-	pointsByName := make(map[string]map[time.Time]float64)
+	points := make(map[time.Time]float64)
+	loc := window.Start.Location()
 	for _, row := range rows {
-		name := strings.TrimSpace(row.EntityName)
-		if name == "" {
-			name = fmt.Sprint(row.EntityID)
-		}
-		points := pointsByName[name]
-		if points == nil {
-			points = make(map[time.Time]float64)
-			pointsByName[name] = points
-		}
-		points[row.CreateTime] += reportDirectionValue(row.ServiceSize, row.CacheSize, "both")
+		at := row.CreateTime.In(loc)
+		points[at] += float64(row.ServiceSize)
 	}
-	dailyByName := make(map[string][]float64)
+	if len(points) == 0 {
+		return nil
+	}
+	dailyValues := make([]float64, 0, len(daily))
 	for _, row := range daily {
-		name := fmt.Sprint(row["edc_name"])
 		value, _ := strconv.ParseFloat(fmt.Sprint(row["daily_95th_percentile_raw"]), 64)
-		dailyByName[name] = append(dailyByName[name], value)
+		dailyValues = append(dailyValues, value)
 	}
-	names := make([]string, 0, len(pointsByName))
-	for name := range pointsByName {
-		names = append(names, name)
-	}
-	sort.Strings(names)
 	instance := strings.TrimSpace(params.DataSourceInstance)
 	if instance == "" {
 		instance = "ali"
 	}
-	out := make([]map[string]interface{}, 0, len(names))
-	for _, name := range names {
-		values := make([]float64, 0, len(pointsByName[name]))
-		for _, raw := range pointsByName[name] {
-			values = append(values, raw)
-		}
-		raw, dataPoints := legacyNth95(values, rankIndex), len(values)
-		if params.SettlementMode == "daily_95_avg" {
-			raw, dataPoints = 0, len(dailyByName[name])
-			for _, value := range dailyByName[name] {
-				raw += value
-			}
-			if totalDays := legacyTotalDays(window); totalDays > 0 {
-				raw /= float64(totalDays)
-			}
-		}
-		out = append(out, map[string]interface{}{
-			"edc_name": name, "data_source_instance": instance, "95th_percentile_raw": raw,
-			"95th_percentile_mbps": raw * 8 / 300 / float64(params.UnitBase) / float64(params.UnitBase),
-			"settlement_mode":      params.SettlementMode, "data_points": dataPoints,
-		})
+	values := make([]float64, 0, len(points))
+	for _, value := range points {
+		values = append(values, value)
 	}
-	return out
+	raw, dataPoints := legacyNth95(values, rankIndex), len(values)
+	if params.SettlementMode == "daily_95_avg" {
+		raw, dataPoints = 0, len(dailyValues)
+		for _, value := range dailyValues {
+			raw += value
+		}
+		if totalDays := legacyTotalDays(window); totalDays > 0 {
+			raw /= float64(totalDays)
+		}
+	}
+	return []map[string]interface{}{{
+		"edc_name": strings.TrimSpace(params.EDCName), "data_source_instance": instance, "95th_percentile_raw": raw,
+		"95th_percentile_mbps": raw * 8 / 300 / float64(params.UnitBase) / float64(params.UnitBase),
+		"settlement_mode":      params.SettlementMode, "data_points": dataPoints,
+	}}
 }
 
 func sortTrafficReportRows(rows []map[string]interface{}, sortBy, sortOrder string) []map[string]interface{} {
