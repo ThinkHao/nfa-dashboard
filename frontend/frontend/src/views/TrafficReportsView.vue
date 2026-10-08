@@ -40,7 +40,7 @@
           <div class="download-month-row download-month-latest">
             <div class="download-month-main">
               <div class="download-month-label"><strong>{{ formatMonthLabel(latestDownloadMonth.month) }}</strong><el-tag size="small" type="primary" effect="plain">最新月份</el-tag></div>
-              <span>{{ latestDownloadMonth.run_count }} 次成功运行 · {{ latestDownloadMonth.artifact_count }} 个 XLSX 文件 · {{ formatBytes(latestDownloadMonth.total_size) }}</span>
+              <span>{{ latestDownloadMonth.run_count }} 份最新结果 · {{ latestDownloadMonth.artifact_count }} 个 XLSX 文件 · {{ formatBytes(latestDownloadMonth.total_size) }}</span>
             </div>
             <div class="download-month-actions"><el-button text type="primary" @click="openMonthPicker(latestDownloadMonth)">选择文件</el-button><el-button type="primary" plain :loading="monthlyDownload === latestDownloadMonth.month" :disabled="latestDownloadMonth.artifact_count === 0" @click="downloadMonth(latestDownloadMonth)">下载全部 ZIP</el-button></div>
           </div>
@@ -51,7 +51,7 @@
                 <div v-for="month in historicalDownloadMonths" :key="month.month" class="download-month-row">
                   <div class="download-month-main">
                     <strong>{{ formatMonthLabel(month.month) }}</strong>
-                    <span>{{ month.run_count }} 次成功运行 · {{ month.artifact_count }} 个 XLSX 文件 · {{ formatBytes(month.total_size) }}</span>
+                    <span>{{ month.run_count }} 份最新结果 · {{ month.artifact_count }} 个 XLSX 文件 · {{ formatBytes(month.total_size) }}</span>
                   </div>
                   <div class="download-month-actions"><el-button text type="primary" @click="openMonthPicker(month)">选择文件</el-button><el-button type="primary" plain :loading="monthlyDownload === month.month" :disabled="month.artifact_count === 0" @click="downloadMonth(month)">下载全部 ZIP</el-button></div>
                 </div>

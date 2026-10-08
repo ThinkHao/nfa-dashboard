@@ -275,6 +275,7 @@ func (s *trafficReportService) ListDownloadMonths(ownerID uint64) ([]TrafficRepo
 	if err != nil {
 		return nil, err
 	}
+	runs = latestTrafficReportRuns(runs)
 	groups := make(map[string]*TrafficReportDownloadMonth)
 	for _, run := range runs {
 		month := trafficReportRunMonth(run)
@@ -321,6 +322,7 @@ func (s *trafficReportService) CreateMonthlyArchive(ownerID uint64, month string
 	if err != nil {
 		return nil, err
 	}
+	runs = latestTrafficReportRuns(runs)
 	filteredRuns := make([]model.TrafficReportRun, 0, len(runs))
 	for _, run := range runs {
 		if trafficReportRunMonth(run) == month {
@@ -395,7 +397,7 @@ func (s *trafficReportService) CreateMonthlyArchive(ownerID uint64, month string
 			if err != nil {
 				return nil, err
 			}
-			name := fmt.Sprintf("%s/run-%s/%s", month, run.ID, safeTrafficReportArchiveName(artifact.FileName))
+			name := safeTrafficReportArchiveName(artifact.FileName)
 			name = uniqueTrafficReportArchiveName(name, usedNames)
 			header := &zip.FileHeader{Name: name, Method: zip.Deflate}
 			header.SetMode(0o640)
@@ -439,18 +441,91 @@ func filterTrafficReportXLSXArtifacts(artifacts []model.TrafficReportArtifact) [
 }
 
 func trafficReportRunMonth(run model.TrafficReportRun) string {
-	t := run.CreatedAt
-	if run.FinishedAt != nil {
-		t = *run.FinishedAt
+	if window, ok := parseTrafficReportResolvedWindow(run); ok {
+		return reportMonth(window.Start)
 	}
+	t := trafficReportRunAt(run)
 	if t.IsZero() {
 		return ""
 	}
+	return reportMonth(t)
+}
+
+type trafficReportWindowBounds struct {
+	Start time.Time `json:"start"`
+	End   time.Time `json:"end"`
+}
+
+func parseTrafficReportResolvedWindow(run model.TrafficReportRun) (trafficReportWindowBounds, bool) {
+	var window trafficReportWindowBounds
+	if len(run.ResolvedWindow) == 0 || json.Unmarshal(run.ResolvedWindow, &window) != nil || window.Start.IsZero() || window.End.IsZero() {
+		return trafficReportWindowBounds{}, false
+	}
+	return window, true
+}
+
+func reportMonth(t time.Time) string {
 	loc, err := time.LoadLocation("Asia/Shanghai")
 	if err != nil {
 		return t.Format("2006-01")
 	}
 	return t.In(loc).Format("2006-01")
+}
+
+func latestTrafficReportRuns(runs []model.TrafficReportRun) []model.TrafficReportRun {
+	latestByWindow := make(map[string]int)
+	for index, run := range runs {
+		if len(filterTrafficReportXLSXArtifacts(run.Artifacts)) == 0 {
+			continue
+		}
+		key := trafficReportRunWindowKey(run)
+		if currentIndex, ok := latestByWindow[key]; !ok || trafficReportRunIsNewer(run, runs[currentIndex]) {
+			latestByWindow[key] = index
+		}
+	}
+
+	latest := make([]model.TrafficReportRun, 0, len(latestByWindow))
+	for index, run := range runs {
+		latestIndex, ok := latestByWindow[trafficReportRunWindowKey(run)]
+		if !ok || latestIndex != index {
+			continue
+		}
+		run.Artifacts = filterTrafficReportXLSXArtifacts(run.Artifacts)
+		latest = append(latest, run)
+	}
+	return latest
+}
+
+func trafficReportRunWindowKey(run model.TrafficReportRun) string {
+	window, ok := parseTrafficReportResolvedWindow(run)
+	if !ok {
+		// Runs without a resolved window cannot be safely matched to another report.
+		return fmt.Sprintf("run:%s", run.ID)
+	}
+	taskID := strconv.FormatUint(run.TaskID, 10)
+	if run.TaskID == 0 {
+		// Keep incomplete legacy/test records distinct when they have no task id.
+		taskID = "run:" + run.ID
+	}
+	return fmt.Sprintf("task:%s|window:%s|%s", taskID, window.Start.UTC().Format(time.RFC3339Nano), window.End.UTC().Format(time.RFC3339Nano))
+}
+
+func trafficReportRunAt(run model.TrafficReportRun) time.Time {
+	if run.FinishedAt != nil {
+		return *run.FinishedAt
+	}
+	return run.CreatedAt
+}
+
+func trafficReportRunIsNewer(candidate, current model.TrafficReportRun) bool {
+	candidateAt, currentAt := trafficReportRunAt(candidate), trafficReportRunAt(current)
+	if !candidateAt.Equal(currentAt) {
+		return candidateAt.After(currentAt)
+	}
+	if !candidate.CreatedAt.Equal(current.CreatedAt) {
+		return candidate.CreatedAt.After(current.CreatedAt)
+	}
+	return candidate.ID > current.ID
 }
 
 func safeTrafficReportArtifactPath(root, candidate string) (string, error) {
@@ -485,14 +560,20 @@ func safeTrafficReportArchiveName(value string) string {
 }
 
 func uniqueTrafficReportArchiveName(name string, used map[string]int) string {
-	count := used[name]
-	used[name] = count + 1
-	if count == 0 {
+	if _, exists := used[name]; !exists {
+		used[name] = 1
 		return name
 	}
 	ext := filepath.Ext(name)
 	base := strings.TrimSuffix(name, ext)
-	return fmt.Sprintf("%s-%d%s", base, count+1, ext)
+	for suffix := 2; ; suffix++ {
+		candidate := fmt.Sprintf("%s-%d%s", base, suffix, ext)
+		if _, exists := used[candidate]; exists {
+			continue
+		}
+		used[candidate] = 1
+		return candidate
+	}
 }
 
 func (s *trafficReportService) UpdateTask(ownerID, id uint64, input TrafficReportTaskUpdate) (*model.TrafficReportTask, error) {
