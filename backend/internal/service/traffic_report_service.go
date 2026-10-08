@@ -984,56 +984,41 @@ func buildEDCReportRows(rows []trafficReportEDCRow, window trafficReportWindow, 
 
 func buildEDCDailyReportRows(rows []trafficReportEDCRow, window trafficReportWindow, params trafficReportParams, rankIndex int) []map[string]interface{} {
 	loc := window.Start.Location()
-	pointsByNameAndDay := make(map[string]map[string]map[time.Time]float64)
+	pointsByDay := make(map[string]map[time.Time]float64)
 	for _, row := range rows {
-		name := strings.TrimSpace(row.EntityName)
-		if name == "" {
-			name = fmt.Sprint(row.EntityID)
-		}
 		at := row.CreateTime.In(loc)
 		day := at.Format("2006-01-02")
-		days := pointsByNameAndDay[name]
-		if days == nil {
-			days = make(map[string]map[time.Time]float64)
-			pointsByNameAndDay[name] = days
-		}
-		points := days[day]
+		points := pointsByDay[day]
 		if points == nil {
 			points = make(map[time.Time]float64)
-			days[day] = points
+			pointsByDay[day] = points
 		}
 		points[at] += reportDirectionValue(row.ServiceSize, row.CacheSize, params.Direction)
 	}
-	names := make([]string, 0, len(pointsByNameAndDay))
-	for name := range pointsByNameAndDay {
-		names = append(names, name)
-	}
-	sort.Strings(names)
 	instance := strings.TrimSpace(params.DataSourceInstance)
 	if instance == "" {
 		instance = "ali"
 	}
-	rowsOut := make([]map[string]interface{}, 0, len(names)*legacyTotalDays(window))
+	rowsOut := make([]map[string]interface{}, 0, legacyTotalDays(window))
+	name := strings.TrimSpace(params.EDCName)
 	for day := time.Date(window.Start.In(loc).Year(), window.Start.In(loc).Month(), window.Start.In(loc).Day(), 0, 0, 0, 0, loc); !day.After(window.End.In(loc)); day = day.AddDate(0, 0, 1) {
 		date := day.Format("2006-01-02")
-		for _, name := range names {
-			dailyPoints := pointsByNameAndDay[name][date]
-			values := make([]float64, 0, len(dailyPoints))
-			for _, raw := range dailyPoints {
-				values = append(values, raw)
-			}
-			raw95 := legacyNth95(values, rankIndex)
-			rowsOut = append(rowsOut, map[string]interface{}{
-				"date":                       date,
-				"edc_name":                   name,
-				"data_source_instance":       instance,
-				"daily_95th_percentile_raw":  raw95,
-				"daily_95th_percentile_mbps": raw95 * 8 / 300 / float64(params.UnitBase) / float64(params.UnitBase),
-				"data_points_daily":          len(values),
-				"saler_group":                "",
-				"saler":                      "",
-			})
+		dailyPoints := pointsByDay[date]
+		values := make([]float64, 0, len(dailyPoints))
+		for _, raw := range dailyPoints {
+			values = append(values, raw)
 		}
+		raw95 := legacyNth95(values, rankIndex)
+		rowsOut = append(rowsOut, map[string]interface{}{
+			"date":                       date,
+			"edc_name":                   name,
+			"data_source_instance":       instance,
+			"daily_95th_percentile_raw":  raw95,
+			"daily_95th_percentile_mbps": raw95 * 8 / 300 / float64(params.UnitBase) / float64(params.UnitBase),
+			"data_points_daily":          len(values),
+			"saler_group":                "",
+			"saler":                      "",
+		})
 	}
 	return rowsOut
 }

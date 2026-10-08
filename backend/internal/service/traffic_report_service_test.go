@@ -51,13 +51,13 @@ func TestBuildEDCDailyReportRowsMatchesLegacyExportColumns(t *testing.T) {
 	loc, _ := time.LoadLocation("Asia/Shanghai")
 	start := time.Date(2026, 9, 1, 0, 0, 0, 0, loc)
 	window := trafficReportWindow{Start: start, End: time.Date(2026, 9, 2, 23, 59, 59, 0, loc)}
-	rows := make([]trafficReportEDCRow, 0, 21)
+	rows := make([]trafficReportEDCRow, 0, 40)
 	for i := 0; i < 20; i++ {
 		rows = append(rows, trafficReportEDCRow{CreateTime: start.Add(time.Duration(i) * 5 * time.Minute), EntityID: 1, EntityName: "BJ-Bilibili", ServiceSize: int64(i + 1)})
+		rows = append(rows, trafficReportEDCRow{CreateTime: start.Add(time.Duration(i) * 5 * time.Minute), EntityID: 2, EntityName: "BJ-Bilibili-Backup", ServiceSize: 10})
 	}
-	// Multiple mapped entities with the same EDC name and bucket are combined into one sample.
-	rows = append(rows, trafficReportEDCRow{CreateTime: start, EntityID: 2, EntityName: "BJ-Bilibili", ServiceSize: 1})
-	params := trafficReportParams{Direction: "both", UnitBase: 1024, DataSourceInstance: "ali"}
+	// Matched EDC names are combined by timestamp before calculating the daily percentile.
+	params := trafficReportParams{Direction: "both", UnitBase: 1024, DataSourceInstance: "ali", EDCName: "BJ-Bilibili,BJ-Bilibili-Backup"}
 	got := buildEDCDailyReportRows(rows, window, params, 14)
 	wantColumns := []string{"date", "edc_name", "data_source_instance", "daily_95th_percentile_raw", "daily_95th_percentile_mbps", "data_points_daily", "saler_group", "saler"}
 	if columns := reportKeysForRows("edc", got); !reflect.DeepEqual(columns, wantColumns) {
@@ -67,13 +67,13 @@ func TestBuildEDCDailyReportRowsMatchesLegacyExportColumns(t *testing.T) {
 		t.Fatalf("row count = %d, want 2 daily rows", len(got))
 	}
 	first := got[0]
-	if first["date"] != "2026-09-01" || first["edc_name"] != "BJ-Bilibili" || first["data_source_instance"] != "ali" {
+	if first["date"] != "2026-09-01" || first["edc_name"] != "BJ-Bilibili,BJ-Bilibili-Backup" || first["data_source_instance"] != "ali" {
 		t.Fatalf("unexpected first row metadata: %#v", first)
 	}
-	if first["daily_95th_percentile_raw"] != float64(6) || first["data_points_daily"] != 20 {
+	if first["daily_95th_percentile_raw"] != float64(16) || first["data_points_daily"] != 20 {
 		t.Fatalf("unexpected daily 95 row: %#v", first)
 	}
-	wantMbps := float64(6*8) / 300 / 1024 / 1024
+	wantMbps := float64(16*8) / 300 / 1024 / 1024
 	if first["daily_95th_percentile_mbps"] != wantMbps {
 		t.Fatalf("daily Mbps = %v, want %v", first["daily_95th_percentile_mbps"], wantMbps)
 	}
