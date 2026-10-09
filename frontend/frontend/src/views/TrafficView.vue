@@ -636,10 +636,9 @@ const chartOption = computed(() => {
       mergedByTime[p.t].send += Number(p.send) || 0
     })
     const timeline = Object.keys(mergedByTime).map((k) => Number(k)).sort((a, b) => a - b)
-    const shouldShowP95 = !!(resultQuery.school_name && selectedCPCount === 1)
-    p95Result = shouldShowP95
-      ? calculateTrafficP95(timeline.map((t) => ({ time: t, recvBps: mergedByTime[t].recv })))
-      : null
+    p95Result = calculateTrafficP95(
+      timeline.map((t) => ({ time: t, recvBps: mergedByTime[t].recv })),
+    )
 
     legendData = p95Result ? ['服务流速', '回源流速', '95值'] : ['服务流速', '回源流速']
     series = [

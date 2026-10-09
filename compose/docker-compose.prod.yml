@@ -4,6 +4,7 @@ services:
   backend:
     image: ghcr.io/${REGISTRY_OWNER}/nfa-dashboard-backend:${IMAGE_TAG}
     container_name: nfa-backend
+    restart: unless-stopped
     environment:
       - DB_HOST=${DB_HOST}
       - DB_PORT=${DB_PORT}
@@ -50,6 +51,7 @@ services:
   frontend:
     image: ghcr.io/${REGISTRY_OWNER}/nfa-dashboard-frontend:${IMAGE_TAG}
     container_name: nfa-frontend
+    restart: unless-stopped
     depends_on:
       backend:
         condition: service_healthy

@@ -6,6 +6,7 @@ services:
       context: ../backend
       dockerfile: Dockerfile
     container_name: nfa-backend
+    restart: unless-stopped
     environment:
       - DB_HOST=${DB_HOST}
       - DB_PORT=${DB_PORT}
@@ -38,6 +39,7 @@ services:
       context: ../frontend/frontend
       dockerfile: Dockerfile
     container_name: nfa-frontend
+    restart: unless-stopped
     depends_on:
       backend:
         condition: service_healthy
@@ -52,6 +54,7 @@ services:
     image: mysql:5.7
     profiles: ["with-db"]
     container_name: nfa-mysql
+    restart: unless-stopped
     environment:
       - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-root}
       - MYSQL_DATABASE=${DB_NAME}
