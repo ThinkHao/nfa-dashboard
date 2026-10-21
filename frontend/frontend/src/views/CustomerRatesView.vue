@@ -572,6 +572,15 @@ async function fetchData(signal?: AbortSignal) {
   }
 }
 
+async function ensureSchoolRates() {
+  if (!canWrite.value) return
+  try {
+    await api.settlementRates.customer.ensureSchools()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '自动补齐院校费率失败')
+  }
+}
+
 // 根据当前 items 收集 owner_id，批量按 ids 获取系统用户并缓存映射（优先用于显示别名）
 async function loadUsersForItems() {
   const ids = new Set<number>()
@@ -1374,6 +1383,7 @@ async function remoteSearchSystemUsersAny(q: string) {
 
 onMounted(async () => {
   loadRegionsAndCPs();
+  await ensureSchoolRates()
   queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false });
   // 预加载允许绑定的角色（销售），供后续用户搜索使用
   try {
@@ -1410,7 +1420,9 @@ onMounted(async () => {
   }
 })
 usePageRefresh(() => {
-  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
+  ensureSchoolRates().finally(() => {
+    queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
+  })
 })
 
 onUnmounted(() => {

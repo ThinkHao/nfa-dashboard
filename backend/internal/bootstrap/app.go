@@ -218,6 +218,7 @@ func BuildEngine() *gin.Engine {
 			rates := settlement.Group("/rates")
 			{
 				rates.GET("/customer", authMW.PermissionRequired("rates.customer.read"), ratesController.ListCustomerRates)
+				rates.POST("/customer/ensure-schools", authMW.PermissionRequired("rates.customer.write"), ratesController.EnsureCustomerRatesForSchools)
 				rates.POST("/customer", authMW.PermissionRequired("rates.customer.write"), ratesController.UpsertCustomerRate)
 				rates.GET("/customer/export", authMW.PermissionRequired("rates.customer.export"), ratesController.ExportCustomerRates)
 				rates.GET("/customer/export-xlsx", authMW.PermissionRequired("rates.customer.export"), ratesController.ExportCustomerRatesXLSX)

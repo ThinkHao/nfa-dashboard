@@ -189,6 +189,7 @@ func (s *ratesSyncRatesRepoStub) ListCustomerRates(filter map[string]interface{}
 	}
 	return []model.RateCustomer{}, 0, nil
 }
+func (s *ratesSyncRatesRepoStub) EnsureCustomerRatesForSchools() (int64, error) { return 0, nil }
 func (s *ratesSyncRatesRepoStub) ListCustomerRateKeys(filter map[string]interface{}) (map[string]struct{}, error) {
 	out := map[string]struct{}{}
 	for key := range s.existing {

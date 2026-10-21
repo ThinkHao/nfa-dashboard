@@ -640,6 +640,16 @@ func (ctl *SettlementRatesController) ListCustomerRates(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": resp, "total": total})
 }
 
+func (ctl *SettlementRatesController) EnsureCustomerRatesForSchools(c *gin.Context) {
+	affected, err := ctl.svc.EnsureCustomerRatesForSchools()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		return
+	}
+	c.Set("auditMessage", "按院校主数据补齐空白客户费率条目，新增 "+strconv.FormatInt(affected, 10)+" 条")
+	c.JSON(http.StatusOK, gin.H{"affected": affected})
+}
+
 func (ctl *SettlementRatesController) UpsertCustomerRate(c *gin.Context) {
 	type reqT struct {
 		Region                string          `json:"region" binding:"required"`

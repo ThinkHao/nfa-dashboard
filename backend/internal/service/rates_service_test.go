@@ -13,6 +13,8 @@ type ratesServiceRatesRepoStub struct {
 	finalNodeRates   []model.RateFinalNode
 	nodeGroups       []model.EDCNodeSettlementGroup
 	syncedNodeRate   *model.RateNode
+	ensuredRateCount int64
+	ensureRatesErr   error
 }
 
 func (s *ratesServiceRatesRepoStub) ListCustomerRates(filter map[string]interface{}, limit, offset int) ([]model.RateCustomer, int64, error) {
@@ -20,6 +22,9 @@ func (s *ratesServiceRatesRepoStub) ListCustomerRates(filter map[string]interfac
 }
 func (s *ratesServiceRatesRepoStub) ListCustomerRateKeys(filter map[string]interface{}) (map[string]struct{}, error) {
 	return nil, nil
+}
+func (s *ratesServiceRatesRepoStub) EnsureCustomerRatesForSchools() (int64, error) {
+	return s.ensuredRateCount, s.ensureRatesErr
 }
 func (s *ratesServiceRatesRepoStub) UpsertCustomerRate(rate *model.RateCustomer) error { return nil }
 func (s *ratesServiceRatesRepoStub) CreateCustomerRateIfMissing(rate *model.RateCustomer) (bool, error) {
@@ -144,6 +149,19 @@ func (s *ratesServiceUserRepoStub) UpdatePasswordHash(userID uint64, passwordHas
 }
 
 func (s *ratesServiceUserRepoStub) Exists(id uint64) (bool, error) { return false, nil }
+
+func TestEnsureCustomerRatesForSchoolsDelegatesToRepository(t *testing.T) {
+	repo := &ratesServiceRatesRepoStub{ensuredRateCount: 3}
+	svc := NewRatesService(repo, nil, nil)
+
+	count, err := svc.EnsureCustomerRatesForSchools()
+	if err != nil {
+		t.Fatalf("EnsureCustomerRatesForSchools() error = %v", err)
+	}
+	if count != 3 {
+		t.Fatalf("EnsureCustomerRatesForSchools() count = %d, want 3", count)
+	}
+}
 
 func TestNormalizeIncrementConfig_NoIncrementStartForcesDefault(t *testing.T) {
 	stock := 0.3

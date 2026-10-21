@@ -18,6 +18,8 @@ import (
 )
 
 type settlementRatesServiceStub struct {
+	ensuredRateCount    int64
+	ensureRatesErr      error
 	resolvedNames       service.CustomerRateOwnerNames
 	resolvedRate        *model.RateCustomer
 	resolveErr          error
@@ -34,6 +36,10 @@ type settlementRatesServiceStub struct {
 
 func (s *settlementRatesServiceStub) ListCustomerRates(region, cp, schoolName string, settlementReady *bool, page, pageSize int) ([]model.RateCustomer, int64, error) {
 	return nil, 0, nil
+}
+
+func (s *settlementRatesServiceStub) EnsureCustomerRatesForSchools() (int64, error) {
+	return s.ensuredRateCount, s.ensureRatesErr
 }
 
 func (s *settlementRatesServiceStub) UpsertCustomerRate(rate *model.RateCustomer) error {
@@ -169,6 +175,29 @@ func (s *settlementRatesServiceStub) RefreshFinalCustomerRates() (int64, error) 
 
 func (s *settlementRatesServiceStub) CleanupInvalidFinalCustomerRates() (int64, error) {
 	return 0, nil
+}
+
+func TestEnsureCustomerRatesForSchoolsReturnsAddedCount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctl := NewSettlementRatesController(&settlementRatesServiceStub{ensuredRateCount: 4})
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/settlement/rates/customer/ensure-schools", nil)
+
+	ctl.EnsureCustomerRatesForSchools(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	var response struct {
+		Affected int64 `json:"affected"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Affected != 4 {
+		t.Fatalf("affected = %d, want 4", response.Affected)
+	}
 }
 
 func TestImportCustomerRates_XLSXSupportsFormattedNumbersDatesAndOwnerNames(t *testing.T) {

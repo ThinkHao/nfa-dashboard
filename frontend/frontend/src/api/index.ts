@@ -341,6 +341,9 @@ export default {
       list(params?: any, config?: AxiosRequestConfig): Promise<PaginatedData<RateCustomer>> {
         return api.get('/api/v1/settlement/rates/customer', { params, ...(config || {}) }).then((d: any) => d as PaginatedData<RateCustomer>)
       },
+      ensureSchools(): Promise<{ affected: number }> {
+        return api.post('/api/v1/settlement/rates/customer/ensure-schools', {}).then((d: any) => ({ affected: Number(d?.affected || 0) }))
+      },
       upsert(data: UpsertRateCustomerRequest): Promise<void> {
         return api.post('/api/v1/settlement/rates/customer', data).then(() => undefined)
       },

@@ -14,6 +14,7 @@ import (
 type RatesRepository interface {
 	// 客户业务费率
 	ListCustomerRates(filter map[string]interface{}, limit, offset int) ([]model.RateCustomer, int64, error)
+	EnsureCustomerRatesForSchools() (int64, error)
 	ListCustomerRateKeys(filter map[string]interface{}) (map[string]struct{}, error)
 	UpsertCustomerRate(rate *model.RateCustomer) error
 	CreateCustomerRateIfMissing(rate *model.RateCustomer) (bool, error)
@@ -148,6 +149,18 @@ func (r *ratesRepository) ListCustomerRates(filter map[string]interface{}, limit
 		return nil, 0, err
 	}
 	return items, count, nil
+}
+
+// EnsureCustomerRatesForSchools 为尚未配置费率的院校补充空白客户费率行。
+func (r *ratesRepository) EnsureCustomerRatesForSchools() (int64, error) {
+	result := model.DB.Exec(`
+		INSERT IGNORE INTO rate_customer (region, cp, school_name, fee_mode)
+		SELECT DISTINCT region, cp, school_name, 'auto'
+		FROM nfa_school
+		WHERE TRIM(COALESCE(region, '')) <> ''
+		  AND TRIM(COALESCE(cp, '')) <> ''
+		  AND TRIM(COALESCE(school_name, '')) <> ''`)
+	return result.RowsAffected, result.Error
 }
 
 func (r *ratesRepository) ListCustomerRateKeys(filter map[string]interface{}) (map[string]struct{}, error) {

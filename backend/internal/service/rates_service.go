@@ -15,6 +15,7 @@ import (
 type RatesService interface {
 	// 客户业务费率
 	ListCustomerRates(region, cp, schoolName string, settlementReady *bool, page, pageSize int) ([]model.RateCustomer, int64, error)
+	EnsureCustomerRatesForSchools() (int64, error)
 	UpsertCustomerRate(rate *model.RateCustomer) error
 	ValidateCustomerRate(rate *model.RateCustomer) error
 	LookupCustomerRateOwnerIDsByDisplayName(names CustomerRateOwnerNames) (CustomerRateOwnerIDs, []MissingCustomerRateOwner, error)
@@ -91,6 +92,10 @@ func (s *ratesService) ListCustomerRates(region, cp, schoolName string, settleme
 	limit := pageSize
 	offset := (page - 1) * pageSize
 	return s.repo.ListCustomerRates(filter, limit, offset)
+}
+
+func (s *ratesService) EnsureCustomerRatesForSchools() (int64, error) {
+	return s.repo.EnsureCustomerRatesForSchools()
 }
 
 func (s *ratesService) UpsertCustomerRate(rate *model.RateCustomer) error {
