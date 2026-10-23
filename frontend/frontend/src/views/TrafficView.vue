@@ -10,7 +10,13 @@ import UnifiedDateRange from '@/components/ui/UnifiedDateRange.vue'
 import QueryActionButton from '@/components/ui/QueryActionButton.vue'
 import { buildRangeValue, splitRangeValue } from '@/components/ui/unified-date-range-utils'
 import { clearTrafficCustomRange, resolvePresetTrafficRange, type TrafficTimeRangeOption } from './traffic-time-range'
-import { calculateTrafficP95, type TrafficP95Result } from './traffic-percentile'
+import {
+  aggregateTrafficP95PointsByTime,
+  calculateTrafficDailyP95Average,
+  calculateTrafficP95,
+  type TrafficDailyP95AverageResult,
+  type TrafficP95Result,
+} from './traffic-percentile'
 import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import { useSystemTrafficSettings } from '@/composables/useSystemTrafficSettings'
@@ -292,6 +298,7 @@ const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(10)
 const currentGranularity = ref('5m') // 当前使用的时间粒度
+const p95Mode = ref<'range' | 'daily-average'>('range')
 const P95_LINE_COLOR = '#fb7185'
 const P95_LINE_COLOR_SOFT = 'rgba(251, 113, 133, 0.72)'
 const P95_LABEL_COLOR = '#e11d48'
@@ -557,31 +564,36 @@ const chartOption = computed(() => {
   const compareByCP = selectedCPCount > 1 || !!(resultQuery.school_name && selectedCPCount === 0)
   let legendData: string[] = []
   let series: any[] = []
-  let p95Result: TrafficP95Result | null = null
+  let p95Result: TrafficP95Result | TrafficDailyP95AverageResult | null = null
+  const p95ModeLabel = p95Mode.value === 'daily-average' ? '日95均值' : '区间95'
+  const calculateDisplayedP95 = (points: Array<{ time: number; recvBps: number }>) => (
+    p95Mode.value === 'daily-average'
+      ? calculateTrafficDailyP95Average(points)
+      : calculateTrafficP95(points)
+  )
   const p95TooltipMarker = `<span style="display:inline-block;width:16px;height:0;border-top:1px dashed ${P95_LINE_COLOR};vertical-align:middle;margin-right:6px;"></span>`
 
   if (compareByCP) {
     const cpBuckets: Record<string, Array<{ t: number; recv: number; send: number }>> = {}
-    const totalByTime: Record<number, number> = {}
 
     points.forEach((p) => {
       const cp = p.cp || '未知CP'
       if (!cpBuckets[cp]) cpBuckets[cp] = []
       cpBuckets[cp].push({ t: p.t, recv: p.recv, send: p.send })
-      totalByTime[p.t] = (totalByTime[p.t] || 0) + p.recv
     })
+
+    const totalPoints = aggregateTrafficP95PointsByTime(points.map((p) => ({ time: p.t, recvBps: p.recv })))
 
     const cps = Object.keys(cpBuckets).sort()
     legendData = ['各CP总服务流速', ...cps.flatMap(cp => [`${cp}-服务`, `${cp}-回源`])]
-    const totalTimeline = Object.keys(totalByTime).map((k) => Number(k)).sort((a, b) => a - b)
-    p95Result = calculateTrafficP95(totalTimeline.map((t) => ({ time: t, recvBps: totalByTime[t] })))
+    p95Result = calculateDisplayedP95(totalPoints)
 
     const totalSeries = {
       ...perSeriesBase,
       name: '各CP总服务流速',
       lineStyle: { width: 3, type: 'solid' },
       z: 10,
-      data: totalTimeline.map((t) => [t, totalByTime[t]]),
+      data: totalPoints.map((point) => [point.time, point.recvBps]),
       ...(p95Result
         ? {
             markLine: {
@@ -589,7 +601,7 @@ const chartOption = computed(() => {
               silent: true,
               animation: false,
               label: {
-                formatter: () => `95 ${formatBitRate(p95Result?.valueBps || 0)}`,
+                formatter: () => `${p95ModeLabel} ${formatBitRate(p95Result?.valueBps || 0)}`,
                 position: 'insideEndTop',
                 distance: 6,
                 color: P95_LABEL_COLOR,
@@ -636,7 +648,7 @@ const chartOption = computed(() => {
       mergedByTime[p.t].send += Number(p.send) || 0
     })
     const timeline = Object.keys(mergedByTime).map((k) => Number(k)).sort((a, b) => a - b)
-    p95Result = calculateTrafficP95(
+    p95Result = calculateDisplayedP95(
       timeline.map((t) => ({ time: t, recvBps: mergedByTime[t].recv })),
     )
 
@@ -668,7 +680,7 @@ const chartOption = computed(() => {
               silent: true,
               animation: false,
               label: {
-                formatter: () => `95 ${formatBitRate(p95Result?.valueBps || 0)}`,
+                formatter: () => `${p95ModeLabel} ${formatBitRate(p95Result?.valueBps || 0)}`,
                 position: 'insideEndTop',
                 distance: 6,
                 color: P95_LABEL_COLOR,
@@ -723,8 +735,12 @@ const chartOption = computed(() => {
           result += param.seriesName + ': ' + formatBitRate(Number(v || 0)) + '<br/>'
         })
         if (p95Result && (compareByCP || p95LegendVisible.value)) {
-          result += `${p95TooltipMarker}95值: ${formatBitRate(p95Result.valueBps)}<br/>`
-          result += `${p95TooltipMarker}95时间: ${new Date(p95Result.timeMs).toLocaleString()}<br/>`
+          result += `${p95TooltipMarker}${p95ModeLabel}: ${formatBitRate(p95Result.valueBps)}<br/>`
+          if ('timeMs' in p95Result) {
+            result += `${p95TooltipMarker}95时间: ${new Date(p95Result.timeMs).toLocaleString()}<br/>`
+          } else {
+            result += `${p95TooltipMarker}有效天数: ${p95Result.dayCount}天<br/>`
+          }
         }
         return result
       }
@@ -1726,6 +1742,13 @@ usePageRefresh(() => {
     
     <!-- 流量图表 -->
     <SectionCard title="趋势图" v-loading="chartLoading">
+      <div class="traffic-chart-toolbar">
+        <span>95口径</span>
+        <ElSelect v-model="p95Mode" class="p95-mode-select" aria-label="95口径">
+          <ElOption label="区间95" value="range" />
+          <ElOption label="日95均值" value="daily-average" />
+        </ElSelect>
+      </div>
       <v-chart
         ref="chartRef"
         class="traffic-chart"
@@ -1789,6 +1812,9 @@ usePageRefresh(() => {
 <style scoped>
 .traffic-report-entry { display: flex; align-items: center; gap: 10px; margin: -4px 0 14px; }
 .entry-hint { color: var(--text-muted); font-size: 12px; }
+
+.traffic-chart-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-bottom: 8px; color: var(--text-muted); font-size: 13px; }
+.p95-mode-select { width: 150px; }
 
 .traffic-chart {
   height: 400px;
