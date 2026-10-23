@@ -3,6 +3,11 @@ export interface TrafficP95InputPoint {
   recvBps: number
 }
 
+export interface TrafficP95TimeRange {
+  startTime: number
+  endTime: number
+}
+
 export interface TrafficP95Result {
   valueBps: number
   timeMs: number
@@ -14,6 +19,39 @@ export interface TrafficDailyP95AverageResult {
   valueBps: number
   dayCount: number
   pointCount: number
+}
+
+/**
+ * Select points from a time-sorted series with binary search, so chart zooms
+ * do not scan the full query result on every datazoom event.
+ */
+export function selectTrafficP95PointsInTimeRange(
+  points: TrafficP95InputPoint[],
+  range: TrafficP95TimeRange | null,
+): TrafficP95InputPoint[] {
+  if (!range || points.length === 0) return points
+
+  if (!Number.isFinite(range.startTime) || !Number.isFinite(range.endTime)) return []
+  const startTime = Math.min(range.startTime, range.endTime)
+  const endTime = Math.max(range.startTime, range.endTime)
+  let start = 0
+  let end = points.length
+
+  while (start < end) {
+    const middle = (start + end) >>> 1
+    if (points[middle].time < startTime) start = middle + 1
+    else end = middle
+  }
+  const firstIndex = start
+
+  end = points.length
+  while (start < end) {
+    const middle = (start + end) >>> 1
+    if (points[middle].time <= endTime) start = middle + 1
+    else end = middle
+  }
+
+  return points.slice(firstIndex, start)
 }
 
 export function aggregateTrafficP95PointsByTime(points: TrafficP95InputPoint[]): TrafficP95InputPoint[] {

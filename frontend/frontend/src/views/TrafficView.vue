@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted, onActivated, nextTick, computed, watch } from 'vue'
+import { ref, shallowRef, reactive, onMounted, onActivated, nextTick, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import PageHeader from '@/components/ui/PageHeader.vue'
@@ -15,7 +15,10 @@ import {
   calculateTrafficDailyP95Average,
   calculateTrafficP95,
   type TrafficDailyP95AverageResult,
+  type TrafficP95InputPoint,
   type TrafficP95Result,
+  type TrafficP95TimeRange,
+  selectTrafficP95PointsInTimeRange,
 } from './traffic-percentile'
 import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
 import { usePageRefresh } from '@/composables/usePageRefresh'
@@ -63,6 +66,25 @@ interface TrafficQuerySnapshot extends TrafficQueryState {
   edc_alias: string
   edc_entity_label: string
   edc_original_name: string
+}
+
+interface TrafficChartRawPoint {
+  create_time?: unknown
+  cp?: unknown
+  recv_bps?: unknown
+  total_recv?: unknown
+  service_size?: unknown
+  send_bps?: unknown
+  total_send?: unknown
+  cache_size?: unknown
+}
+
+interface TrafficDataZoomEventPayload {
+  startValue?: unknown
+  endValue?: unknown
+  start?: unknown
+  end?: unknown
+  batch?: TrafficDataZoomEventPayload[]
 }
 
 function normalizeEDCText(value: unknown): string {
@@ -303,12 +325,53 @@ const P95_LINE_COLOR = '#fb7185'
 const P95_LINE_COLOR_SOFT = 'rgba(251, 113, 133, 0.72)'
 const P95_LABEL_COLOR = '#e11d48'
 const P95_LABEL_BG = 'rgba(251, 113, 133, 0.12)'
+const P95_TOTAL_ANCHOR_SERIES_ID = 'traffic-p95-total-anchor'
+const P95_LINE_SERIES_ID = 'traffic-p95-line'
 // 95值图例是否处于选中状态（控制 tooltip 中的 95 信息行）
 const p95LegendVisible = ref(true)
 const queryCtl = useCancelableQuery()
 const trafficSettings = useSystemTrafficSettings()
 const trafficByteUnitBase = computed(() => normalizeByteUnitBase(trafficSettings.settings.value.traffic_byte_unit_base, 1024))
 const chartRef = ref<InstanceType<typeof VChart> | null>(null)
+
+const chartTrafficPoints = computed(() => (trafficData.value as TrafficChartRawPoint[]).map((item) => {
+  const time = typeof item.create_time === 'number' ? item.create_time : parseTime(item.create_time).getTime()
+  return {
+    t: time,
+    cp: String(item.cp || ''),
+    recv: item.recv_bps != null ? Number(item.recv_bps) : convertToBitsPerSecond(Number(item.total_recv ?? item.service_size) || 0),
+    send: item.send_bps != null ? Number(item.send_bps) : convertToBitsPerSecond(Number(item.total_send ?? item.cache_size) || 0),
+  }
+}).filter((point) => !isNaN(point.t)))
+
+// P95 输入在数据变化时按时间点预聚合一次，缩放过程中复用已排序的总流速序列。
+const chartP95Points = computed(() => aggregateTrafficP95PointsByTime(
+  chartTrafficPoints.value.map((point) => ({ time: point.t, recvBps: point.recv })),
+))
+type DisplayedP95Result = TrafficP95Result | TrafficDailyP95AverageResult | null
+const currentP95Result = shallowRef<DisplayedP95Result>(null)
+let currentP95Window: TrafficP95TimeRange | null = null
+let currentDataZoomRange = { start: 0, end: 100 }
+
+function calculateP95ForWindow(
+  points: TrafficP95InputPoint[],
+  mode: 'range' | 'daily-average',
+  range: TrafficP95TimeRange | null,
+): DisplayedP95Result {
+  const visiblePoints = selectTrafficP95PointsInTimeRange(points, range)
+  return mode === 'daily-average'
+    ? calculateTrafficDailyP95Average(visiblePoints)
+    : calculateTrafficP95(visiblePoints)
+}
+
+watch(chartP95Points, () => {
+  // 新查询会重置 dataZoom，P95 计算范围也回到完整查询时间段。
+  currentP95Window = null
+  currentDataZoomRange = { start: 0, end: 100 }
+}, { flush: 'sync' })
+watch([chartP95Points, p95Mode], ([points, mode]) => {
+  currentP95Result.value = calculateP95ForWindow(points, mode, currentP95Window)
+}, { immediate: true, flush: 'sync' })
 
 const pagedTrafficData = computed(() => {
   const list = trafficData.value as any[]
@@ -520,18 +583,7 @@ const chartOption = computed(() => {
     }
   }
 
-  const sortedData = trafficData.value as any[]
-
-  // 将原始数据转换为 bits/s，并与时间戳配对，供 time 轴渲染
-  const points = sortedData.map(item => {
-    const ms = typeof item.create_time === 'number' ? item.create_time : parseTime(item.create_time).getTime()
-    return {
-      t: ms,
-      cp: String((item as any).cp || ''),
-      recv: (item as any).recv_bps != null ? Number((item as any).recv_bps) : convertToBitsPerSecond(Number((item as any).total_recv ?? (item as any).service_size) || 0),
-      send: (item as any).send_bps != null ? Number((item as any).send_bps) : convertToBitsPerSecond(Number((item as any).total_send ?? (item as any).cache_size) || 0),
-    }
-  }).filter(p => !isNaN(p.t))
+  const points = chartTrafficPoints.value
 
   // 格式化粒度显示
   const formatGranularity = (gran) => {
@@ -571,6 +623,9 @@ const chartOption = computed(() => {
       ? calculateTrafficDailyP95Average(points)
       : calculateTrafficP95(points)
   )
+  const p95PointsForWindow = selectTrafficP95PointsInTimeRange(chartP95Points.value, currentP95Window)
+  p95Result = calculateDisplayedP95(p95PointsForWindow)
+  const hasP95Points = chartP95Points.value.length > 0
   const p95TooltipMarker = `<span style="display:inline-block;width:16px;height:0;border-top:1px dashed ${P95_LINE_COLOR};vertical-align:middle;margin-right:6px;"></span>`
 
   if (compareByCP) {
@@ -582,26 +637,25 @@ const chartOption = computed(() => {
       cpBuckets[cp].push({ t: p.t, recv: p.recv, send: p.send })
     })
 
-    const totalPoints = aggregateTrafficP95PointsByTime(points.map((p) => ({ time: p.t, recvBps: p.recv })))
+    const totalPoints = chartP95Points.value
 
     const cps = Object.keys(cpBuckets).sort()
     legendData = ['各CP总服务流速', ...cps.flatMap(cp => [`${cp}-服务`, `${cp}-回源`])]
-    p95Result = calculateDisplayedP95(totalPoints)
-
     const totalSeries = {
       ...perSeriesBase,
+      id: P95_TOTAL_ANCHOR_SERIES_ID,
       name: '各CP总服务流速',
       lineStyle: { width: 3, type: 'solid' },
       z: 10,
       data: totalPoints.map((point) => [point.time, point.recvBps]),
-      ...(p95Result
+      ...(hasP95Points
         ? {
             markLine: {
               symbol: 'none',
               silent: true,
               animation: false,
               label: {
-                formatter: () => `${p95ModeLabel} ${formatBitRate(p95Result?.valueBps || 0)}`,
+                formatter: () => `${p95ModeLabel} ${formatBitRate(currentP95Result.value?.valueBps ?? 0)}`,
                 position: 'insideEndTop',
                 distance: 6,
                 color: P95_LABEL_COLOR,
@@ -616,7 +670,7 @@ const chartOption = computed(() => {
                 type: 'dashed',
                 opacity: 0.82,
               },
-              data: [{ name: '95值', yAxis: p95Result.valueBps }],
+              data: p95Result ? [{ name: '95值', yAxis: p95Result.valueBps }] : [],
             },
           }
         : {}),
@@ -648,11 +702,7 @@ const chartOption = computed(() => {
       mergedByTime[p.t].send += Number(p.send) || 0
     })
     const timeline = Object.keys(mergedByTime).map((k) => Number(k)).sort((a, b) => a - b)
-    p95Result = calculateDisplayedP95(
-      timeline.map((t) => ({ time: t, recvBps: mergedByTime[t].recv })),
-    )
-
-    legendData = p95Result ? ['服务流速', '回源流速', '95值'] : ['服务流速', '回源流速']
+    legendData = hasP95Points ? ['服务流速', '回源流速', '95值'] : ['服务流速', '回源流速']
     series = [
       {
         ...perSeriesBase,
@@ -665,9 +715,10 @@ const chartOption = computed(() => {
         data: timeline.map((t) => [t, mergedByTime[t].send]),
       },
       // 95值线挂在自己的 series 上，图例开关才能随之显隐
-      ...(p95Result
+      ...(hasP95Points
         ? [{
             ...perSeriesBase,
+            id: P95_LINE_SERIES_ID,
             name: '95值',
             data: [],
             color: P95_LINE_COLOR,
@@ -680,7 +731,7 @@ const chartOption = computed(() => {
               silent: true,
               animation: false,
               label: {
-                formatter: () => `${p95ModeLabel} ${formatBitRate(p95Result?.valueBps || 0)}`,
+                formatter: () => `${p95ModeLabel} ${formatBitRate(currentP95Result.value?.valueBps ?? 0)}`,
                 position: 'insideEndTop',
                 distance: 6,
                 color: P95_LABEL_COLOR,
@@ -696,10 +747,10 @@ const chartOption = computed(() => {
                 opacity: 0.82,
               },
               data: [
-                {
+                ...(p95Result ? [{
                   name: '95值',
                   yAxis: p95Result.valueBps,
-                },
+                }] : []),
               ],
             },
           }]
@@ -734,12 +785,13 @@ const chartOption = computed(() => {
           const v = Array.isArray(param.value) ? param.value[1] : param.value
           result += param.seriesName + ': ' + formatBitRate(Number(v || 0)) + '<br/>'
         })
-        if (p95Result && (compareByCP || p95LegendVisible.value)) {
-          result += `${p95TooltipMarker}${p95ModeLabel}: ${formatBitRate(p95Result.valueBps)}<br/>`
-          if ('timeMs' in p95Result) {
-            result += `${p95TooltipMarker}95时间: ${new Date(p95Result.timeMs).toLocaleString()}<br/>`
+        const tooltipP95Result = currentP95Result.value
+        if (tooltipP95Result && (compareByCP || p95LegendVisible.value)) {
+          result += `${p95TooltipMarker}${p95ModeLabel}: ${formatBitRate(tooltipP95Result.valueBps)}<br/>`
+          if ('timeMs' in tooltipP95Result) {
+            result += `${p95TooltipMarker}95时间: ${new Date(tooltipP95Result.timeMs).toLocaleString()}<br/>`
           } else {
-            result += `${p95TooltipMarker}有效天数: ${p95Result.dayCount}天<br/>`
+            result += `${p95TooltipMarker}有效天数: ${tooltipP95Result.dayCount}天<br/>`
           }
         }
         return result
@@ -768,14 +820,14 @@ const chartOption = computed(() => {
     dataZoom: [
       {
         type: 'inside',
-        start: 0,
-        end: 100,
+        start: currentDataZoomRange.start,
+        end: currentDataZoomRange.end,
         throttle: 100,
         realtime: !heavy,
       },
       {
-        start: 0,
-        end: 100,
+        start: currentDataZoomRange.start,
+        end: currentDataZoomRange.end,
         throttle: 100,
         realtime: !heavy,
       }
@@ -867,6 +919,77 @@ function handleLegendSelectChanged(params: any) {
   if (legendNames.includes('95值')) {
     p95LegendVisible.value = selectAll || clickedName === '95值'
   }
+}
+
+function getP95WindowFromDataZoom(params: TrafficDataZoomEventPayload): TrafficP95TimeRange | null {
+  const points = chartP95Points.value
+  if (points.length === 0) return null
+
+  const zoom = Array.isArray(params?.batch) && params.batch.length > 0 ? params.batch[0] : params
+  const firstTime = points[0].time
+  const lastTime = points[points.length - 1].time
+  let startTime = zoom?.startValue == null ? Number.NaN : Number(zoom.startValue)
+  let endTime = zoom?.endValue == null ? Number.NaN : Number(zoom.endValue)
+
+  if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) {
+    const startPercent = zoom?.start == null ? Number.NaN : Number(zoom.start)
+    const endPercent = zoom?.end == null ? Number.NaN : Number(zoom.end)
+    if (!Number.isFinite(startPercent) || !Number.isFinite(endPercent)) return null
+    startTime = firstTime + (lastTime - firstTime) * Math.max(0, Math.min(100, startPercent)) / 100
+    endTime = firstTime + (lastTime - firstTime) * Math.max(0, Math.min(100, endPercent)) / 100
+  }
+
+  const lowerBound = Math.max(firstTime, Math.min(lastTime, Math.min(startTime, endTime)))
+  const upperBound = Math.max(firstTime, Math.min(lastTime, Math.max(startTime, endTime)))
+  return { startTime: lowerBound, endTime: upperBound }
+}
+
+function handleTrafficDataZoom(params: TrafficDataZoomEventPayload) {
+  const window = getP95WindowFromDataZoom(params)
+  if (!window) return
+  if (currentP95Window
+    && Math.abs(currentP95Window.startTime - window.startTime) < 0.5
+    && Math.abs(currentP95Window.endTime - window.endTime) < 0.5) return
+
+  const zoom = Array.isArray(params?.batch) && params.batch.length > 0 ? params.batch[0] : params
+  const startPercent = zoom?.start == null ? Number.NaN : Number(zoom.start)
+  const endPercent = zoom?.end == null ? Number.NaN : Number(zoom.end)
+  if (Number.isFinite(startPercent) && Number.isFinite(endPercent)) {
+    currentDataZoomRange = {
+      start: Math.max(0, Math.min(100, startPercent)),
+      end: Math.max(0, Math.min(100, endPercent)),
+    }
+  } else {
+    const points = chartP95Points.value
+    const timeSpan = points[points.length - 1].time - points[0].time
+    currentDataZoomRange = timeSpan > 0
+      ? {
+          start: (window.startTime - points[0].time) / timeSpan * 100,
+          end: (window.endTime - points[0].time) / timeSpan * 100,
+        }
+      : { start: 0, end: 100 }
+  }
+
+  currentP95Window = window
+  currentP95Result.value = calculateP95ForWindow(chartP95Points.value, p95Mode.value, window)
+
+  const resultQuery = appliedQuery.value
+  if (!resultQuery) return
+  const selectedCPCount = resultQuery.cp.length
+  const compareByCP = selectedCPCount > 1 || !!(resultQuery.school_name && selectedCPCount === 0)
+  const anchorSeriesId = compareByCP ? P95_TOTAL_ANCHOR_SERIES_ID : P95_LINE_SERIES_ID
+
+  // 只更新95标记线，避免缩放时重新构造并提交所有流量折线的数据。
+  chartRef.value?.setOption({
+    series: [{
+      id: anchorSeriesId,
+      markLine: {
+        data: currentP95Result.value
+          ? [{ name: '95值', yAxis: currentP95Result.value.valueBps }]
+          : [],
+      },
+    }],
+  }, { lazyUpdate: true })
 }
 
 function resizeTrafficChart() {
@@ -1756,6 +1879,7 @@ usePageRefresh(() => {
         :update-options="{ replaceMerge: ['series'] }"
         autoresize
         @legendselectchanged="handleLegendSelectChanged"
+        @datazoom="handleTrafficDataZoom"
       />
     </SectionCard>
     

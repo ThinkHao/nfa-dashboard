@@ -3,6 +3,7 @@ import {
   aggregateTrafficP95PointsByTime,
   calculateTrafficDailyP95Average,
   calculateTrafficP95,
+  selectTrafficP95PointsInTimeRange,
 } from '@/views/traffic-percentile'
 
 describe('calculateTrafficP95', () => {
@@ -124,5 +125,36 @@ describe('calculateTrafficDailyP95Average', () => {
       { time: Number.NaN, recvBps: 1 },
       { time: 1, recvBps: Number.NaN },
     ])).toBeNull()
+  })
+})
+
+describe('selectTrafficP95PointsInTimeRange', () => {
+  const points = [
+    { time: 1_000, recvBps: 10 },
+    { time: 2_000, recvBps: 20 },
+    { time: 3_000, recvBps: 30 },
+    { time: 4_000, recvBps: 40 },
+  ]
+
+  it('selects the inclusive zoom window using binary-search boundaries', () => {
+    expect(selectTrafficP95PointsInTimeRange(points, { startTime: 2_000, endTime: 3_000 })).toEqual(points.slice(1, 3))
+    expect(selectTrafficP95PointsInTimeRange(points, { startTime: 3_000, endTime: 2_000 })).toEqual(points.slice(1, 3))
+  })
+
+  it('returns the existing array for the unzoomed range and no points for an invalid range', () => {
+    expect(selectTrafficP95PointsInTimeRange(points, null)).toBe(points)
+    expect(selectTrafficP95PointsInTimeRange(points, { startTime: Number.NaN, endTime: 2_000 })).toEqual([])
+  })
+
+  it('recomputes p95 from the visible portion after multi-CP values are summed by timestamp', () => {
+    const aggregated = aggregateTrafficP95PointsByTime([
+      { time: 1_000, recvBps: 1_000 },
+      { time: 2_000, recvBps: 100 },
+      { time: 2_000, recvBps: 200 },
+      { time: 3_000, recvBps: 50 },
+    ])
+
+    const visiblePoints = selectTrafficP95PointsInTimeRange(aggregated, { startTime: 2_000, endTime: 3_000 })
+    expect(calculateTrafficP95(visiblePoints)?.valueBps).toBe(300)
   })
 })
