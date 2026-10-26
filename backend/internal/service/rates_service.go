@@ -566,47 +566,13 @@ func (s *ratesService) applyDiscountForCustomer(c *model.RateCustomer, serviceDa
 		}
 	}
 
-	// 按 scope 匹配规则：school > cp > region > global
-	scopes := []struct {
-		typeVal string
-		key     *string
-	}{
-		{"school", c.SchoolName},
-		{"cp", &c.CP},
-		{"region", &c.Region},
-		{"global", nil},
+	schoolName := ""
+	if c.SchoolName != nil {
+		schoolName = *c.SchoolName
 	}
-	var matchedRule *model.RateDiscountRule
-	for _, sc := range scopes {
-		filter := map[string]interface{}{"scope_type": sc.typeVal, "enabled": true}
-		rules, _, err := s.discountRepo.ListRules(filter, 0, 0)
-		if err != nil {
-			return nil, nil, 0, err
-		}
-		if len(rules) == 0 {
-			continue
-		}
-		for i := range rules {
-			r := &rules[i]
-			// global 无需校验 scope_key
-			if sc.typeVal == "global" {
-				matchedRule = r
-				break
-			}
-			if sc.key == nil || *sc.key == "" {
-				continue
-			}
-			if r.ScopeKey == nil {
-				continue
-			}
-			if strings.TrimSpace(*r.ScopeKey) == strings.TrimSpace(*sc.key) {
-				matchedRule = r
-				break
-			}
-		}
-		if matchedRule != nil {
-			break
-		}
+	matchedRule, err := s.discountRepo.FindMatchedRule(c.Region, c.CP, schoolName)
+	if err != nil {
+		return nil, nil, 0, err
 	}
 	if matchedRule == nil {
 		return nil, nil, yearIdx, nil

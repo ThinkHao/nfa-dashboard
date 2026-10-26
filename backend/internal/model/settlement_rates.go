@@ -424,18 +424,59 @@ func (RateCustomerFilterRule) TableName() string { return "rate_customer_filter_
 // RateDiscountRule 对应 rate_discount_rule 表
 // 客户费率折损规则主表
 type RateDiscountRule struct {
-	ID        uint64         `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
-	Name      string         `gorm:"column:name;size:128;not null" json:"name"`
-	ScopeType string         `gorm:"column:scope_type;size:32;not null" json:"scope_type"`
-	ScopeKey  *string        `gorm:"column:scope_key;size:128" json:"scope_key,omitempty"`
-	Fields    datatypes.JSON `gorm:"column:fields" json:"fields,omitempty"`
-	Enabled   bool           `gorm:"column:enabled;not null" json:"enabled"`
-	Priority  int            `gorm:"column:priority;not null" json:"priority"`
-	CreatedAt time.Time      `gorm:"column:created_at;autoCreateTime" json:"created_at"`
-	UpdatedAt time.Time      `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
+	ID        uint64                  `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+	Name      string                  `gorm:"column:name;size:128;not null" json:"name"`
+	ScopeType string                  `gorm:"column:scope_type;size:32;not null" json:"scope_type"`
+	ScopeKey  *string                 `gorm:"column:scope_key;size:128" json:"scope_key,omitempty"`
+	Fields    datatypes.JSON          `gorm:"column:fields" json:"fields,omitempty"`
+	Enabled   bool                    `gorm:"column:enabled;not null" json:"enabled"`
+	Priority  int                     `gorm:"column:priority;not null" json:"priority"`
+	CreatedAt time.Time               `gorm:"column:created_at;autoCreateTime" json:"created_at"`
+	UpdatedAt time.Time               `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
+	Scopes    []RateDiscountRuleScope `gorm:"-" json:"scopes,omitempty"`
 }
 
 func (RateDiscountRule) TableName() string { return "rate_discount_rule" }
+
+// RateDiscountRuleScope 对应 rate_discount_rule_scope 表。
+// region/cp/school_name 三元组用于限定院校规则；三者为空的旧规则保持按院校名称匹配。
+type RateDiscountRuleScope struct {
+	ID         uint64    `gorm:"column:id;primaryKey;autoIncrement" json:"id,omitempty"`
+	RuleID     uint64    `gorm:"column:rule_id;not null" json:"rule_id,omitempty"`
+	ScopeType  string    `gorm:"column:scope_type;size:32;not null" json:"scope_type"`
+	ScopeKey   *string   `gorm:"column:scope_key;size:128" json:"scope_key,omitempty"`
+	Region     *string   `gorm:"column:region;size:32" json:"region,omitempty"`
+	CP         *string   `gorm:"column:cp;size:32" json:"cp,omitempty"`
+	SchoolName *string   `gorm:"column:school_name;size:128" json:"school_name,omitempty"`
+	CreatedAt  time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at,omitempty"`
+}
+
+func (RateDiscountRuleScope) TableName() string { return "rate_discount_rule_scope" }
+
+// RateDiscountRuleDraft 用于批量预览和原子创建规则组。
+type RateDiscountRuleDraft struct {
+	Rule   RateDiscountRule        `json:"rule"`
+	Items  []RateDiscountRuleItem  `json:"items"`
+	Scopes []RateDiscountRuleScope `json:"scopes"`
+}
+
+type RateDiscountRuleBatchPreview struct {
+	Index              int                        `json:"index"`
+	Name               string                     `json:"name"`
+	ScopeType          string                     `json:"scope_type"`
+	TargetCount        int                        `json:"target_count"`
+	MatchedSchoolCount int                        `json:"matched_school_count"`
+	UnmatchedScopes    []RateDiscountRuleScope    `json:"unmatched_scopes,omitempty"`
+	Conflicts          []RateDiscountRuleConflict `json:"conflicts,omitempty"`
+}
+
+type RateDiscountRuleConflict struct {
+	RuleID        uint64                `json:"rule_id"`
+	RuleName      string                `json:"rule_name"`
+	Enabled       bool                  `json:"enabled"`
+	ExistingScope RateDiscountRuleScope `json:"existing_scope"`
+	TargetScope   RateDiscountRuleScope `json:"target_scope"`
+}
 
 // RateDiscountRuleItem 对应 rate_discount_rule_item 表
 // 客户费率折损规则明细

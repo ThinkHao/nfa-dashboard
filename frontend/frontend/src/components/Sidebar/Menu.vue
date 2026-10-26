@@ -2,18 +2,14 @@
 import { useRouter, useRoute } from 'vue-router'
 import { computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import * as Icons from '@element-plus/icons-vue'
+import { resolveElementIcon } from '@/utils/elementIcons'
 
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
 
-const fallbackIcon = Icons.Menu
-
 function resolveIcon(iconName?: string) {
-  if (!iconName) return fallbackIcon
-  const pack = Icons as Record<string, any>
-  return pack[iconName] || fallbackIcon
+  return resolveElementIcon(iconName)
 }
 
 function hasMenuAccess(r: any): boolean {

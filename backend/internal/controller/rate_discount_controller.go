@@ -37,6 +37,46 @@ func (ctl *RateDiscountController) List(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": items, "total": total})
 }
 
+func (ctl *RateDiscountController) PreviewBatch(c *gin.Context) {
+	var req struct {
+		Groups []model.RateDiscountRuleDraft `json:"groups" binding:"required,min=1"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid request"})
+		return
+	}
+	preview, err := ctl.svc.PreviewBatch(req.Groups)
+	if err != nil {
+		if service.IsBadRequest(err) {
+			c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, preview)
+}
+
+func (ctl *RateDiscountController) CreateBatch(c *gin.Context) {
+	var req struct {
+		Groups []model.RateDiscountRuleDraft `json:"groups" binding:"required,min=1"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid request"})
+		return
+	}
+	items, err := ctl.svc.CreateBatch(req.Groups)
+	if err != nil {
+		if service.IsBadRequest(err) {
+			c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items})
+}
+
 func (ctl *RateDiscountController) Get(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil || id == 0 {

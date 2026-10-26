@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import * as Icons from '@element-plus/icons-vue'
 import api from '@/api'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useTasksStore } from '@/stores/tasks'
 import { buildQuickAccessItems, type QuickAccessItem } from './home-workbench'
+import { resolveElementIcon } from '@/utils/elementIcons'
 
 type RecentSchool = {
   id: number
@@ -30,10 +30,7 @@ const canReadSchools = computed(() => auth.hasPermission('school.read'))
 const hasAnySection = computed(() => quickAccessItems.value.length > 0 || canReadSchools.value || tasksStore.tasks.length > 0)
 
 function resolveIcon(iconName?: string) {
-  const fallbackIcon = Icons.Menu
-  if (!iconName) return fallbackIcon
-  const pack = Icons as Record<string, unknown>
-  return pack[iconName] || fallbackIcon
+  return resolveElementIcon(iconName)
 }
 
 function navigateTo(path: string) {

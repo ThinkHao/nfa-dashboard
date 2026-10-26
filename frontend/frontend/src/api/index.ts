@@ -552,6 +552,12 @@ export default {
       replaceItems(id: number, items: any[]): Promise<void> {
         return api.put(`/api/v1/settlement/rates/discount-rules/${id}/items`, items).then(() => undefined)
       },
+      previewBatch(data: any): Promise<any> {
+        return api.post('/api/v1/settlement/rates/discount-rules/batch/preview', data).then((d: any) => d)
+      },
+      createBatch(data: any): Promise<{ items: any[] }> {
+        return api.post('/api/v1/settlement/rates/discount-rules/batch', data).then((d: any) => d as { items: any[] })
+      },
     },
   },
 

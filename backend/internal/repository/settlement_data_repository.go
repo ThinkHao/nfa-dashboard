@@ -800,26 +800,32 @@ func findMatchedDiscountRule(tx *gorm.DB, rc *model.RateCustomer) (*model.RateDi
 	if rc == nil {
 		return nil, nil
 	}
+	schoolName := ""
+	if rc.SchoolName != nil {
+		schoolName = strings.TrimSpace(*rc.SchoolName)
+	}
 	var matched model.RateDiscountRule
-	if rc.SchoolName != nil && *rc.SchoolName != "" {
-		if err := tx.Where("enabled = ? AND scope_type = ? AND scope_key = ?", true, "school", *rc.SchoolName).
-			Order("priority ASC, updated_at DESC").First(&matched).Error; err == nil {
-			return &matched, nil
-		}
+	err := tx.Table("rate_discount_rule r").Select("r.*").
+		Joins("JOIN rate_discount_rule_scope s ON s.rule_id = r.id").
+		Where("r.enabled = ?", true).
+		Where(`(
+			(s.scope_type = 'school' AND s.school_name = ? AND (
+				(s.region IS NULL AND s.cp IS NULL) OR (s.region = ? AND s.cp = ?)
+			)) OR
+			(s.scope_type = 'cp' AND s.scope_key = ?) OR
+			(s.scope_type = 'region' AND s.scope_key = ?) OR
+			s.scope_type = 'global'
+		)`, schoolName, rc.Region, rc.CP, rc.CP, rc.Region).
+		Order("CASE s.scope_type WHEN 'school' THEN 1 WHEN 'cp' THEN 2 WHEN 'region' THEN 3 WHEN 'global' THEN 4 ELSE 5 END ASC").
+		Order("r.priority ASC").Order("r.updated_at DESC").Order("r.id DESC").
+		Limit(1).Scan(&matched).Error
+	if err != nil {
+		return nil, err
 	}
-	if err := tx.Where("enabled = ? AND scope_type = ? AND scope_key = ?", true, "cp", rc.CP).
-		Order("priority ASC, updated_at DESC").First(&matched).Error; err == nil {
-		return &matched, nil
+	if matched.ID == 0 {
+		return nil, nil
 	}
-	if err := tx.Where("enabled = ? AND scope_type = ? AND scope_key = ?", true, "region", rc.Region).
-		Order("priority ASC, updated_at DESC").First(&matched).Error; err == nil {
-		return &matched, nil
-	}
-	if err := tx.Where("enabled = ? AND scope_type = ?", true, "global").
-		Order("priority ASC, updated_at DESC").First(&matched).Error; err == nil {
-		return &matched, nil
-	}
-	return nil, nil
+	return &matched, nil
 }
 
 func findDiscountRatioByYear(tx *gorm.DB, ruleID uint64, yearIdx int) float64 {
@@ -1535,15 +1541,18 @@ func runTempPipelineForMonth(
 			(
 				SELECT r.id
 				FROM rate_discount_rule r
+				JOIN rate_discount_rule_scope rs ON rs.rule_id = r.id
 				WHERE r.enabled = 1
 				  AND (
-					(r.scope_type = 'school' AND r.scope_key = CONVERT(tr.school_name USING utf8mb4) COLLATE utf8mb4_unicode_ci)
-					OR (r.scope_type = 'cp' AND r.scope_key = CONVERT(tr.cp USING utf8mb4) COLLATE utf8mb4_unicode_ci)
-					OR (r.scope_type = 'region' AND r.scope_key = CONVERT(tr.region USING utf8mb4) COLLATE utf8mb4_unicode_ci)
-					OR (r.scope_type = 'global')
+					(rs.scope_type = 'school' AND rs.school_name = CONVERT(tr.school_name USING utf8mb4) COLLATE utf8mb4_unicode_ci AND (
+						(rs.region IS NULL AND rs.cp IS NULL) OR (rs.region = CONVERT(tr.region USING utf8mb4) COLLATE utf8mb4_unicode_ci AND rs.cp = CONVERT(tr.cp USING utf8mb4) COLLATE utf8mb4_unicode_ci)
+					))
+					OR (rs.scope_type = 'cp' AND rs.scope_key = CONVERT(tr.cp USING utf8mb4) COLLATE utf8mb4_unicode_ci)
+					OR (rs.scope_type = 'region' AND rs.scope_key = CONVERT(tr.region USING utf8mb4) COLLATE utf8mb4_unicode_ci)
+					OR (rs.scope_type = 'global')
 				  )
 				ORDER BY
-				  CASE r.scope_type
+				  CASE rs.scope_type
 					WHEN 'school' THEN 1
 					WHEN 'cp' THEN 2
 					WHEN 'region' THEN 3
@@ -1558,15 +1567,18 @@ func runTempPipelineForMonth(
 			(
 				SELECT r.fields
 				FROM rate_discount_rule r
+				JOIN rate_discount_rule_scope rs ON rs.rule_id = r.id
 				WHERE r.enabled = 1
 				  AND (
-					(r.scope_type = 'school' AND r.scope_key = CONVERT(tr.school_name USING utf8mb4) COLLATE utf8mb4_unicode_ci)
-					OR (r.scope_type = 'cp' AND r.scope_key = CONVERT(tr.cp USING utf8mb4) COLLATE utf8mb4_unicode_ci)
-					OR (r.scope_type = 'region' AND r.scope_key = CONVERT(tr.region USING utf8mb4) COLLATE utf8mb4_unicode_ci)
-					OR (r.scope_type = 'global')
+					(rs.scope_type = 'school' AND rs.school_name = CONVERT(tr.school_name USING utf8mb4) COLLATE utf8mb4_unicode_ci AND (
+						(rs.region IS NULL AND rs.cp IS NULL) OR (rs.region = CONVERT(tr.region USING utf8mb4) COLLATE utf8mb4_unicode_ci AND rs.cp = CONVERT(tr.cp USING utf8mb4) COLLATE utf8mb4_unicode_ci)
+					))
+					OR (rs.scope_type = 'cp' AND rs.scope_key = CONVERT(tr.cp USING utf8mb4) COLLATE utf8mb4_unicode_ci)
+					OR (rs.scope_type = 'region' AND rs.scope_key = CONVERT(tr.region USING utf8mb4) COLLATE utf8mb4_unicode_ci)
+					OR (rs.scope_type = 'global')
 				  )
 				ORDER BY
-				  CASE r.scope_type
+				  CASE rs.scope_type
 					WHEN 'school' THEN 1
 					WHEN 'cp' THEN 2
 					WHEN 'region' THEN 3

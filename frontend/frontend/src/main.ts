@@ -6,9 +6,6 @@ import './styles/dark.css'
 
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import ElementPlus from 'element-plus'
-import 'element-plus/dist/index.css'
-import zhCn from 'element-plus/dist/locale/zh-cn.mjs' // 导入中文语言包
 
 import App from './App.vue'
 import router from './router'
@@ -19,10 +16,6 @@ const app = createApp(App)
 const pinia = createPinia()
 app.use(pinia)
 app.use(router)
-app.use(ElementPlus, {
-  locale: zhCn, // 使用中文语言包
-  size: 'default'
-})
 
 // 初始化主题（从 localStorage 读取并应用到文档与 Element Plus）
 const themeStore = useThemeStore(pinia)

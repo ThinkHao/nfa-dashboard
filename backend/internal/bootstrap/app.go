@@ -278,6 +278,8 @@ func BuildEngine() *gin.Engine {
 
 				discountRules := rates.Group("/discount-rules")
 				{
+					discountRules.POST("/batch/preview", authMW.PermissionRequired("rates.discount_rule.manage"), rateDiscountController.PreviewBatch)
+					discountRules.POST("/batch", authMW.PermissionRequired("rates.discount_rule.manage"), rateDiscountController.CreateBatch)
 					discountRules.GET("", authMW.PermissionRequired("rates.discount_rule.read"), rateDiscountController.List)
 					discountRules.GET("/:id", authMW.PermissionRequired("rates.discount_rule.read"), rateDiscountController.Get)
 					discountRules.POST("", authMW.PermissionRequired("rates.discount_rule.manage"), rateDiscountController.Create)

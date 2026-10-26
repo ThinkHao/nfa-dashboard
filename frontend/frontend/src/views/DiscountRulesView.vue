@@ -15,6 +15,7 @@
             <p class="card-subtitle">按名称、范围和启用状态快速定位折损规则。</p>
           </div>
           <div class="header-actions">
+            <el-button v-if="canManage" type="primary" plain @click="batchVisible = true">批量设置</el-button>
             <el-button v-if="canManage" type="success" @click="openEdit()">新增规则</el-button>
           </div>
         </div>
@@ -61,7 +62,9 @@
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="name" label="名称" min-width="160" show-overflow-tooltip />
         <el-table-column prop="scope_type" label="范围" width="100" />
-        <el-table-column prop="scope_key" label="范围键" min-width="140" show-overflow-tooltip />
+        <el-table-column label="适用对象" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }">{{ formatScopeSummary(row) }}</template>
+        </el-table-column>
         <el-table-column label="字段" min-width="160">
           <template #default="{ row }">
             <span>{{ formatFields(row.fields) }}</span>
@@ -119,7 +122,8 @@
 
         <div class="dialog-section">
           <div class="dialog-section-title">适用范围</div>
-          <div class="dialog-grid">
+          <el-alert v-if="editForm.scope_locked" type="info" :closable="false" show-icon :title="`批量范围：${editForm.scope_summary}。请使用批量设置入口调整范围。`" />
+          <div v-else class="dialog-grid">
             <el-form-item label="范围类型" required class="dialog-item">
               <el-select v-model="editForm.scope_type" class="field-w-full">
                 <el-option label="global" value="global" />
@@ -219,6 +223,12 @@
         <el-button type="primary" :loading="savingItems" @click="onSaveItems">保存条目</el-button>
       </template>
     </el-dialog>
+
+    <DiscountRuleBatchDialog
+      v-model="batchVisible"
+      :region-options="regionOptions"
+      @created="onBatchCreated"
+    />
   </div>
 </template>
 
@@ -230,6 +240,7 @@ import api from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import SearchSelect from '@/components/ui/SearchSelect.vue'
 import QueryActionButton from '@/components/ui/QueryActionButton.vue'
+import DiscountRuleBatchDialog from '@/components/settlement/DiscountRuleBatchDialog.vue'
 import { useCancelableQuery, isAbortError } from '@/composables/useCancelableQuery'
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import { sanitizeScopeOptionValues } from '@/utils/scope-options'
@@ -273,8 +284,9 @@ function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1; que
 
 // 编辑弹窗
 const editVisible = ref(false)
+const batchVisible = ref(false)
 const saving = ref(false)
-const editForm = reactive<any>({ id: undefined, name: '', scope_type: 'global', scope_key: '', enabled: true, priority: 100, fields: [] })
+const editForm = reactive<any>({ id: undefined, name: '', scope_type: 'global', scope_key: '', enabled: true, priority: 100, fields: [], scope_locked: false, scope_summary: '' })
 const fieldsText = ref('')
 const fieldsSelected = ref<string[]>([])
 
@@ -291,6 +303,8 @@ function openEdit(row?: any) {
     editForm.scope_key = row.scope_key || ''
     editForm.enabled = !!row.enabled
     editForm.priority = Number(row.priority || 100)
+    editForm.scope_locked = isScopeLocked(row)
+    editForm.scope_summary = formatScopeSummary(row)
     fieldsText.value = formatFieldsRaw(row.fields)
     const parsed = parseFieldsList(row.fields)
     fieldsSelected.value = parsed.length > 0 ? parsed : ['customer_fee']
@@ -301,10 +315,38 @@ function openEdit(row?: any) {
     editForm.scope_key = ''
     editForm.enabled = true
     editForm.priority = 100
+    editForm.scope_locked = false
+    editForm.scope_summary = ''
     fieldsText.value = '["customer_fee"]'
     fieldsSelected.value = ['customer_fee']
   }
   editVisible.value = true
+}
+
+function isScopeLocked(row: any): boolean {
+  const scopes = Array.isArray(row?.scopes) ? row.scopes : []
+  if (scopes.length > 1) return true
+  if (scopes.length === 1) {
+    const scope = scopes[0]
+    return scope?.scope_type === 'school' && !!scope?.region && !!scope?.cp
+  }
+  return false
+}
+
+function formatScopeSummary(row: any): string {
+  const scopes = Array.isArray(row?.scopes) ? row.scopes : []
+  if (scopes.length === 0) return row?.scope_key || (row?.scope_type === 'global' ? '全部范围' : '-')
+  const type = scopes[0]?.scope_type || row?.scope_type
+  if (type === 'global') return '全部范围'
+  const values = scopes.map((scope: any) => {
+    if (type === 'region') return scope.scope_key || scope.region || ''
+    if (type === 'cp') return scope.scope_key || ''
+    if (type === 'school') return [scope.region, scope.cp, scope.school_name].filter(Boolean).join(' / ')
+    return scope.scope_key || ''
+  }).filter(Boolean)
+  const label = type === 'region' ? '省份' : type === 'school' ? '院校' : 'CP'
+  if (values.length <= 2) return `${label}：${values.join('；')}`
+  return `${label}：${values.slice(0, 2).join('；')} 等 ${values.length} 项`
 }
 
 function formatFieldsRaw(v: any): string {
@@ -342,11 +384,13 @@ async function onSave() {
     : ['customer_fee']
   const payload: any = {
     name: editForm.name,
-    scope_type: editForm.scope_type,
-    scope_key: editForm.scope_type === 'global' ? null : (editForm.scope_key || null),
     enabled: !!editForm.enabled,
     priority: Number(editForm.priority || 100),
     fields: selected,
+  }
+  if (!editForm.id || !editForm.scope_locked) {
+    payload.scope_type = editForm.scope_type
+    payload.scope_key = editForm.scope_type === 'global' ? null : (editForm.scope_key || null)
   }
   saving.value = true
   try {
@@ -361,6 +405,10 @@ async function onSave() {
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '保存失败')
   } finally { saving.value = false }
+}
+
+function onBatchCreated() {
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
 }
 
 // 条目编辑
