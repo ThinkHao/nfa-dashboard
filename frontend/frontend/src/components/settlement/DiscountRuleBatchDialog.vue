@@ -23,7 +23,7 @@
           multiple
           collapse-tags
           collapse-tags-tooltip
-          :options="regionOptions"
+          :options="selectableRegionOptions"
           placeholder="选择院校所在省份后加载院校"
           class="field-w-full"
         />
@@ -31,10 +31,10 @@
     </el-form>
     <el-alert
       v-if="missingRequestedRegions.length"
-      type="warning"
+      type="info"
       :closable="false"
       show-icon
-      :title="`当前区域选项未识别到：${missingRequestedRegions.join('、')}。请核对区域名称或当前可见范围。`"
+      :title="`院校数据暂未包含：${missingRequestedRegions.join('、')}；仍可设置省份默认规则，院校级规则需在录入对应院校后选择。`"
       class="mb-12"
     />
 
@@ -77,7 +77,7 @@
             multiple
             collapse-tags
             collapse-tags-tooltip
-            :options="regionOptions"
+            :options="selectableRegionOptions"
             placeholder="选择一个或多个省份"
             class="field-w-full"
           />
@@ -226,18 +226,28 @@ const preview = ref<any>(null)
 const previewStale = ref(false)
 let nextLocalId = 1
 const requestedProvinces = ['陕西', '河北', '安徽', '吉林', '辽宁', '山西']
+const requestedProvinceNames = requestedProvinces.map((region) => `${region}省`)
 
 function normalizeRegionName(value: string) {
   return String(value || '').replace(/省|市|自治区|特别行政区/g, '').trim()
 }
 
-const matchedRequestedRegions = computed(() => {
+const selectableRegionOptions = computed(() => {
   const options = new Map(props.regionOptions.map((region) => [normalizeRegionName(region), region]))
+  requestedProvinceNames.forEach((region) => {
+    const key = normalizeRegionName(region)
+    if (!options.has(key)) options.set(key, region)
+  })
+  return Array.from(options.values())
+})
+
+const matchedRequestedRegions = computed(() => {
+  const options = new Map(selectableRegionOptions.value.map((region) => [normalizeRegionName(region), region]))
   return requestedProvinces.map((region) => options.get(normalizeRegionName(region))).filter((region): region is string => !!region)
 })
 const missingRequestedRegions = computed(() => {
-  const matched = new Set(matchedRequestedRegions.value.map(normalizeRegionName))
-  return requestedProvinces.filter((region) => !matched.has(normalizeRegionName(region)))
+  const available = new Set(props.regionOptions.map(normalizeRegionName))
+  return requestedProvinceNames.filter((region) => !available.has(normalizeRegionName(region)))
 })
 
 const schoolOptions = computed(() => schoolTargets.value.map((item) => {
