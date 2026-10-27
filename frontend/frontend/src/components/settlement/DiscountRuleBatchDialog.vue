@@ -29,15 +29,6 @@
         />
       </el-form-item>
     </el-form>
-    <el-alert
-      v-if="missingRequestedRegions.length"
-      type="info"
-      :closable="false"
-      show-icon
-      :title="`院校数据暂未包含：${missingRequestedRegions.join('、')}；仍可设置省份默认规则，院校级规则需在录入对应院校后选择。`"
-      class="mb-12"
-    />
-
     <div class="groups-toolbar">
       <div>
         <strong>规则组</strong>
@@ -239,15 +230,6 @@ const selectableRegionOptions = computed(() => {
     if (!options.has(key)) options.set(key, region)
   })
   return Array.from(options.values())
-})
-
-const matchedRequestedRegions = computed(() => {
-  const options = new Map(selectableRegionOptions.value.map((region) => [normalizeRegionName(region), region]))
-  return requestedProvinces.map((region) => options.get(normalizeRegionName(region))).filter((region): region is string => !!region)
-})
-const missingRequestedRegions = computed(() => {
-  const available = new Set(props.regionOptions.map(normalizeRegionName))
-  return requestedProvinceNames.filter((region) => !available.has(normalizeRegionName(region)))
 })
 
 const schoolOptions = computed(() => schoolTargets.value.map((item) => {
@@ -474,7 +456,7 @@ async function applyBatch() {
 }
 
 function resetForm() {
-  selectedRegions.value = [...matchedRequestedRegions.value]
+  selectedRegions.value = []
   groups.value = []
   schoolTargets.value = []
   preview.value = null
