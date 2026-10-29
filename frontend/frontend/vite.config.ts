@@ -16,7 +16,7 @@ export default defineConfig(({ mode }) => {
       vue(),
       vueJsx(),
       Components({
-        resolvers: [ElementPlusResolver({ importStyle: 'css' })],
+        resolvers: [ElementPlusResolver({ importStyle: false })],
       }),
       enableDevtools && vueDevTools(),
     ].filter(Boolean) as any,
