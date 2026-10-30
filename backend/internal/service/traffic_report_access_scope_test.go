@@ -24,11 +24,23 @@ type trafficReportAccessRepoStub struct {
 	listTasksOwnerID uint64
 	listRunsOwnerID  uint64
 	successfulRuns   []model.TrafficReportRun
+	task             *model.TrafficReportTask
+	createdTask      *model.TrafficReportTask
+	updatedTask      *model.TrafficReportTask
+	deletedTaskID    uint64
+	deletedOwnerID   uint64
 }
 
-func (s *trafficReportAccessRepoStub) CreateTask(*model.TrafficReportTask) error { return nil }
+func (s *trafficReportAccessRepoStub) CreateTask(task *model.TrafficReportTask) error {
+	task.ID = 99
+	s.createdTask = task
+	return nil
+}
 
 func (s *trafficReportAccessRepoStub) GetTask(id, ownerID uint64) (*model.TrafficReportTask, error) {
+	if s.task != nil {
+		return s.task, nil
+	}
 	return &model.TrafficReportTask{ID: id, OwnerUserID: ownerID}, nil
 }
 
@@ -41,7 +53,16 @@ func (s *trafficReportAccessRepoStub) ListSuccessfulRuns(uint64) ([]model.Traffi
 	return s.successfulRuns, nil
 }
 
-func (s *trafficReportAccessRepoStub) UpdateTask(*model.TrafficReportTask) error { return nil }
+func (s *trafficReportAccessRepoStub) UpdateTask(task *model.TrafficReportTask) error {
+	s.updatedTask = task
+	return nil
+}
+
+func (s *trafficReportAccessRepoStub) DeleteTask(id, ownerID uint64) error {
+	s.deletedTaskID = id
+	s.deletedOwnerID = ownerID
+	return nil
+}
 
 func (s *trafficReportAccessRepoStub) ListDueTasks(time.Time, int) ([]model.TrafficReportTask, error) {
 	return nil, nil
@@ -105,6 +126,72 @@ func TestTrafficReportServiceNonAdminKeepsOwnerScope(t *testing.T) {
 	}
 	if repo.listRunsOwnerID != 3 {
 		t.Fatalf("non-admin run scope = %d, want 3", repo.listRunsOwnerID)
+	}
+}
+
+func TestTrafficReportServiceDuplicateTaskCopiesSettingsAndStartsPaused(t *testing.T) {
+	original := &model.TrafficReportTask{
+		ID: 12, OwnerUserID: 34, Name: "重点院校", Kind: model.TrafficReportKindPeriodic, Active: true,
+		DataSourceType: "nfa", Timezone: "Asia/Shanghai", WindowSelector: "last_month",
+		WindowParams: []byte(`{"n":7}`), Params: []byte(`{"cp":"bilibili"}`), ExportFormats: []byte(`["xlsx"]`),
+	}
+	repo := &trafficReportAccessRepoStub{task: original}
+	svc := NewTrafficReportService(repo, nil, nil, trafficReportRoleRepoStub{})
+
+	clone, err := svc.DuplicateTask(55, original.ID)
+	if err != nil {
+		t.Fatalf("DuplicateTask() error = %v", err)
+	}
+	if clone.ID != 99 || clone.OwnerUserID != original.OwnerUserID || clone.Name != "重点院校 - 副本" {
+		t.Fatalf("unexpected duplicate identity: %+v", clone)
+	}
+	if clone.Active || clone.NextRunAt != nil || clone.LastRunAt != nil || clone.DeletedAt != nil {
+		t.Fatalf("duplicate should start paused without run history: %+v", clone)
+	}
+	if string(clone.Params) != string(original.Params) || string(clone.WindowParams) != string(original.WindowParams) {
+		t.Fatalf("duplicate settings changed: params=%s window=%s", clone.Params, clone.WindowParams)
+	}
+}
+
+func TestTrafficReportServiceDeleteTaskUsesScopedSoftDelete(t *testing.T) {
+	repo := &trafficReportAccessRepoStub{}
+	svc := NewTrafficReportService(repo, nil, nil, trafficReportRoleRepoStub{})
+
+	if err := svc.DeleteTask(55, 12); err != nil {
+		t.Fatalf("DeleteTask() error = %v", err)
+	}
+	if repo.deletedTaskID != 12 || repo.deletedOwnerID != 55 {
+		t.Fatalf("DeleteTask() scope = (%d, %d), want (12, 55)", repo.deletedTaskID, repo.deletedOwnerID)
+	}
+}
+
+func TestTrafficReportServiceUpdateTaskReplacesReportSettings(t *testing.T) {
+	original := &model.TrafficReportTask{
+		ID: 12, OwnerUserID: 55, Name: "旧名称", Kind: model.TrafficReportKindOneOff, Active: true,
+		DataSourceType: "nfa", Timezone: "Asia/Shanghai", WindowSelector: "last_month",
+		WindowParams: []byte(`{}`), Params: []byte(`{"cp":"old"}`), ExportFormats: []byte(`["xlsx"]`),
+	}
+	repo := &trafficReportAccessRepoStub{task: original}
+	svc := NewTrafficReportService(repo, nil, nil, trafficReportRoleRepoStub{})
+	name, kind, source, selector, scheduleType, scheduleExpr := "新名称", model.TrafficReportKindPeriodic, "edc", "last_n_days", "daily", "03:15"
+	params := map[string]interface{}{"edc_name": "nrt-edge"}
+	windowParams := map[string]interface{}{"n": float64(14)}
+
+	updated, err := svc.UpdateTask(55, original.ID, TrafficReportTaskUpdate{
+		Name: &name, Kind: &kind, DataSourceType: &source, WindowSelector: &selector,
+		ScheduleType: &scheduleType, ScheduleExpr: &scheduleExpr, Params: &params, WindowParams: &windowParams,
+	})
+	if err != nil {
+		t.Fatalf("UpdateTask() error = %v", err)
+	}
+	if updated.Name != name || updated.Kind != kind || updated.DataSourceType != source || updated.WindowSelector != selector {
+		t.Fatalf("report settings were not replaced: %+v", updated)
+	}
+	if repo.updatedTask != updated || updated.NextRunAt == nil || updated.ScheduleType == nil || updated.ScheduleExpr == nil || *updated.ScheduleExpr != scheduleExpr {
+		t.Fatalf("periodic schedule was not saved: %+v", updated)
+	}
+	if string(updated.Params) != `{"edc_name":"nrt-edge"}` || string(updated.WindowParams) != `{"n":14}` {
+		t.Fatalf("updated params were not serialized: params=%s window=%s", updated.Params, updated.WindowParams)
 	}
 }
 

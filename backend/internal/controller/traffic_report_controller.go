@@ -142,6 +142,43 @@ func (c *TrafficReportController) UpdateTask(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"task": task})
 }
 
+func (c *TrafficReportController) DeleteTask(ctx *gin.Context) {
+	uid, ok := currentUserID(ctx)
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"message": "unauthorized"})
+		return
+	}
+	id, err := strconv.ParseUint(ctx.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid task id"})
+		return
+	}
+	if err := c.svc.DeleteTask(uid, id); err != nil {
+		writeTrafficReportServiceError(ctx, err)
+		return
+	}
+	ctx.Status(http.StatusNoContent)
+}
+
+func (c *TrafficReportController) DuplicateTask(ctx *gin.Context) {
+	uid, ok := currentUserID(ctx)
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"message": "unauthorized"})
+		return
+	}
+	id, err := strconv.ParseUint(ctx.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid task id"})
+		return
+	}
+	task, err := c.svc.DuplicateTask(uid, id)
+	if err != nil {
+		writeTrafficReportServiceError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusCreated, gin.H{"task": task})
+}
+
 func (c *TrafficReportController) MigrateTaskToGoV1(ctx *gin.Context) {
 	uid, ok := currentUserID(ctx)
 	if !ok {
@@ -248,6 +285,10 @@ func (c *TrafficReportController) DownloadArtifact(ctx *gin.Context) {
 func writeTrafficReportServiceError(ctx *gin.Context, err error) {
 	if service.IsBadRequest(err) {
 		ctx.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		return
+	}
+	if service.IsNotFound(err) {
+		ctx.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
 		return
 	}
 	ctx.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})

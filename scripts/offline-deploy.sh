@@ -253,6 +253,7 @@ assert_db_schema() {
     "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='nfa_system_settings' AND COLUMN_NAME='settlement_daily_detail_rate_unit';|nfa_system_settings.settlement_daily_detail_rate_unit 列缺失"
     "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='nfa_system_settings' AND COLUMN_NAME='settlement_single_user_rate_unit';|nfa_system_settings.settlement_single_user_rate_unit 列缺失"
     "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='traffic_report_tasks';|traffic_report_tasks 表缺失"
+    "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='traffic_report_tasks' AND COLUMN_NAME='deleted_at';|traffic_report_tasks.deleted_at 列缺失"
     "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='traffic_report_runs';|traffic_report_runs 表缺失"
     "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='traffic_report_artifacts';|traffic_report_artifacts 表缺失"
     "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='rate_discount_rule_scope';|rate_discount_rule_scope 表缺失"

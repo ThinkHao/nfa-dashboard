@@ -130,6 +130,9 @@
           <div class="inspector-actions">
             <el-button v-if="canWrite" type="primary" plain :disabled="selectedTask.kind === 'periodic' && !selectedTask.active && !isMigratedGoV1Task(selectedTask)" @click="runTask(selectedTask)">立即执行</el-button>
             <el-button v-if="canWrite && isLegacyTask(selectedTask)" type="warning" plain @click="migrateTask(selectedTask)">迁移到 go-v1</el-button>
+            <el-button v-if="canWrite" text @click="openEdit(selectedTask)">编辑</el-button>
+            <el-button v-if="canWrite" text :disabled="taskActionPending" @click="duplicateTask(selectedTask)">快速复制</el-button>
+            <el-button v-if="canWrite" text type="danger" :disabled="taskActionPending" @click="deleteTask(selectedTask)">删除</el-button>
             <el-button text @click="showRuns(selectedTask)">运行记录</el-button>
           </div>
         </div>
@@ -212,12 +215,13 @@
       <div v-if="!runsLoading && !runs.length" class="empty-state drawer-empty"><div class="empty-title">暂无运行记录</div><div class="empty-desc">点击“立即执行”生成第一份报表。</div></div>
     </el-drawer>
 
-    <el-dialog v-model="dialogVisible" title="新建流量报表" width="min(900px, 96vw)" :close-on-click-modal="false">
+    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="min(900px, 96vw)" :close-on-click-modal="false">
       <el-form :model="form" label-width="105px">
         <el-form-item label="报表名称"><el-input v-model="form.name" placeholder="如：上月重点院校流量" /></el-form-item>
         <el-form-item label="数据源"><el-radio-group v-model="form.data_source_type"><el-radio-button label="nfa">NFA</el-radio-button><el-radio-button label="edc">EDC</el-radio-button></el-radio-group></el-form-item>
         <el-form-item label="执行方式"><el-radio-group v-model="form.kind"><el-radio-button label="one_off">立即导出</el-radio-button><el-radio-button label="periodic">周期计划</el-radio-button></el-radio-group></el-form-item>
         <el-form-item v-if="form.kind === 'periodic'" label="周期"><el-select v-model="form.schedule_type" class="field-w-160"><el-option label="每天" value="daily" /><el-option label="每周" value="weekly" /><el-option label="每月" value="monthly" /></el-select><el-input v-model="form.schedule_expr" class="schedule-input" placeholder="每天填 HH:MM；每周填 1 HH:MM；每月填 1 HH:MM" /></el-form-item>
+        <el-form-item v-if="form.kind === 'periodic'" label="计划状态"><el-checkbox v-model="form.active">启用计划</el-checkbox></el-form-item>
         <el-form-item label="统计窗口"><el-select v-model="form.window_selector" class="field-w-180"><el-option label="自定义" value="custom" /><el-option label="上周" value="last_week" /><el-option label="上月" value="last_month" /><el-option label="最近N天" value="last_n_days" /></el-select></el-form-item>
         <el-form-item v-if="form.window_selector === 'custom'" label="时间范围"><el-date-picker v-model="customRange" type="datetimerange" value-format="YYYY-MM-DD HH:mm:ss" format="YYYY-MM-DD HH:mm:ss" /></el-form-item>
         <el-form-item v-if="form.window_selector === 'last_n_days'" label="天数"><el-input-number v-model="lastDays" :min="1" :max="365" /></el-form-item>
@@ -235,7 +239,7 @@
         <el-form-item label="导出格式"><span>XLSX</span></el-form-item>
         <el-alert title="每次运行会保存实际时间窗口、对象范围、原始单位和计算公式；预算结果不会写入正式结算表。" type="info" :closable="false" />
       </el-form>
-      <template #footer><el-button @click="dialogVisible = false">取消</el-button><el-button type="primary" :loading="submitting" @click="submit">创建</el-button></template>
+      <template #footer><el-button :disabled="submitting" @click="dialogVisible = false">取消</el-button><el-button type="primary" :loading="submitting" @click="submit">{{ dialogSubmitLabel }}</el-button></template>
     </el-dialog>
   </div>
 </template>
@@ -260,9 +264,12 @@ const canWrite = computed(() => auth.hasPermission('traffic.report.write'))
 const loading = ref(false)
 const runsLoading = ref(false)
 const submitting = ref(false)
+const taskActionPending = ref(false)
 const downloadsLoading = ref(false)
 const monthlyDownload = ref('')
 const dialogVisible = ref(false)
+const dialogMode = ref<'create' | 'edit'>('create')
+const editingTaskId = ref<number | null>(null)
 const runsVisible = ref(false)
 const tasks = ref<TrafficReportTask[]>([])
 const selectedTask = ref<TrafficReportTask | null>(null)
@@ -281,9 +288,12 @@ const taskPage = ref(1)
 const taskPageSize = 12
 const customRange = ref<[string, string] | null>(null)
 const lastDays = ref(7)
-const form = reactive<any>({ name: '', data_source_type: 'nfa', kind: 'one_off', schedule_type: 'daily', schedule_expr: '02:00', window_selector: 'last_month', params: { school_name: '', school: '', exclude_school: '', province: '', region: '', cp: '', direction: 'both', unit_base: 1024, settlement_mode: 'range_95', export_raw: false, export_daily: true, monthly_aggregate: false, combine_v4_v6: false, merge_key: '', aggregate_all: false, batch_size: 200, sortby: '', sort_order: 'desc', edc_name: '', edc_match_mode: 'prefix', data_source_instance: 'ali', data_budget_enabled: false, data_budget_mul: 8, data_budget_div: 300 } })
+const defaultReportParams = () => ({ school_name: '', school: '', exclude_school: '', province: '', region: '', cp: '', direction: 'both', unit_base: 1024, settlement_mode: 'range_95', export_raw: false, export_daily: true, monthly_aggregate: false, combine_v4_v6: false, merge_key: '', aggregate_all: false, batch_size: 200, sortby: '', sort_order: 'desc', edc_name: '', edc_match_mode: 'prefix', data_source_instance: 'ali', data_budget_enabled: false, data_budget_mul: 8, data_budget_div: 300 })
+const form = reactive<any>({ name: '', data_source_type: 'nfa', kind: 'one_off', active: true, schedule_type: 'daily', schedule_expr: '02:00', window_selector: 'last_month', params: defaultReportParams() })
 const pollingRuns = new Set<string>()
 
+const dialogTitle = computed(() => dialogMode.value === 'edit' ? '编辑流量报表' : '新建流量报表')
+const dialogSubmitLabel = computed(() => dialogMode.value === 'edit' ? '保存修改' : '创建')
 const hasFilters = computed(() => Boolean(searchText.value || sourceFilter.value || kindFilter.value || stateFilter.value || budgetOnly.value))
 const filteredTasks = computed(() => {
   const keyword = searchText.value.trim().toLowerCase()
@@ -347,6 +357,13 @@ function isMigratedGoV1Task(task: TrafficReportTask | null) { return Boolean(tas
 function runTag(status: string) { return status === 'success' ? 'success' : status === 'failed' ? 'danger' : status === 'running' ? 'warning' : 'info' }
 function runText(status: string) { return ({ pending: '等待中', running: '执行中', success: '完成', failed: '失败' } as Record<string, string>)[status] || status }
 function summaryText(run: TrafficReportRun) { const summary = run.summary || {}; if (summary.range_95_mbps != null) { const budget = summary.budget_range_value != null ? ` · 预算95 ${formatNumber(summary.budget_range_value)}` : ''; return `区间95 ${formatNumber(summary.range_95_mbps)} Mbps · 日95平均 ${formatNumber(summary.daily_95_avg_mbps)} Mbps${budget}` }; if (summary.raw_rows != null) return `原始行 ${summary.raw_rows} · ${summary.instance || summary.source || '导出'}`; if (summary.range_points != null) return `${summary.range_points} 个点位 · ${summary.daily_days || 0} 天`; return run.error_message || '—' }
+function requestErrorText(error: unknown, fallback: string) {
+  if (typeof error !== 'object' || error === null) return fallback
+  const value = error as { response?: { data?: { message?: unknown } }; message?: unknown }
+  if (typeof value.response?.data?.message === 'string') return value.response.data.message
+  if (typeof value.message === 'string') return value.message
+  return fallback
+}
 
 async function loadTasks() {
   loading.value = true
@@ -372,8 +389,43 @@ async function loadRuns() {
 function selectTask(task: TrafficReportTask) { selectedTask.value = task; void loadRuns() }
 function showRuns(task: TrafficReportTask) { selectTask(task); runsVisible.value = true }
 function resetFilters() { searchText.value = ''; sourceFilter.value = ''; kindFilter.value = ''; stateFilter.value = ''; budgetOnly.value = false }
-function openCreate() { const query = route.query; if (query.data_source_type === 'edc' || query.data_source_type === 'nfa') form.data_source_type = String(query.data_source_type); if (query.entity_ids) form.params.school_name = String(query.entity_ids); else if (query.school_name) form.params.school = String(query.school_name); if (query.region) form.params.province = String(query.region); if (query.cp) form.params.cp = String(query.cp); if (query.start_time && query.end_time) { form.window_selector = 'custom'; customRange.value = [String(query.start_time), String(query.end_time)] }; dialogVisible.value = true }
-function reportPayload() { const windowParams: any = {}; if (form.window_selector === 'custom' && customRange.value) { windowParams.start_time = customRange.value[0]; windowParams.end_time = customRange.value[1] }; if (form.window_selector === 'last_n_days') windowParams.n = lastDays.value; const params = { ...form.params }; if (form.data_source_type === 'edc') { params.direction = 'both'; if (params.school_name) { params.entity_ids = String(params.school_name).split(',').map(Number).filter((number: number) => number > 0); delete params.school_name }; params.data_source_instance = 'ali'; delete params.province; delete params.region; delete params.cp; delete params.school; delete params.exclude_school; delete params.combine_v4_v6; delete params.merge_key; delete params.aggregate_all; delete params.batch_size } else { params.data_source_instance = 'default'; delete params.edc_name; delete params.edc_match_mode; delete params.data_budget_enabled; delete params.data_budget_mul; delete params.data_budget_div }; return { name: form.name, kind: form.kind, data_source_type: form.data_source_type, schedule_type: form.kind === 'periodic' ? form.schedule_type : undefined, schedule_expr: form.kind === 'periodic' ? form.schedule_expr : undefined, window_selector: form.window_selector, window_params: windowParams, params, export_formats: ['xlsx'], timezone: 'Asia/Shanghai' } }
+function resetForm() { Object.assign(form, { name: '', data_source_type: 'nfa', kind: 'one_off', active: true, schedule_type: 'daily', schedule_expr: '02:00', timezone: 'Asia/Shanghai', window_selector: 'last_month', params: defaultReportParams() }); customRange.value = null; lastDays.value = 7 }
+function fillFormFromTask(task: TrafficReportTask) {
+  const windowParams = task.window_params || {}
+  Object.assign(form, {
+    name: task.name,
+    data_source_type: task.data_source_type,
+    kind: task.kind,
+    active: task.active,
+    schedule_type: task.schedule_type || 'daily',
+    schedule_expr: task.schedule_expr || '02:00',
+    timezone: task.timezone || 'Asia/Shanghai',
+    window_selector: task.window_selector,
+    params: { ...defaultReportParams(), ...(task.params || {}) },
+  })
+  customRange.value = task.window_selector === 'custom' && windowParams.start_time && windowParams.end_time ? [String(windowParams.start_time), String(windowParams.end_time)] : null
+  lastDays.value = Number(windowParams.n || 7)
+}
+function openCreate() {
+  resetForm()
+  dialogMode.value = 'create'
+  editingTaskId.value = null
+  const query = route.query
+  if (query.data_source_type === 'edc' || query.data_source_type === 'nfa') form.data_source_type = String(query.data_source_type)
+  if (query.entity_ids) form.params.school_name = String(query.entity_ids)
+  else if (query.school_name) form.params.school = String(query.school_name)
+  if (query.region) form.params.province = String(query.region)
+  if (query.cp) form.params.cp = String(query.cp)
+  if (query.start_time && query.end_time) { form.window_selector = 'custom'; customRange.value = [String(query.start_time), String(query.end_time)] }
+  dialogVisible.value = true
+}
+function openEdit(task: TrafficReportTask) {
+  fillFormFromTask(task)
+  dialogMode.value = 'edit'
+  editingTaskId.value = task.id
+  dialogVisible.value = true
+}
+function reportPayload() { const windowParams: Record<string, string | number> = {}; if (form.window_selector === 'custom' && customRange.value) { windowParams.start_time = customRange.value[0]; windowParams.end_time = customRange.value[1] }; if (form.window_selector === 'last_n_days') windowParams.n = lastDays.value; const params = { ...form.params }; if (form.data_source_type === 'edc') { params.direction = 'both'; if (params.school_name) { params.entity_ids = String(params.school_name).split(',').map(Number).filter((number: number) => number > 0); delete params.school_name }; params.data_source_instance = 'ali'; delete params.province; delete params.region; delete params.cp; delete params.school; delete params.exclude_school; delete params.combine_v4_v6; delete params.merge_key; delete params.aggregate_all; delete params.batch_size } else { params.data_source_instance = 'default'; delete params.edc_name; delete params.edc_match_mode; delete params.data_budget_enabled; delete params.data_budget_mul; delete params.data_budget_div }; return { name: form.name, kind: form.kind, active: form.active, data_source_type: form.data_source_type, schedule_type: form.kind === 'periodic' ? form.schedule_type : '', schedule_expr: form.kind === 'periodic' ? form.schedule_expr : '', window_selector: form.window_selector, window_params: windowParams, params, export_formats: ['xlsx'], timezone: form.timezone || 'Asia/Shanghai' } }
 function trackRun(runId: string, title: string, taskId?: number) {
   if (!runId || pollingRuns.has(runId)) return
   pollingRuns.add(runId)
@@ -385,9 +437,47 @@ function trackRun(runId: string, title: string, taskId?: number) {
   }
   void poll()
 }
-async function submit() { if (!form.name.trim()) { ElMessage.warning('请填写报表名称'); return }; if (form.window_selector === 'custom' && (!customRange.value || customRange.value.length !== 2)) { ElMessage.warning('请选择自定义时间范围'); return }; submitting.value = true; try { const res = await api.trafficReports.createTask(reportPayload()); ElMessage.success(form.kind === 'one_off' ? '报表任务已创建' : '周期计划已创建'); dialogVisible.value = false; await loadTasks(); if (res.run_id) { trackRun(res.run_id, form.name, res.task?.id); if (res.task) selectTask(res.task) } } catch (error: any) { ElMessage.error(error?.response?.data?.message || error?.message || '创建报表失败') } finally { submitting.value = false } }
+async function submit() { if (!form.name.trim()) { ElMessage.warning('请填写报表名称'); return }; if (form.window_selector === 'custom' && (!customRange.value || customRange.value.length !== 2)) { ElMessage.warning('请选择自定义时间范围'); return }; submitting.value = true; try { const payload = reportPayload(); if (dialogMode.value === 'edit' && editingTaskId.value) { const res = await api.trafficReports.updateTask(editingTaskId.value, payload); ElMessage.success('报表任务已更新'); dialogVisible.value = false; await loadTasks(); const updated = tasks.value.find((task) => task.id === res.task.id); if (updated) selectTask(updated) } else { const res = await api.trafficReports.createTask(payload); ElMessage.success(form.kind === 'one_off' ? '报表任务已创建' : '周期计划已创建'); dialogVisible.value = false; await loadTasks(); if (res.run_id) { trackRun(res.run_id, form.name, res.task?.id); if (res.task) selectTask(res.task) } } } catch (error: unknown) { ElMessage.error(requestErrorText(error, dialogMode.value === 'edit' ? '更新报表失败' : '创建报表失败')) } finally { submitting.value = false } }
 async function runTask(task: TrafficReportTask) { try { const res = await api.trafficReports.runTask(task.id); trackRun(res.run_id, task.name, task.id); selectedTask.value = task; await loadRuns(); ElMessage.success('已提交运行') } catch (error: any) { ElMessage.error(error?.response?.data?.message || error?.message || '提交运行失败') } }
 async function toggleTask(task: TrafficReportTask) { try { await api.trafficReports.updateTask(task.id, { active: !task.active }); await loadTasks(); ElMessage.success(task.active ? '已暂停计划' : '已启用计划') } catch (error: any) { ElMessage.error(error?.response?.data?.message || error?.message || '更新计划失败') } }
+async function duplicateTask(task: TrafficReportTask) {
+  if (taskActionPending.value) return
+  taskActionPending.value = true
+  try {
+    const res = await api.trafficReports.duplicateTask(task.id)
+    if (stateFilter.value === 'active') stateFilter.value = ''
+    selectedTask.value = res.task
+    runs.value = []
+    await loadTasks()
+    const duplicate = tasks.value.find((item) => item.id === res.task.id)
+    if (duplicate) { selectedTask.value = duplicate; await loadRuns() }
+    ElMessage.success('已创建暂停状态的副本')
+  } catch (error: unknown) {
+    ElMessage.error(requestErrorText(error, '复制报表失败'))
+  } finally {
+    taskActionPending.value = false
+  }
+}
+async function deleteTask(task: TrafficReportTask) {
+  if (taskActionPending.value) return
+  try {
+    await ElMessageBox.confirm('该任务会从列表移除，已有运行记录和下载文件会保留。', '删除报表任务', { confirmButtonText: '删除任务', cancelButtonText: '取消', type: 'warning' })
+    taskActionPending.value = true
+    await api.trafficReports.deleteTask(task.id)
+    if (selectedTask.value?.id === task.id) {
+      selectedTask.value = null
+      runs.value = []
+      runsVisible.value = false
+    }
+    await loadTasks()
+    ElMessage.success('报表任务已删除')
+  } catch (error: unknown) {
+    if (error === 'cancel' || error === 'close') return
+    ElMessage.error(requestErrorText(error, '删除报表失败'))
+  } finally {
+    taskActionPending.value = false
+  }
+}
 async function migrateTask(task: TrafficReportTask) {
   try {
     await ElMessageBox.confirm('原 nfatool 任务会保留不变，并创建一个默认暂停的 go-v1 新任务。完成结果比对后，再启用新任务。', '迁移到 go-v1', { confirmButtonText: '创建迁移任务', cancelButtonText: '取消', type: 'warning' })

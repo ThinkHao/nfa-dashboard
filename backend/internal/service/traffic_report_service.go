@@ -46,10 +46,17 @@ type TrafficReportTaskInput struct {
 }
 
 type TrafficReportTaskUpdate struct {
-	Name         *string `json:"name"`
-	Active       *bool   `json:"active"`
-	ScheduleType *string `json:"schedule_type"`
-	ScheduleExpr *string `json:"schedule_expr"`
+	Name           *string                 `json:"name"`
+	Kind           *string                 `json:"kind"`
+	Active         *bool                   `json:"active"`
+	DataSourceType *string                 `json:"data_source_type"`
+	ScheduleType   *string                 `json:"schedule_type"`
+	ScheduleExpr   *string                 `json:"schedule_expr"`
+	Timezone       *string                 `json:"timezone"`
+	WindowSelector *string                 `json:"window_selector"`
+	WindowParams   *map[string]interface{} `json:"window_params"`
+	Params         *map[string]interface{} `json:"params"`
+	ExportFormats  *[]string               `json:"export_formats"`
 }
 
 type TrafficReportTaskMigrationResult struct {
@@ -156,6 +163,8 @@ type TrafficReportService interface {
 	ListDownloadMonths(ownerID uint64) ([]TrafficReportDownloadMonth, error)
 	CreateMonthlyArchive(ownerID uint64, month string, artifactIDs []uint64) (*TrafficReportMonthlyArchive, error)
 	UpdateTask(ownerID, id uint64, input TrafficReportTaskUpdate) (*model.TrafficReportTask, error)
+	DeleteTask(ownerID, id uint64) error
+	DuplicateTask(ownerID, id uint64) (*model.TrafficReportTask, error)
 	MigrateTaskToGoV1(ownerID, id uint64) (*TrafficReportTaskMigrationResult, error)
 	StartRun(ownerID, taskID uint64) (string, error)
 	GetRun(ownerID uint64, runID string) (*model.TrafficReportRun, error)
@@ -183,44 +192,9 @@ func (s *trafficReportService) CreateTask(ownerID uint64, input TrafficReportTas
 	if ownerID == 0 {
 		return nil, NewBadRequest("invalid owner")
 	}
-	if strings.TrimSpace(input.Name) == "" {
-		return nil, NewBadRequest("name is required")
-	}
-	if input.DataSourceType != "nfa" && input.DataSourceType != "edc" {
-		return nil, NewBadRequest("data_source_type must be nfa or edc")
-	}
-	if input.Kind == "" {
-		input.Kind = model.TrafficReportKindOneOff
-	}
-	if input.Kind != model.TrafficReportKindOneOff && input.Kind != model.TrafficReportKindPeriodic {
-		return nil, NewBadRequest("kind must be one_off or periodic")
-	}
-	if input.Timezone == "" {
-		input.Timezone = "Asia/Shanghai"
-	}
-	if _, err := time.LoadLocation(input.Timezone); err != nil {
-		return nil, NewBadRequest("invalid timezone")
-	}
-	if input.WindowSelector == "" {
-		input.WindowSelector = "custom"
-	}
-	if input.WindowSelector != "custom" && input.WindowSelector != "last_week" && input.WindowSelector != "last_month" && input.WindowSelector != "last_n_days" {
-		return nil, NewBadRequest("unsupported window_selector")
-	}
-	if input.Kind == model.TrafficReportKindPeriodic {
-		if input.ScheduleType == "" {
-			input.ScheduleType = "daily"
-		}
-		if _, err := nextTrafficReportTime(time.Now(), input.ScheduleType, input.ScheduleExpr, input.Timezone); err != nil {
-			return nil, NewBadRequest(err.Error())
-		}
-	}
-	input.ExportFormats = []string{"xlsx"}
-	if input.Params == nil {
-		input.Params = map[string]interface{}{}
-	}
-	if input.WindowParams == nil {
-		input.WindowParams = map[string]interface{}{}
+	input, err := normalizeTrafficReportTaskInput(input)
+	if err != nil {
+		return nil, err
 	}
 	active := true
 	if input.Active != nil {
@@ -230,7 +204,7 @@ func (s *trafficReportService) CreateTask(ownerID uint64, input TrafficReportTas
 	params, _ := json.Marshal(input.Params)
 	formats, _ := json.Marshal(input.ExportFormats)
 	task := &model.TrafficReportTask{
-		OwnerUserID: ownerID, Name: strings.TrimSpace(input.Name), Kind: input.Kind, Active: active,
+		OwnerUserID: ownerID, Name: input.Name, Kind: input.Kind, Active: active,
 		DataSourceType: input.DataSourceType, Timezone: input.Timezone, WindowSelector: input.WindowSelector,
 		WindowParams: datatypes.JSON(windowParams), Params: datatypes.JSON(params), ExportFormats: datatypes.JSON(formats),
 	}
@@ -248,6 +222,50 @@ func (s *trafficReportService) CreateTask(ownerID uint64, input TrafficReportTas
 		return nil, err
 	}
 	return task, nil
+}
+
+func normalizeTrafficReportTaskInput(input TrafficReportTaskInput) (TrafficReportTaskInput, error) {
+	if strings.TrimSpace(input.Name) == "" {
+		return input, NewBadRequest("name is required")
+	}
+	if input.DataSourceType != "nfa" && input.DataSourceType != "edc" {
+		return input, NewBadRequest("data_source_type must be nfa or edc")
+	}
+	input.Name = strings.TrimSpace(input.Name)
+	if input.Kind == "" {
+		input.Kind = model.TrafficReportKindOneOff
+	}
+	if input.Kind != model.TrafficReportKindOneOff && input.Kind != model.TrafficReportKindPeriodic {
+		return input, NewBadRequest("kind must be one_off or periodic")
+	}
+	if input.Timezone == "" {
+		input.Timezone = "Asia/Shanghai"
+	}
+	if _, err := time.LoadLocation(input.Timezone); err != nil {
+		return input, NewBadRequest("invalid timezone")
+	}
+	if input.WindowSelector == "" {
+		input.WindowSelector = "custom"
+	}
+	if input.WindowSelector != "custom" && input.WindowSelector != "last_week" && input.WindowSelector != "last_month" && input.WindowSelector != "last_n_days" {
+		return input, NewBadRequest("unsupported window_selector")
+	}
+	if input.Kind == model.TrafficReportKindPeriodic {
+		if input.ScheduleType == "" {
+			input.ScheduleType = "daily"
+		}
+		if _, err := nextTrafficReportTime(time.Now(), input.ScheduleType, input.ScheduleExpr, input.Timezone); err != nil {
+			return input, NewBadRequest(err.Error())
+		}
+	}
+	input.ExportFormats = []string{"xlsx"}
+	if input.Params == nil {
+		input.Params = map[string]interface{}{}
+	}
+	if input.WindowParams == nil {
+		input.WindowParams = map[string]interface{}{}
+	}
+	return input, nil
 }
 
 func (s *trafficReportService) GetTask(ownerID, id uint64) (*model.TrafficReportTask, error) {
@@ -583,40 +601,144 @@ func (s *trafficReportService) UpdateTask(ownerID, id uint64, input TrafficRepor
 	}
 	task, err := s.repo.GetTask(id, accessOwnerID)
 	if err != nil {
-		return nil, err
+		return nil, trafficReportTaskError(err)
 	}
-	if input.Name != nil && strings.TrimSpace(*input.Name) != "" {
-		task.Name = strings.TrimSpace(*input.Name)
+	params := map[string]interface{}{}
+	windowParams := map[string]interface{}{}
+	formats := []string{"xlsx"}
+	_ = json.Unmarshal(task.Params, &params)
+	_ = json.Unmarshal(task.WindowParams, &windowParams)
+	_ = json.Unmarshal(task.ExportFormats, &formats)
+	active := task.Active
+	if input.Active != nil {
+		active = *input.Active
+	}
+	current := TrafficReportTaskInput{
+		Name: task.Name, Kind: task.Kind, Active: &active, DataSourceType: task.DataSourceType,
+		Timezone: task.Timezone, WindowSelector: task.WindowSelector, WindowParams: windowParams,
+		Params: params, ExportFormats: formats,
+	}
+	if task.ScheduleType != nil {
+		current.ScheduleType = *task.ScheduleType
+	}
+	if task.ScheduleExpr != nil {
+		current.ScheduleExpr = *task.ScheduleExpr
+	}
+	if input.Name != nil {
+		current.Name = *input.Name
+	}
+	if input.Kind != nil {
+		current.Kind = *input.Kind
+	}
+	if input.DataSourceType != nil {
+		current.DataSourceType = *input.DataSourceType
 	}
 	if input.ScheduleType != nil {
-		task.ScheduleType = input.ScheduleType
+		current.ScheduleType = *input.ScheduleType
 	}
 	if input.ScheduleExpr != nil {
-		task.ScheduleExpr = input.ScheduleExpr
+		current.ScheduleExpr = *input.ScheduleExpr
 	}
-	if input.Active != nil {
-		task.Active = *input.Active
+	if input.Timezone != nil {
+		current.Timezone = *input.Timezone
+	}
+	if input.WindowSelector != nil {
+		current.WindowSelector = *input.WindowSelector
+	}
+	if input.WindowParams != nil {
+		current.WindowParams = *input.WindowParams
+	}
+	if input.Params != nil {
+		current.Params = *input.Params
+	}
+	if input.ExportFormats != nil {
+		current.ExportFormats = *input.ExportFormats
+	}
+	current, err = normalizeTrafficReportTaskInput(current)
+	if err != nil {
+		return nil, err
+	}
+	windowJSON, _ := json.Marshal(current.WindowParams)
+	paramsJSON, _ := json.Marshal(current.Params)
+	formatsJSON, _ := json.Marshal(current.ExportFormats)
+	task.Name = current.Name
+	task.Kind = current.Kind
+	task.Active = active
+	task.DataSourceType = current.DataSourceType
+	task.Timezone = current.Timezone
+	task.WindowSelector = current.WindowSelector
+	task.WindowParams = datatypes.JSON(windowJSON)
+	task.Params = datatypes.JSON(paramsJSON)
+	task.ExportFormats = datatypes.JSON(formatsJSON)
+	task.ScheduleType = nil
+	if current.ScheduleType != "" {
+		task.ScheduleType = &current.ScheduleType
+	}
+	task.ScheduleExpr = nil
+	if current.ScheduleExpr != "" {
+		task.ScheduleExpr = &current.ScheduleExpr
 	}
 	if task.Kind == model.TrafficReportKindPeriodic && task.Active {
-		typ, expr := "daily", ""
-		if task.ScheduleType != nil && *task.ScheduleType != "" {
-			typ = *task.ScheduleType
-		}
-		if task.ScheduleExpr != nil {
-			expr = *task.ScheduleExpr
-		}
-		next, e := nextTrafficReportTime(time.Now(), typ, expr, task.Timezone)
-		if e != nil {
-			return nil, NewBadRequest(e.Error())
-		}
+		next, _ := nextTrafficReportTime(time.Now(), current.ScheduleType, current.ScheduleExpr, task.Timezone)
 		task.NextRunAt = &next
 	} else {
 		task.NextRunAt = nil
 	}
 	if err := s.repo.UpdateTask(task); err != nil {
-		return nil, err
+		return nil, trafficReportTaskError(err)
 	}
 	return task, nil
+}
+
+func (s *trafficReportService) DeleteTask(ownerID, id uint64) error {
+	accessOwnerID, err := s.accessOwnerID(ownerID)
+	if err != nil {
+		return err
+	}
+	if _, err := s.repo.GetTask(id, accessOwnerID); err != nil {
+		return trafficReportTaskError(err)
+	}
+	return trafficReportTaskError(s.repo.DeleteTask(id, accessOwnerID))
+}
+
+func (s *trafficReportService) DuplicateTask(ownerID, id uint64) (*model.TrafficReportTask, error) {
+	accessOwnerID, err := s.accessOwnerID(ownerID)
+	if err != nil {
+		return nil, err
+	}
+	original, err := s.repo.GetTask(id, accessOwnerID)
+	if err != nil {
+		return nil, trafficReportTaskError(err)
+	}
+	clone := *original
+	clone.ID = 0
+	clone.Name = trafficReportDuplicateName(original.Name)
+	clone.Active = false
+	clone.NextRunAt = nil
+	clone.LastRunAt = nil
+	clone.DeletedAt = nil
+	clone.CreatedAt = time.Time{}
+	clone.UpdatedAt = time.Time{}
+	if err := s.repo.CreateTask(&clone); err != nil {
+		return nil, err
+	}
+	return &clone, nil
+}
+
+func trafficReportTaskError(err error) error {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return NewNotFound("流量报表任务不存在")
+	}
+	return err
+}
+
+func trafficReportDuplicateName(name string) string {
+	const suffix = " - 副本"
+	runes := []rune(name)
+	if len(runes)+len([]rune(suffix)) > 200 {
+		runes = runes[:200-len([]rune(suffix))]
+	}
+	return strings.TrimSpace(string(runes)) + suffix
 }
 
 func (s *trafficReportService) MigrateTaskToGoV1(ownerID, id uint64) (*TrafficReportTaskMigrationResult, error) {

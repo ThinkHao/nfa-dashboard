@@ -3,6 +3,7 @@ package repository
 import (
 	"time"
 
+	"gorm.io/gorm"
 	"nfa-dashboard/internal/model"
 )
 
@@ -12,6 +13,7 @@ type TrafficReportRepository interface {
 	ListTasks(ownerID uint64, page, pageSize int) ([]model.TrafficReportTask, int64, error)
 	ListSuccessfulRuns(ownerID uint64) ([]model.TrafficReportRun, error)
 	UpdateTask(task *model.TrafficReportTask) error
+	DeleteTask(id, ownerID uint64) error
 	ListDueTasks(now time.Time, limit int) ([]model.TrafficReportTask, error)
 	ClaimTaskRun(taskID uint64, now, nextRun time.Time) bool
 	HasActiveRun(taskID uint64) (bool, error)
@@ -32,7 +34,7 @@ func (r *trafficReportRepository) CreateTask(task *model.TrafficReportTask) erro
 
 func (r *trafficReportRepository) GetTask(id, ownerID uint64) (*model.TrafficReportTask, error) {
 	var task model.TrafficReportTask
-	q := model.DB.Where("id = ?", id)
+	q := model.DB.Where("id = ? AND deleted_at IS NULL", id)
 	if ownerID > 0 {
 		q = q.Where("owner_user_id = ?", ownerID)
 	}
@@ -45,7 +47,7 @@ func (r *trafficReportRepository) GetTask(id, ownerID uint64) (*model.TrafficRep
 func (r *trafficReportRepository) ListTasks(ownerID uint64, page, pageSize int) ([]model.TrafficReportTask, int64, error) {
 	var items []model.TrafficReportTask
 	var total int64
-	q := model.DB.Model(&model.TrafficReportTask{})
+	q := model.DB.Model(&model.TrafficReportTask{}).Where("deleted_at IS NULL")
 	if ownerID > 0 {
 		q = q.Where("owner_user_id = ?", ownerID)
 	}
@@ -79,7 +81,35 @@ func (r *trafficReportRepository) ListSuccessfulRuns(ownerID uint64) ([]model.Tr
 }
 
 func (r *trafficReportRepository) UpdateTask(task *model.TrafficReportTask) error {
-	return model.DB.Save(task).Error
+	result := model.DB.Model(&model.TrafficReportTask{}).
+		Where("id = ? AND owner_user_id = ? AND deleted_at IS NULL", task.ID, task.OwnerUserID).
+		Select("*").Updates(task)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+func (r *trafficReportRepository) DeleteTask(id, ownerID uint64) error {
+	query := model.DB.Model(&model.TrafficReportTask{}).Where("id = ? AND deleted_at IS NULL", id)
+	if ownerID > 0 {
+		query = query.Where("owner_user_id = ?", ownerID)
+	}
+	result := query.Updates(map[string]interface{}{
+		"active":      false,
+		"next_run_at": nil,
+		"deleted_at":  time.Now(),
+	})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func (r *trafficReportRepository) ListDueTasks(now time.Time, limit int) ([]model.TrafficReportTask, error) {
@@ -87,7 +117,7 @@ func (r *trafficReportRepository) ListDueTasks(now time.Time, limit int) ([]mode
 		limit = 20
 	}
 	var tasks []model.TrafficReportTask
-	err := model.DB.Where("active = ? AND kind = ? AND next_run_at IS NOT NULL AND next_run_at <= ?", true, model.TrafficReportKindPeriodic, now).
+	err := model.DB.Where("active = ? AND kind = ? AND deleted_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?", true, model.TrafficReportKindPeriodic, now).
 		Order("next_run_at ASC").Limit(limit).Find(&tasks).Error
 	return tasks, err
 }
@@ -96,7 +126,7 @@ func (r *trafficReportRepository) ListDueTasks(now time.Time, limit int) ([]mode
 // changed the row is allowed to create the run.
 func (r *trafficReportRepository) ClaimTaskRun(taskID uint64, now, nextRun time.Time) bool {
 	result := model.DB.Model(&model.TrafficReportTask{}).
-		Where("id = ? AND active = ? AND kind = ? AND next_run_at IS NOT NULL AND next_run_at <= ?", taskID, true, model.TrafficReportKindPeriodic, now).
+		Where("id = ? AND active = ? AND kind = ? AND deleted_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?", taskID, true, model.TrafficReportKindPeriodic, now).
 		Updates(map[string]interface{}{"next_run_at": nextRun, "last_run_at": now})
 	return result.Error == nil && result.RowsAffected == 1
 }

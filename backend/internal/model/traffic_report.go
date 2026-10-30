@@ -31,6 +31,7 @@ type TrafficReportTask struct {
 	ExportFormats  datatypes.JSON `gorm:"column:export_formats;type:json;not null" json:"export_formats"`
 	NextRunAt      *time.Time     `gorm:"column:next_run_at" json:"next_run_at,omitempty"`
 	LastRunAt      *time.Time     `gorm:"column:last_run_at" json:"last_run_at,omitempty"`
+	DeletedAt      *time.Time     `gorm:"column:deleted_at" json:"deleted_at,omitempty"`
 	CreatedAt      time.Time      `gorm:"column:created_at;autoCreateTime" json:"created_at"`
 	UpdatedAt      time.Time      `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
 }
