@@ -218,7 +218,7 @@ func TestTrafficReportServiceGroupsDownloadMonthsByFinishedTime(t *testing.T) {
 	}
 }
 
-func TestCreateMonthlyArchiveIncludesOnlyXLSXArtifacts(t *testing.T) {
+func TestCreateMonthlyArchiveIncludesOnlyXLSXArtifactsAndPreservesModTime(t *testing.T) {
 	root := t.TempDir()
 	previousStorageDir := config.AppConfig.TrafficReport.StorageDir
 	config.AppConfig.TrafficReport.StorageDir = root
@@ -234,10 +234,16 @@ func TestCreateMonthlyArchiveIncludesOnlyXLSXArtifacts(t *testing.T) {
 		{ID: 2, FileName: "report.csv"},
 		{ID: 3, FileName: "report-metadata.json"},
 	}
+	modifiedAt := time.Date(2026, 9, 8, 10, 20, 30, 0, time.FixedZone("Asia/Shanghai", 8*60*60))
 	for i := range artifacts {
 		path := filepath.Join(runDir, artifacts[i].FileName)
 		if err := os.WriteFile(path, []byte(artifacts[i].FileName), 0o600); err != nil {
 			t.Fatal(err)
+		}
+		if i == 0 {
+			if err := os.Chtimes(path, modifiedAt, modifiedAt); err != nil {
+				t.Fatal(err)
+			}
 		}
 		artifacts[i].StoragePath = path
 	}
@@ -258,6 +264,9 @@ func TestCreateMonthlyArchiveIncludesOnlyXLSXArtifacts(t *testing.T) {
 	defer reader.Close()
 	if len(reader.File) != 1 || !strings.HasSuffix(reader.File[0].Name, ".xlsx") {
 		t.Fatalf("archive files = %#v, want one XLSX", reader.File)
+	}
+	if !reader.File[0].Modified.Equal(modifiedAt) {
+		t.Fatalf("archive modified time = %s, want %s", reader.File[0].Modified, modifiedAt)
 	}
 }
 

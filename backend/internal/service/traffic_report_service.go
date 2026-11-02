@@ -415,9 +415,14 @@ func (s *trafficReportService) CreateMonthlyArchive(ownerID uint64, month string
 			if err != nil {
 				return nil, err
 			}
+			fileInfo, err := file.Stat()
+			if err != nil {
+				_ = file.Close()
+				return nil, err
+			}
 			name := safeTrafficReportArchiveName(artifact.FileName)
 			name = uniqueTrafficReportArchiveName(name, usedNames)
-			header := &zip.FileHeader{Name: name, Method: zip.Deflate}
+			header := &zip.FileHeader{Name: name, Method: zip.Deflate, Modified: fileInfo.ModTime().UTC()}
 			header.SetMode(0o640)
 			writer, err := archive.CreateHeader(header)
 			if err == nil {
