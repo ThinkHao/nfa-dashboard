@@ -21,8 +21,11 @@
             clearable
             placeholder="输入用户名或别名搜索"
             :remote-method="searchUsers"
-            :loading="userLoading"
+            :loading="userLoading && users.length === 0"
+            popper-class="traffic-scope-user-select-popper"
             @change="handleUserChange"
+            @visible-change="handleUserDropdownVisibleChange"
+            @popup-scroll="handleUserPopupScroll"
           >
             <el-option
               v-for="user in users"
@@ -30,6 +33,11 @@
               :label="`${user.display_name} (${user.username})`"
               :value="user.id"
             />
+            <template #footer>
+              <div v-if="userLoading && users.length > 0" class="user-select-loading-more">
+                正在加载更多用户…
+              </div>
+            </template>
           </el-select>
         </el-form-item>
       </el-form>
@@ -170,7 +178,6 @@ import api from '@/api'
 import type {
   TrafficScopeOptionItem,
   TrafficScopePreview,
-  TrafficScopeUserLite,
 } from '@/types/api'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import FilterPanel from '@/components/ui/FilterPanel.vue'
@@ -187,9 +194,19 @@ import {
   buildTrafficScopeOptionRequest,
   formatTrafficScopeSchoolOptionLabel,
 } from './traffic-scope-options'
+import {
+  isTrafficScopeUserListNearBottom,
+  useTrafficScopeUsers,
+} from './traffic-scope-users'
 
-const users = ref<TrafficScopeUserLite[]>([])
-const userLoading = ref(false)
+const {
+  users,
+  loading: userLoading,
+  query: userQuery,
+  hasMore: hasMoreUsers,
+  search: searchUserOptions,
+  loadMore: loadMoreUserOptions,
+} = useTrafficScopeUsers((params) => api.system.trafficScopes.listUsers(params))
 const rulesLoading = ref(false)
 const previewLoading = ref(false)
 const saving = ref(false)
@@ -207,16 +224,30 @@ const preview = reactive<TrafficScopePreview>({
   allowed_schools: [],
 })
 
+function showUserLoadError(e: any) {
+  ElMessage.error(e?.response?.data?.message || e?.message || '加载用户失败')
+}
+
 async function searchUsers(keyword = '') {
-  userLoading.value = true
   try {
-    const res = await api.system.trafficScopes.listUsers({ username: keyword || undefined, page: 1, page_size: 20 })
-    users.value = res.items || []
+    await searchUserOptions(keyword)
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || e?.message || '加载用户失败')
-  } finally {
-    userLoading.value = false
+    showUserLoadError(e)
   }
+}
+
+function handleUserDropdownVisibleChange(visible: boolean) {
+  if (visible && users.value.length === 0 && !userLoading.value) {
+    void searchUsers(userQuery.value)
+  }
+}
+
+function handleUserPopupScroll() {
+  const dropdown = document.querySelector<HTMLElement>(
+    '.traffic-scope-user-select-popper .el-select-dropdown__wrap',
+  )
+  if (!dropdown || !hasMoreUsers.value || !isTrafficScopeUserListNearBottom(dropdown)) return
+  void loadMoreUserOptions().catch(showUserLoadError)
 }
 
 function getConditionKey(groupIndex: number, conditionIndex: number) {
@@ -379,6 +410,7 @@ onMounted(() => {
 .card-header { display: flex; justify-content: space-between; align-items: center; }
 .filter-form { row-gap: var(--form-item-gap); }
 .field-lg:deep(.el-select__wrapper) { width: 360px !important; }
+.user-select-loading-more { padding: 6px 12px; color: var(--el-text-color-secondary); font-size: 12px; text-align: center; }
 .cell-field:deep(.el-select__wrapper) { width: 100% !important; }
 .rule-type-field:deep(.el-select__wrapper) { width: 120px !important; }
 .rule-groups {
