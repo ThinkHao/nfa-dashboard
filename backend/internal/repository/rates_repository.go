@@ -167,7 +167,9 @@ func (r *ratesRepository) EnsureCustomerRatesForSchoolsWithRows() (int64, []mode
 		  AND TRIM(COALESCE(s.school_name, '')) <> ''
 		  AND NOT EXISTS (
 			SELECT 1 FROM rate_customer rc
-			WHERE rc.region = s.region AND rc.cp = s.cp AND rc.school_name = s.school_name
+			WHERE rc.region = s.region COLLATE utf8mb4_unicode_ci
+			  AND rc.cp = s.cp COLLATE utf8mb4_unicode_ci
+			  AND rc.school_name = s.school_name COLLATE utf8mb4_unicode_ci
 		  )`).Scan(&newRates).Error; err != nil {
 		return 0, nil, err
 	}
