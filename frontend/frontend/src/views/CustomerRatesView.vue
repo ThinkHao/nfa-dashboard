@@ -429,7 +429,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api'
 import type { RateCustomer, PaginatedData, UpsertRateCustomerRequest, CustomerRateImportTask } from '@/types/api'
@@ -453,6 +453,7 @@ import { usePageRefresh } from '@/composables/usePageRefresh'
 const auth = useAuthStore()
 const tasksStore = useTasksStore()
 const router = useRouter()
+const route = useRoute()
 const canWrite = computed(() => auth.hasPermission('rates.customer.write'))
 const canSync = computed(() => auth.hasPermission('rates.sync.execute'))
 const canManageFilterRules = computed(() => auth.hasPermission('rates.filter_rules.read'))
@@ -470,6 +471,7 @@ const pageSize = ref(10)
 const queryCtl = useCancelableQuery()
 
 const query = reactive<{ region?: string; cp?: string; school_name?: string; settlement_ready?: string | '' }>({})
+let customerRatesMounted = false
 // 表头分类标签：全部/参与/不参与
 const settlementTab = ref<'all' | 'ready' | 'not_ready'>('all')
 // 下拉与远程搜索状态
@@ -576,6 +578,7 @@ async function ensureSchoolRates() {
   if (!canWrite.value) return
   try {
     await api.settlementRates.customer.ensureSchools()
+    window.dispatchEvent(new Event('nfa:todos-refresh'))
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '自动补齐院校费率失败')
   }
@@ -897,6 +900,7 @@ async function pollImportTask(taskId: number) {
       lastImportErrorCount.value = Number(detail.result?.error_count || 0)
       lastCreatedUserCount.value = Number(detail.result?.created_count || 0)
       if (detail.status === 'success') {
+        window.dispatchEvent(new Event('nfa:todos-refresh'))
         if (!restoredOnce) {
           ElMessage.success(`导入任务完成：成功 ${Number(detail.result?.affected || 0)} 行，失败 ${lastImportErrorCount.value} 行`)
         }
@@ -1112,6 +1116,7 @@ async function onSave() {
       try { payload.extra = JSON.parse(txt) } catch (e) { ElMessage.error('扩展JSON格式错误'); saving.value=false; return }
     }
     await api.settlementRates.customer.upsert(payload)
+    window.dispatchEvent(new Event('nfa:todos-refresh'))
 
     // 保存后，根据“客户费归属（销售）”下拉的选择，设置用户-院校绑定
     const selectedUserId: number | null | undefined = form.customer_fee_owner_id as any
@@ -1152,6 +1157,7 @@ async function onExecuteSync() {
   syncing.value = true
   try {
     const affected = await api.settlementRates.sync.execute()
+    window.dispatchEvent(new Event('nfa:todos-refresh'))
     ElMessage.success(`同步完成，受影响行数：${affected}`)
     queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
   } catch (e: any) {
@@ -1382,9 +1388,11 @@ async function remoteSearchSystemUsersAny(q: string) {
 }
 
 onMounted(async () => {
+  applyTodoRouteQuery()
   loadRegionsAndCPs();
   await ensureSchoolRates()
   queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false });
+  customerRatesMounted = true
   // 预加载允许绑定的角色（销售），供后续用户搜索使用
   try {
     allowedBindRoles.value = await api.system.binding.getAllowedUserRoles('sales')
@@ -1419,6 +1427,26 @@ onMounted(async () => {
     scheduleImportPolling(taskId, 100)
   }
 })
+
+watch(() => [route.query.todo_id, route.query.region, route.query.cp, route.query.school_name], () => {
+  if (!customerRatesMounted || !route.query.todo_id) return
+  applyTodoRouteQuery()
+  page.value = 1
+  queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })
+})
+
+function applyTodoRouteQuery() {
+  if (!route.query.todo_id) return
+  const value = (input: unknown) => typeof input === 'string' ? input : Array.isArray(input) ? String(input[0] || '') : ''
+  query.region = value(route.query.region) || undefined
+  query.cp = value(route.query.cp) || undefined
+  query.school_name = value(route.query.school_name) || undefined
+  if (query.school_name && !schoolOptions.value.some(option => option.name === query.school_name)) {
+    schoolOptions.value.unshift({ name: query.school_name, inRate: true })
+  }
+  query.settlement_ready = ''
+  pageSize.value = 50
+}
 usePageRefresh(() => {
   ensureSchoolRates().finally(() => {
     queryCtl.run((signal) => fetchData(signal), { showCancelMessage: false })

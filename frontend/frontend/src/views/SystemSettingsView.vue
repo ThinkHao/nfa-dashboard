@@ -74,6 +74,33 @@
         <el-button :disabled="loading || saving" @click="load">重置</el-button>
       </div>
     </SectionCard>
+
+    <SectionCard title="客户费率待办提醒">
+      <div class="setting-row" v-loading="todoLoading">
+        <div>
+          <div class="setting-title">待办接收人</div>
+          <div class="setting-desc">
+            新院校产生客户费率记录后，若客户费、线路费或节点通用费任一单价为空，会持续提醒所选用户。接收人需要客户业务费率查看和维护权限；数值 0 视为已填写。
+          </div>
+        </div>
+        <el-select
+          v-model="todoUserIDs"
+          multiple
+          filterable
+          clearable
+          collapse-tags
+          collapse-tags-tooltip
+          placeholder="搜索并选择一个或多个用户"
+          class="todo-user-select"
+        >
+          <el-option v-for="user in todoUserOptions" :key="user.id" :label="user.label" :value="user.id" />
+        </el-select>
+      </div>
+      <div class="actions">
+        <el-button type="primary" :loading="todoSaving" @click="saveTodoSettings">保存提醒设置</el-button>
+        <el-button :disabled="todoLoading || todoSaving" @click="loadTodoSettings">重置</el-button>
+      </div>
+    </SectionCard>
   </div>
 </template>
 
@@ -83,11 +110,15 @@ import { ElMessage } from 'element-plus'
 import api from '@/api'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import SectionCard from '@/components/ui/SectionCard.vue'
-import type { SystemTrafficSettings } from '@/types/api'
+import type { SystemTrafficSettings, SystemUser } from '@/types/api'
 import { useSystemTrafficSettings } from '@/composables/useSystemTrafficSettings'
 
 const loading = ref(false)
 const saving = ref(false)
+const todoLoading = ref(false)
+const todoSaving = ref(false)
+const todoUserIDs = ref<number[]>([])
+const todoUserOptions = ref<{ id: number; label: string }[]>([])
 const trafficSettings = useSystemTrafficSettings()
 const form = reactive<SystemTrafficSettings>({
   hide_non_settlement_schools_in_traffic: false,
@@ -115,6 +146,49 @@ async function load() {
     ElMessage.error(e?.response?.data?.message || e?.message || '加载系统设置失败')
   } finally {
     loading.value = false
+  }
+  await loadTodoSettings()
+}
+
+function userLabel(user: SystemUser) {
+  return user.alias?.trim() || user.display_name?.trim() || user.username || `用户#${user.id}`
+}
+
+async function loadTodoSettings() {
+  todoLoading.value = true
+  try {
+    const [settings, activeUsers] = await Promise.all([
+      api.system.settings.getCustomerRateTodos(),
+      api.system.users.list({ status: 1, page: 1, page_size: 1000 }),
+    ])
+    todoUserIDs.value = Array.isArray(settings?.customer_rate_user_ids)
+      ? settings.customer_rate_user_ids.map(Number).filter(id => Number.isFinite(id) && id > 0)
+      : []
+    const options = new Map<number, { id: number; label: string }>()
+    for (const user of activeUsers.items || []) options.set(user.id, { id: user.id, label: userLabel(user) })
+    if (todoUserIDs.value.length) {
+      const selectedUsers = await api.system.users.list({ ids: todoUserIDs.value.join(',') })
+      for (const user of selectedUsers.items || []) options.set(user.id, { id: user.id, label: userLabel(user) })
+    }
+    todoUserOptions.value = Array.from(options.values())
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '加载待办提醒设置失败')
+  } finally {
+    todoLoading.value = false
+  }
+}
+
+async function saveTodoSettings() {
+  todoSaving.value = true
+  try {
+    const updated = await api.system.settings.updateCustomerRateTodos({ customer_rate_user_ids: todoUserIDs.value })
+    todoUserIDs.value = updated.customer_rate_user_ids || []
+    window.dispatchEvent(new Event('nfa:todos-refresh'))
+    ElMessage.success('待办提醒设置已保存')
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '保存待办提醒设置失败')
+  } finally {
+    todoSaving.value = false
   }
 }
 
@@ -179,5 +253,15 @@ onMounted(load)
 
 .field-w-180 {
   width: 180px;
+}
+
+.todo-user-select {
+  width: min(440px, 48%);
+}
+
+@media (max-width: 768px) {
+  .todo-user-select {
+    width: 100%;
+  }
 }
 </style>

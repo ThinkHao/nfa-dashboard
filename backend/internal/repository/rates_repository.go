@@ -153,14 +153,32 @@ func (r *ratesRepository) ListCustomerRates(filter map[string]interface{}, limit
 
 // EnsureCustomerRatesForSchools 为尚未配置费率的院校补充空白客户费率行。
 func (r *ratesRepository) EnsureCustomerRatesForSchools() (int64, error) {
+	affected, _, err := r.EnsureCustomerRatesForSchoolsWithRows()
+	return affected, err
+}
+
+func (r *ratesRepository) EnsureCustomerRatesForSchoolsWithRows() (int64, []model.RateCustomer, error) {
+	newRates := make([]model.RateCustomer, 0)
+	if err := model.DB.Raw(`
+		SELECT DISTINCT s.region, s.cp, s.school_name, 'auto' AS fee_mode
+		FROM nfa_school s
+		WHERE TRIM(COALESCE(s.region, '')) <> ''
+		  AND TRIM(COALESCE(s.cp, '')) <> ''
+		  AND TRIM(COALESCE(s.school_name, '')) <> ''
+		  AND NOT EXISTS (
+			SELECT 1 FROM rate_customer rc
+			WHERE rc.region = s.region AND rc.cp = s.cp AND rc.school_name = s.school_name
+		  )`).Scan(&newRates).Error; err != nil {
+		return 0, nil, err
+	}
 	result := model.DB.Exec(`
 		INSERT IGNORE INTO rate_customer (region, cp, school_name, fee_mode)
-		SELECT DISTINCT region, cp, school_name, 'auto'
-		FROM nfa_school
-		WHERE TRIM(COALESCE(region, '')) <> ''
-		  AND TRIM(COALESCE(cp, '')) <> ''
-		  AND TRIM(COALESCE(school_name, '')) <> ''`)
-	return result.RowsAffected, result.Error
+		SELECT DISTINCT s.region, s.cp, s.school_name, 'auto'
+		FROM nfa_school s
+		WHERE TRIM(COALESCE(s.region, '')) <> ''
+		  AND TRIM(COALESCE(s.cp, '')) <> ''
+		  AND TRIM(COALESCE(s.school_name, '')) <> ''`)
+	return result.RowsAffected, newRates, result.Error
 }
 
 func (r *ratesRepository) ListCustomerRateKeys(filter map[string]interface{}) (map[string]struct{}, error) {

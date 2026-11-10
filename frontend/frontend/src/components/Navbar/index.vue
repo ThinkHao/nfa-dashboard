@@ -7,6 +7,7 @@ import api from '@/api'
 import { Moon, Sunny, SwitchButton, Brush, Lock } from '@element-plus/icons-vue'
 import SettingsDrawer from '@/components/Settings/SettingsDrawer.vue'
 import BackgroundTasks from '@/components/BackgroundTasks.vue'
+import TodosBell from '@/components/TodosBell.vue'
 
 const auth = useAuthStore()
 function onLogout() { auth.logout() }
@@ -89,6 +90,7 @@ async function submitChangePassword() {
     <div class="right">
       <div class="user-area" v-if="auth.isAuthenticated">
         <span class="nav-user">{{ auth.user?.alias || auth.user?.username }}</span>
+        <TodosBell />
         <BackgroundTasks inline />
         <el-tooltip effect="dark" content="切换主题" placement="bottom">
           <el-button link circle class="icon-btn" @click="toggleDark">

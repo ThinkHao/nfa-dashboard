@@ -269,6 +269,32 @@ export interface SystemTrafficSettings {
   settlement_single_user_rate_unit: 'Mbps' | 'Gbps';
 }
 
+export interface CustomerRateTodoSettings {
+  customer_rate_user_ids: number[];
+}
+
+export interface CustomerRateTodo {
+  id: number;
+  status: 'pending' | 'completed';
+  region: string;
+  cp: string;
+  school_name: string;
+  missing_fields: string[];
+  ignored: boolean;
+  created_at: string;
+}
+
+export interface CustomerRateTodoEvent {
+  id: number;
+  actor_user_id?: number | null;
+  actor_name: string;
+  event_type: string;
+  old_status?: string;
+  new_status?: string;
+  detail?: string;
+  created_at: string;
+}
+
 // 新建系统用户请求
 export interface CreateUserRequest {
   username: string;

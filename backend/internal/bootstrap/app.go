@@ -43,13 +43,15 @@ func BuildEngine() *gin.Engine {
 
 	entitiesRepo := repository.NewEntitiesRepository()
 	userRepo := repository.NewUserRepository()
+	todoRepo := repository.NewTodoRepository()
+	todoSvc := service.NewTodoService(todoRepo, userRepo)
 
 	settlementDataService := service.NewSettlementDataService(settlementDataRepo, userRepo, entitiesRepo, settlementRepo)
 	settlementDataController := controller.NewSettlementDataController(settlementDataService)
 
 	ratesRepo := repository.NewRatesRepository()
 	rateDiscountRepo := repository.NewRateDiscountRepository()
-	ratesSvc := service.NewRatesService(ratesRepo, rateDiscountRepo, userRepo)
+	ratesSvc := service.NewRatesService(ratesRepo, rateDiscountRepo, userRepo, todoSvc)
 	ratesController := controller.NewSettlementRatesController(ratesSvc, settlementRepo)
 	edcNodeSettlementRepo := repository.NewEDCNodeSettlementRepository()
 	edcNodeSettlementSvc := service.NewEDCNodeSettlementService(edcNodeSettlementRepo, ratesRepo, settlementRepo)
@@ -70,7 +72,7 @@ func BuildEngine() *gin.Engine {
 	syncRulesSvc := service.NewSyncRulesService(syncRulesRepo)
 	syncRulesController := controller.NewSyncRulesController(syncRulesSvc)
 
-	ratesSyncSvc := service.NewRatesSyncService(syncRulesRepo, ratesRepo, schoolRepo)
+	ratesSyncSvc := service.NewRatesSyncService(syncRulesRepo, ratesRepo, schoolRepo, todoSvc)
 	ratesSyncController := controller.NewRatesSyncController(ratesSyncSvc)
 
 	rateDiscountSvc := service.NewRateDiscountService(rateDiscountRepo)
@@ -113,6 +115,7 @@ func BuildEngine() *gin.Engine {
 	trafficScopeController := controller.NewSystemTrafficScopeController(trafficScopeService, userService, schoolService)
 	edcTrafficScopeController := controller.NewSystemEDCTrafficScopeController(edcScopeService, userService)
 	systemSettingsController := controller.NewSystemSettingsController(systemSettingsSvc)
+	todoController := controller.NewTodoController(todoSvc)
 	trafficReportRepo := repository.NewTrafficReportRepository()
 	trafficReportSvc := service.NewTrafficReportService(trafficReportRepo, trafficScopeService, edcScopeService, userRepo)
 	trafficReportController := controller.NewTrafficReportController(trafficReportSvc)
@@ -132,6 +135,14 @@ func BuildEngine() *gin.Engine {
 
 	api := r.Group("/api/v1")
 	{
+		todos := api.Group("/todos", authMW.AuthRequired())
+		{
+			todos.GET("", todoController.ListMine)
+			todos.GET("/count", todoController.CountMine)
+			todos.GET("/:id/events", todoController.ListEvents)
+			todos.PUT("/:id/ignored", todoController.SetIgnored)
+		}
+
 		auth := api.Group("/auth")
 		{
 			auth.POST("/login", middleware.LoginRateLimit(), authController.Login)
@@ -315,6 +326,8 @@ func BuildEngine() *gin.Engine {
 
 		system := api.Group("/system", authMW.AuthRequired())
 		{
+			system.GET("/settings/customer-rate-todos", authMW.PermissionRequired("system.user.manage"), todoController.GetCustomerRateSettings)
+			system.PUT("/settings/customer-rate-todos", authMW.PermissionRequired("system.user.manage"), todoController.UpdateCustomerRateSettings)
 			roles := system.Group("/roles", authMW.PermissionRequired("system.role.manage"))
 			{
 				roles.GET("", roleController.ListRoles)

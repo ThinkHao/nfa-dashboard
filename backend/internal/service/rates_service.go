@@ -51,10 +51,15 @@ type RatesService interface {
 	CleanupInvalidFinalCustomerRates() (int64, error)
 }
 
+type CustomerRateTodoSyncer interface {
+	SyncCustomerRate(region, cp, schoolName string) error
+}
+
 type ratesService struct {
 	repo         repository.RatesRepository
 	discountRepo repository.RateDiscountRepository
 	userRepo     repository.UserRepository
+	todoSyncer   CustomerRateTodoSyncer
 }
 
 type CustomerRateOwnerNames struct {
@@ -64,8 +69,12 @@ type CustomerRateOwnerNames struct {
 	ChannelOwnerName        string
 }
 
-func NewRatesService(repo repository.RatesRepository, discountRepo repository.RateDiscountRepository, userRepo repository.UserRepository) RatesService {
-	return &ratesService{repo: repo, discountRepo: discountRepo, userRepo: userRepo}
+func NewRatesService(repo repository.RatesRepository, discountRepo repository.RateDiscountRepository, userRepo repository.UserRepository, todoSyncer ...CustomerRateTodoSyncer) RatesService {
+	service := &ratesService{repo: repo, discountRepo: discountRepo, userRepo: userRepo}
+	if len(todoSyncer) > 0 {
+		service.todoSyncer = todoSyncer[0]
+	}
+	return service
 }
 
 func (s *ratesService) ListCustomerRates(region, cp, schoolName string, settlementReady *bool, page, pageSize int) ([]model.RateCustomer, int64, error) {
@@ -95,14 +104,43 @@ func (s *ratesService) ListCustomerRates(region, cp, schoolName string, settleme
 }
 
 func (s *ratesService) EnsureCustomerRatesForSchools() (int64, error) {
-	return s.repo.EnsureCustomerRatesForSchools()
+	var affected int64
+	var newRates []model.RateCustomer
+	var err error
+	if repoWithRows, ok := s.repo.(interface {
+		EnsureCustomerRatesForSchoolsWithRows() (int64, []model.RateCustomer, error)
+	}); ok {
+		affected, newRates, err = repoWithRows.EnsureCustomerRatesForSchoolsWithRows()
+	} else {
+		affected, err = s.repo.EnsureCustomerRatesForSchools()
+	}
+	if err != nil {
+		return affected, err
+	}
+	if s.todoSyncer != nil {
+		for _, rate := range newRates {
+			if rate.SchoolName == nil {
+				continue
+			}
+			if err := s.todoSyncer.SyncCustomerRate(rate.Region, rate.CP, *rate.SchoolName); err != nil {
+				return affected, err
+			}
+		}
+	}
+	return affected, nil
 }
 
 func (s *ratesService) UpsertCustomerRate(rate *model.RateCustomer) error {
 	if err := s.ValidateCustomerRate(rate); err != nil {
 		return err
 	}
-	return s.repo.UpsertCustomerRate(rate)
+	if err := s.repo.UpsertCustomerRate(rate); err != nil {
+		return err
+	}
+	if s.todoSyncer != nil && rate.SchoolName != nil {
+		return s.todoSyncer.SyncCustomerRate(rate.Region, rate.CP, *rate.SchoolName)
+	}
+	return nil
 }
 
 func (s *ratesService) ValidateCustomerRate(rate *model.RateCustomer) error {

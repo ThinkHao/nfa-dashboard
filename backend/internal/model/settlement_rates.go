@@ -49,6 +49,26 @@ type RateCustomer struct {
 
 func (RateCustomer) TableName() string { return "rate_customer" }
 
+// MissingCustomerPriceFields reports the required customer traffic price fields that are unset.
+// A numeric zero is a configured value; only SQL NULL is considered missing.
+func (r RateCustomer) MissingCustomerPriceFields() []string {
+	missing := make([]string, 0, 3)
+	if r.CustomerFee == nil {
+		missing = append(missing, "customer_fee")
+	}
+	if r.NetworkLineFee == nil {
+		missing = append(missing, "network_line_fee")
+	}
+	if r.GeneralFee == nil {
+		missing = append(missing, "general_fee")
+	}
+	return missing
+}
+
+func (r RateCustomer) HasCompleteCustomerPrices() bool {
+	return len(r.MissingCustomerPriceFields()) == 0
+}
+
 // RateNode 对应 rate_node 表
 // 节点业务费率（EDC）
 type RateNode struct {

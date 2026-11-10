@@ -14,6 +14,7 @@ const router = createRouter({
       component: DefaultLayout,
       children: [
         { path: '', name: 'home', component: HomeView, meta: { title: '首页', order: 0, icon: 'House' } },
+        { path: 'todos', name: 'todos', component: () => import('../views/TodosView.vue'), meta: { title: '业务待办', order: 5, icon: 'Bell' } },
         { path: 'traffic', name: 'traffic', component: () => import('../views/TrafficView.vue'), meta: { title: '流速监控', permissions: ['traffic.read'], order: 10, icon: 'TrendCharts' } },
         { path: 'traffic-volume', name: 'traffic-volume', component: () => import('../views/DailyTrafficVolumeView.vue'), meta: { title: '流量监控', permissions: ['traffic.read'], order: 11, icon: 'Histogram' } },
         { path: 'traffic-comparison', name: 'traffic-comparison', component: () => import('../views/EDCNFAComparisonView.vue'), meta: { title: 'EDC/NFA 对比', permissions: ['traffic.read'], order: 1, icon: 'DataAnalysis', group: 'traffic-analysis' } },

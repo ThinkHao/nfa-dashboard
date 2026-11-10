@@ -23,10 +23,15 @@ type ratesSyncService struct {
 	rulesRepo  repository.SyncRulesRepository
 	ratesRepo  repository.RatesRepository
 	schoolRepo repository.SchoolRepository
+	todoSyncer CustomerRateTodoSyncer
 }
 
-func NewRatesSyncService(rulesRepo repository.SyncRulesRepository, ratesRepo repository.RatesRepository, schoolRepo repository.SchoolRepository) RatesSyncService {
-	return &ratesSyncService{rulesRepo: rulesRepo, ratesRepo: ratesRepo, schoolRepo: schoolRepo}
+func NewRatesSyncService(rulesRepo repository.SyncRulesRepository, ratesRepo repository.RatesRepository, schoolRepo repository.SchoolRepository, todoSyncer ...CustomerRateTodoSyncer) RatesSyncService {
+	service := &ratesSyncService{rulesRepo: rulesRepo, ratesRepo: ratesRepo, schoolRepo: schoolRepo}
+	if len(todoSyncer) > 0 {
+		service.todoSyncer = todoSyncer[0]
+	}
+	return service
 }
 
 func (s *ratesSyncService) ExecuteSync() (int64, error) {
@@ -141,6 +146,11 @@ func (s *ratesSyncService) ExecuteSync() (int64, error) {
 							existingKeys[key] = struct{}{}
 							if inserted {
 								totalAffected++
+							}
+							if s.todoSyncer != nil {
+								if err := s.todoSyncer.SyncCustomerRate(rc.Region, rc.CP, sch.SchoolName); err != nil {
+									return totalAffected, err
+								}
 							}
 						}
 					}

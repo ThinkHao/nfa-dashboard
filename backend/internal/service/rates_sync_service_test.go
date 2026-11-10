@@ -125,6 +125,32 @@ func TestExecuteSync_InsertsMissingRatesWithoutUpdatingExistingRates(t *testing.
 	}
 }
 
+func TestExecuteSync_CreatesTodoForNewRateRow(t *testing.T) {
+	syncer := &customerRateTodoSyncerStub{}
+	svc := NewRatesSyncService(
+		&ratesSyncRulesRepoStub{rules: []model.RateCustomerSyncRule{{
+			ID: 3, Name: "template", Enabled: true, OverwriteStrategy: "always",
+			Actions: []byte(`{"type":"template","values":{"customer_fee":0.88}}`),
+		}}},
+		&ratesSyncRatesRepoStub{existing: map[string]model.RateCustomer{}},
+		&ratesSyncSchoolRepoStub{schools: []model.School{{Region: "north", CP: "ct", SchoolName: "new-school"}}},
+		syncer,
+	)
+	if _, err := svc.ExecuteSync(); err != nil {
+		t.Fatalf("ExecuteSync returned error: %v", err)
+	}
+	if len(syncer.keys) != 1 || syncer.keys[0] != "north|ct|new-school" {
+		t.Fatalf("expected todo sync for inserted school, got %#v", syncer.keys)
+	}
+}
+
+type customerRateTodoSyncerStub struct{ keys []string }
+
+func (s *customerRateTodoSyncerStub) SyncCustomerRate(region, cp, schoolName string) error {
+	s.keys = append(s.keys, region+"|"+cp+"|"+schoolName)
+	return nil
+}
+
 type ratesSyncRulesRepoStub struct {
 	rules []model.RateCustomerSyncRule
 }

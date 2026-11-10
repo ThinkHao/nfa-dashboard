@@ -60,6 +60,8 @@ declare module 'vue' {
     ElTabPane: typeof import('element-plus/es')['ElTabPane']
     ElTabs: typeof import('element-plus/es')['ElTabs']
     ElTag: typeof import('element-plus/es')['ElTag']
+    ElTimeline: typeof import('element-plus/es')['ElTimeline']
+    ElTimelineItem: typeof import('element-plus/es')['ElTimelineItem']
     ElTimePicker: typeof import('element-plus/es')['ElTimePicker']
     ElTooltip: typeof import('element-plus/es')['ElTooltip']
     FilterPanel: typeof import('./src/components/ui/FilterPanel.vue')['default']
@@ -83,6 +85,7 @@ declare module 'vue' {
     SettlementTasksTab: typeof import('./src/components/settlement/SettlementTasksTab.vue')['default']
     TagsView: typeof import('./src/components/TagsView/index.vue')['default']
     TheWelcome: typeof import('./src/components/TheWelcome.vue')['default']
+    TodosBell: typeof import('./src/components/TodosBell.vue')['default']
     UnifiedDateRange: typeof import('./src/components/ui/UnifiedDateRange.vue')['default']
     WelcomeItem: typeof import('./src/components/WelcomeItem.vue')['default']
   }

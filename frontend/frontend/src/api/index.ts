@@ -48,6 +48,9 @@ import type {
   TrafficScopeRuleGroup,
   TrafficScopeUserLite,
   SystemTrafficSettings,
+  CustomerRateTodoSettings,
+  CustomerRateTodo,
+  CustomerRateTodoEvent,
   SettlementRuleScopeOptions,
   TrafficReportTask,
   TrafficReportRun,
@@ -73,6 +76,20 @@ export default {
     changePassword(data: ChangePasswordRequest): Promise<void> {
       return api.post('/api/v1/auth/change-password', data).then(() => undefined)
     }
+  },
+  todos: {
+    list(params?: { status?: 'pending' | 'completed'; ignored?: boolean }): Promise<{ items: CustomerRateTodo[] }> {
+      return api.get('/api/v1/todos', { params }).then((d: any) => d as { items: CustomerRateTodo[] })
+    },
+    count(): Promise<{ count: number }> {
+      return api.get('/api/v1/todos/count').then((d: any) => d as { count: number })
+    },
+    setIgnored(id: number, ignored: boolean): Promise<void> {
+      return api.put(`/api/v1/todos/${id}/ignored`, { ignored }).then(() => undefined)
+    },
+    events(id: number): Promise<{ items: CustomerRateTodoEvent[] }> {
+      return api.get(`/api/v1/todos/${id}/events`).then((d: any) => d as { items: CustomerRateTodoEvent[] })
+    },
   },
   // 获取学校列表
   getSchools(params?: any, config?: AxiosRequestConfig) {
@@ -293,6 +310,12 @@ export default {
       },
       updateTraffic(data: SystemTrafficSettings): Promise<SystemTrafficSettings> {
         return api.put('/api/v1/system/settings/traffic', data).then((d: any) => d as SystemTrafficSettings)
+      },
+      getCustomerRateTodos(): Promise<CustomerRateTodoSettings> {
+        return api.get('/api/v1/system/settings/customer-rate-todos').then((d: any) => d as CustomerRateTodoSettings)
+      },
+      updateCustomerRateTodos(data: CustomerRateTodoSettings): Promise<CustomerRateTodoSettings> {
+        return api.put('/api/v1/system/settings/customer-rate-todos', data).then((d: any) => d as CustomerRateTodoSettings)
       },
     },
     roles: {
