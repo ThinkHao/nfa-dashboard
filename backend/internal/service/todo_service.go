@@ -19,6 +19,7 @@ type TodoUserAccess interface {
 type TodoService interface {
 	GetSettings() (*model.TodoSettingsResponse, error)
 	UpdateSettings(ids []uint64) (*model.TodoSettingsResponse, error)
+	ReconcileCustomerRateTodos() error
 	ListMyTodos(userID uint64, status string, ignored *bool) ([]model.TodoListItem, error)
 	CountMyPendingTodos(userID uint64) (int64, error)
 	SetIgnored(todoID, userID uint64, ignored bool) error
@@ -80,6 +81,10 @@ func (s *todoService) UpdateSettings(ids []uint64) (*model.TodoSettingsResponse,
 		return nil, err
 	}
 	return &model.TodoSettingsResponse{CustomerRateUserIDs: ids}, nil
+}
+
+func (s *todoService) ReconcileCustomerRateTodos() error {
+	return s.repo.ReconcileCustomerRateTodos()
 }
 
 func (s *todoService) ListMyTodos(userID uint64, status string, ignored *bool) ([]model.TodoListItem, error) {

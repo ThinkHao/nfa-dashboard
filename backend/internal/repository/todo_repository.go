@@ -3,6 +3,8 @@ package repository
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"sort"
 	"time"
 
 	"gorm.io/datatypes"
@@ -14,6 +16,7 @@ import (
 type TodoRepository interface {
 	GetCustomerRateUserIDs() ([]uint64, error)
 	SetCustomerRateUserIDs(ids []uint64) error
+	ReconcileCustomerRateTodos() error
 	ListMyCustomerRateTodos(userID uint64, status string, ignored *bool) ([]model.TodoListItem, error)
 	CountMyPendingCustomerRateTodos(userID uint64) (int64, error)
 	SetCustomerRateTodoIgnored(todoID, userID uint64, ignored bool) error
@@ -26,8 +29,12 @@ type todoRepository struct{}
 func NewTodoRepository() TodoRepository { return &todoRepository{} }
 
 func (r *todoRepository) GetCustomerRateUserIDs() ([]uint64, error) {
+	return getCustomerRateUserIDs(model.DB)
+}
+
+func getCustomerRateUserIDs(db *gorm.DB) ([]uint64, error) {
 	var settings model.SystemTodoSettings
-	err := model.DB.Order("id ASC").First(&settings).Error
+	err := db.Order("id ASC").First(&settings).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return []uint64{}, nil
 	}
@@ -45,6 +52,7 @@ func (r *todoRepository) GetCustomerRateUserIDs() ([]uint64, error) {
 }
 
 func (r *todoRepository) SetCustomerRateUserIDs(ids []uint64) error {
+	ids = normalizeCustomerRateUserIDs(ids)
 	data, err := json.Marshal(ids)
 	if err != nil {
 		return err
@@ -62,27 +70,148 @@ func (r *todoRepository) SetCustomerRateUserIDs(ids []uint64) error {
 		} else if err := tx.Model(&model.SystemTodoSettings{}).Where("id = ?", settings.ID).Update("customer_rate_user_ids", datatypes.JSON(data)).Error; err != nil {
 			return err
 		}
-		return assignUnassignedTodos(tx, ids)
+		return reconcileCustomerRateTodos(tx, ids)
 	})
 }
 
-func assignUnassignedTodos(tx *gorm.DB, userIDs []uint64) error {
-	if len(userIDs) == 0 {
-		return nil
+func (r *todoRepository) ReconcileCustomerRateTodos() error {
+	return model.DB.Transaction(func(tx *gorm.DB) error {
+		userIDs, err := getCustomerRateUserIDs(tx)
+		if err != nil {
+			return err
+		}
+		return reconcileCustomerRateTodos(tx, userIDs)
+	})
+}
+
+func normalizeCustomerRateUserIDs(ids []uint64) []uint64 {
+	seen := make(map[uint64]struct{}, len(ids))
+	result := make([]uint64, 0, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, id)
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i] < result[j] })
+	return result
+}
+
+func reconcileCustomerRateTodos(tx *gorm.DB, userIDs []uint64) error {
+	userIDs = normalizeCustomerRateUserIDs(userIDs)
+	var rates []model.RateCustomer
+	if err := tx.Where("fee_mode = ? AND (customer_fee IS NULL OR network_line_fee IS NULL OR general_fee IS NULL)", "auto").Order("id ASC").Find(&rates).Error; err != nil {
+		return err
+	}
+	for _, rate := range rates {
+		if err := ensurePendingCustomerRateTodo(tx, rate); err != nil {
+			return err
+		}
+	}
+
 	var todoIDs []uint64
 	if err := tx.Model(&model.Todo{}).
 		Where("todo_type = ? AND status = ?", model.TodoTypeCustomerRatePrices, model.TodoStatusPending).
-		Where("NOT EXISTS (?)", tx.Model(&model.TodoAssignee{}).Select("1").Where("nfa_todo_assignees.todo_id = nfa_todos.id")).
-		Pluck("id", &todoIDs).Error; err != nil {
+		Order("id ASC").Pluck("id", &todoIDs).Error; err != nil {
 		return err
 	}
 	for _, todoID := range todoIDs {
-		if err := insertTodoAssignees(tx, todoID, userIDs); err != nil {
+		if err := reconcileTodoAssignees(tx, todoID, userIDs); err != nil {
 			return err
 		}
-		if err := insertTodoEvent(tx, todoID, nil, "assigned", nil, nil, "接收人来自当前系统设置"); err != nil {
+	}
+	return nil
+}
+
+func ensurePendingCustomerRateTodo(tx *gorm.DB, rate model.RateCustomer) error {
+	var todo model.Todo
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("todo_type = ? AND target_id = ?", model.TodoTypeCustomerRatePrices, rate.ID).
+		First(&todo).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		todo = model.Todo{TodoType: model.TodoTypeCustomerRatePrices, TargetID: rate.ID, Status: model.TodoStatusPending}
+		result := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "todo_type"}, {Name: "target_id"}}, DoNothing: true}).Create(&todo)
+		if result.Error != nil {
+			return result.Error
+		}
+		created := result.RowsAffected > 0
+		if err := tx.Where("todo_type = ? AND target_id = ?", model.TodoTypeCustomerRatePrices, rate.ID).First(&todo).Error; err != nil {
 			return err
+		}
+		if created {
+			if err := insertTodoEvent(tx, todo.ID, nil, "created", nil, &todo.Status, "历史自动导入院校费率存在未填写单价字段"); err != nil {
+				return err
+			}
+		}
+	} else if err != nil {
+		return err
+	}
+	if todo.Status == model.TodoStatusCompleted {
+		if err := tx.Model(&todo).Updates(map[string]any{"status": model.TodoStatusPending, "completed_at": nil}).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&model.TodoAssignee{}).Where("todo_id = ?", todo.ID).Updates(map[string]any{"ignored": false, "ignored_at": nil}).Error; err != nil {
+			return err
+		}
+		return insertTodoEvent(tx, todo.ID, nil, "reopened", &todo.Status, ptrString(model.TodoStatusPending), "必填单价字段再次为空")
+	}
+	return nil
+}
+
+func reconcileTodoAssignees(tx *gorm.DB, todoID uint64, userIDs []uint64) error {
+	var current []model.TodoAssignee
+	if err := tx.Where("todo_id = ?", todoID).Find(&current).Error; err != nil {
+		return err
+	}
+	currentIDs := make(map[uint64]struct{}, len(current))
+	for _, assignment := range current {
+		currentIDs[assignment.UserID] = struct{}{}
+	}
+	desiredIDs := make(map[uint64]struct{}, len(userIDs))
+	for _, userID := range userIDs {
+		if userID != 0 {
+			desiredIDs[userID] = struct{}{}
+		}
+	}
+
+	removed := make([]uint64, 0)
+	for userID := range currentIDs {
+		if _, keep := desiredIDs[userID]; !keep {
+			removed = append(removed, userID)
+		}
+	}
+	sort.Slice(removed, func(i, j int) bool { return removed[i] < removed[j] })
+	if len(removed) > 0 {
+		if err := tx.Where("todo_id = ? AND user_id IN ?", todoID, removed).Delete(&model.TodoAssignee{}).Error; err != nil {
+			return err
+		}
+		for _, userID := range removed {
+			if err := insertTodoEvent(tx, todoID, nil, "unassigned", nil, nil, fmt.Sprintf("系统提醒设置移除接收人 user_id=%d", userID)); err != nil {
+				return err
+			}
+		}
+	}
+
+	added := make([]uint64, 0)
+	for userID := range desiredIDs {
+		if _, exists := currentIDs[userID]; !exists {
+			added = append(added, userID)
+		}
+	}
+	sort.Slice(added, func(i, j int) bool { return added[i] < added[j] })
+	for _, userID := range added {
+		created, err := insertTodoAssignee(tx, todoID, userID)
+		if err != nil {
+			return err
+		}
+		if created {
+			if err := insertTodoEvent(tx, todoID, nil, "assigned", nil, nil, fmt.Sprintf("系统提醒设置新增接收人 user_id=%d", userID)); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -226,7 +355,7 @@ func (r *todoRepository) SyncCustomerRateTodo(region, cp, schoolName string) err
 					return err
 				}
 			}
-			return insertTodoAssignees(tx, todo.ID, recipients)
+			return reconcileTodoAssignees(tx, todo.ID, recipients)
 		}
 		if err != nil {
 			return err
@@ -246,27 +375,21 @@ func (r *todoRepository) SyncCustomerRateTodo(region, cp, schoolName string) err
 			if err := tx.Model(&model.TodoAssignee{}).Where("todo_id = ?", todo.ID).Updates(map[string]any{"ignored": false, "ignored_at": nil}).Error; err != nil {
 				return err
 			}
-			return insertTodoEvent(tx, todo.ID, nil, "reopened", &todo.Status, ptrString(model.TodoStatusPending), "必填单价字段再次为空")
+			if err := insertTodoEvent(tx, todo.ID, nil, "reopened", &todo.Status, ptrString(model.TodoStatusPending), "必填单价字段再次为空"); err != nil {
+				return err
+			}
+		}
+		if todo.Status == model.TodoStatusPending || !rate.HasCompleteCustomerPrices() {
+			return reconcileTodoAssignees(tx, todo.ID, recipients)
 		}
 		return nil
 	})
 }
 
-func insertTodoAssignees(tx *gorm.DB, todoID uint64, userIDs []uint64) error {
-	if len(userIDs) == 0 {
-		return nil
-	}
-	assignments := make([]model.TodoAssignee, 0, len(userIDs))
-	for _, userID := range userIDs {
-		if userID == 0 {
-			continue
-		}
-		assignments = append(assignments, model.TodoAssignee{TodoID: todoID, UserID: userID})
-	}
-	if len(assignments) == 0 {
-		return nil
-	}
-	return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "todo_id"}, {Name: "user_id"}}, DoNothing: true}).Create(&assignments).Error
+func insertTodoAssignee(tx *gorm.DB, todoID, userID uint64) (bool, error) {
+	assignment := model.TodoAssignee{TodoID: todoID, UserID: userID}
+	result := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "todo_id"}, {Name: "user_id"}}, DoNothing: true}).Create(&assignment)
+	return result.RowsAffected > 0, result.Error
 }
 
 func insertTodoEvent(tx *gorm.DB, todoID uint64, actorID *uint64, eventType string, oldStatus, newStatus *string, detail string) error {

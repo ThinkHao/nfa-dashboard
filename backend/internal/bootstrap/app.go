@@ -45,6 +45,9 @@ func BuildEngine() *gin.Engine {
 	userRepo := repository.NewUserRepository()
 	todoRepo := repository.NewTodoRepository()
 	todoSvc := service.NewTodoService(todoRepo, userRepo)
+	if err := todoSvc.ReconcileCustomerRateTodos(); err != nil {
+		log.Printf("客户费率待办启动对账失败: %v", err)
+	}
 
 	settlementDataService := service.NewSettlementDataService(settlementDataRepo, userRepo, entitiesRepo, settlementRepo)
 	settlementDataController := controller.NewSettlementDataController(settlementDataService)

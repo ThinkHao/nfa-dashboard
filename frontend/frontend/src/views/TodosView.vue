@@ -104,7 +104,7 @@ async function showEvents(item: CustomerRateTodo) {
 }
 
 function eventLabel(type: string) {
-  return ({ created: '创建待办', assigned: '分配接收人', ignored: '忽略提醒', unignored: '恢复提醒', auto_completed: '自动完成', reopened: '重新打开' } as Record<string, string>)[type] || type
+  return ({ created: '创建待办', assigned: '分配接收人', unassigned: '移除接收人', ignored: '忽略提醒', unignored: '恢复提醒', auto_completed: '自动完成', reopened: '重新打开' } as Record<string, string>)[type] || type
 }
 
 function priceFieldLabel(field: string) {

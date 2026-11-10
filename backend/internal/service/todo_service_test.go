@@ -39,11 +39,30 @@ func TestTodoServiceUpdateSettingsRejectsUsersWithoutRateWritePermission(t *test
 	}
 }
 
-type todoRepositoryStub struct{ savedIDs []uint64 }
+func TestTodoServiceReconcileCustomerRateTodos(t *testing.T) {
+	repo := &todoRepositoryStub{}
+	svc := NewTodoService(repo, nil)
+
+	if err := svc.ReconcileCustomerRateTodos(); err != nil {
+		t.Fatalf("ReconcileCustomerRateTodos returned error: %v", err)
+	}
+	if repo.reconcileCalls != 1 {
+		t.Fatalf("expected one repository reconciliation, got %d", repo.reconcileCalls)
+	}
+}
+
+type todoRepositoryStub struct {
+	savedIDs       []uint64
+	reconcileCalls int
+}
 
 func (s *todoRepositoryStub) GetCustomerRateUserIDs() ([]uint64, error) { return s.savedIDs, nil }
 func (s *todoRepositoryStub) SetCustomerRateUserIDs(ids []uint64) error {
 	s.savedIDs = append([]uint64(nil), ids...)
+	return nil
+}
+func (s *todoRepositoryStub) ReconcileCustomerRateTodos() error {
+	s.reconcileCalls++
 	return nil
 }
 func (s *todoRepositoryStub) ListMyCustomerRateTodos(uint64, string, *bool) ([]model.TodoListItem, error) {
